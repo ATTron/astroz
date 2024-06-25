@@ -11,7 +11,7 @@ NOTE this is new and I'm adding to in my free time so things might take some tim
 - [x] CCSDS Packet Parsing (basic implementation)
 - [ ] VITA49 Packet Parsing
 
-### Astronmical
+### Astronomical
 
 - [x] Astronomical Constants
 - [ ] Astronomical Coordinates
