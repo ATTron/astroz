@@ -13,7 +13,7 @@ NOTE this is new and I'm adding to in my free time so things might take some tim
 
 ### Astronmical
 
-- [ ] Astronomical Constants
+- [x] Astronomical Constants
 - [ ] Astronimcal Coordinates
 - [ ] Astronmical Computation
 
