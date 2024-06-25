@@ -20,7 +20,7 @@ pub const CCSDS = struct {
 
     const Self = @This();
 
-    pub fn new(raw_packets: []const u8, config: ?Config) CCSDS {
+    pub fn new(raw_packets: []const u8, config: ?Config) Self {
         const primary_header = raw_packets[0..6];
         const version = @as(u3, @truncate((primary_header[0] >> 5) & 0x07));
         const packet_type = @as(u1, @truncate((primary_header[0] >> 4) & 0x01));
@@ -54,7 +54,7 @@ pub fn parse_config(config_content: []const u8, allocator: *std.mem.Allocator) !
     };
 }
 
-pub fn read_big_endian_u16(bytes: [2]u8) u16 {
+fn read_big_endian_u16(bytes: [2]u8) u16 {
     return @as(u16, bytes[0]) << 8 | bytes[1];
 }
 
