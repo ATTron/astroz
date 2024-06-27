@@ -9,6 +9,10 @@ pub const Equatorial_Coordinate_System = struct {
     pub fn new(declination: Declination, right_ascension: Right_Ascension) Self {
         return .{ .declination = declination, .right_ascension = right_ascension };
     }
+
+    pub fn precess(self: Self, date: std.time.Instant) void {
+        std.debug.print("HEYO IMPLEMENT ME: {any} : {date}", .{ self, date });
+    }
 };
 
 pub const Declination = struct {
