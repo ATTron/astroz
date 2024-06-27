@@ -31,7 +31,7 @@ pub const Datetime = struct {
 
     pub fn from_instant(instant: std.time.Instant) Self {
         var new_dt = Self{ .instant = instant, .doy = null, .days_in_year = 365, .year = null, .month = null, .day = null, .hours = null, .minutes = null, .seconds = null };
-        return new_dt.timestamp_to_datetime();
+        return new_dt.epoch_to_datetime();
     }
 
     fn calculate_doy(self: *Self) void {
