@@ -22,5 +22,5 @@ jobs:
         version: 0.13.0
 
     - name: Run Zig Test
-      run: zig test src/ccsds.zig
+      run: zig build test --summary all
 
