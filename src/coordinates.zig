@@ -1,4 +1,6 @@
 const std = @import("std");
+const time = @import("time.zig");
+const constants = @import("constants.zig");
 
 pub const Equatorial_Coordinate_System = struct {
     declination: Declination,
@@ -10,8 +12,10 @@ pub const Equatorial_Coordinate_System = struct {
         return .{ .declination = declination, .right_ascension = right_ascension };
     }
 
-    pub fn precess(self: Self, date: std.time.Instant) void {
+    pub fn precess(self: Self, date: time.Datetime) Equatorial_Coordinate_System {
         std.debug.print("HEYO IMPLEMENT ME: {any} : {date}", .{ self, date });
+        const calculated_precess = Precess.precess(date);
+        std.debug.print("Waiting to implement rest of precess: {any}", .{calculated_precess});
     }
 };
 
@@ -22,8 +26,8 @@ pub const Declination = struct {
 
     const Self = @This();
 
-    pub fn new(degree: ?u8, arcminutes: ?u8, arcseconds: ?f32) Self {
-        return .{ .degree = degree orelse 0, .arcminutes = arcminutes orelse 0.0, .arcseconds = arcseconds orelse 0.0 };
+    pub fn new(degrees: ?u8, arcminutes: ?u8, arcseconds: ?f32) Self {
+        return .{ .degrees = degrees orelse 0, .arcminutes = arcminutes orelse 0.0, .arcseconds = arcseconds orelse 0.0 };
     }
 };
 
@@ -38,3 +42,62 @@ pub const Right_Ascension = struct {
         return .{ .hours = hours orelse 0, .minutes = minutes orelse 0, .seconds = seconds orelse 0.0 };
     }
 };
+
+const Precess = struct {
+    datetime: time.Datetime,
+    t: f64,
+    T: f64,
+    M: f64,
+    N: f64,
+
+    const Self = @This();
+
+    pub fn precess(date: time.Datetime) Self {
+        var pre = Precess{ .datetime = date, .t = 0, .T = 0, .M = 0, .N = 0 };
+        pre.t = pre.calculate_t();
+        pre.T = pre.calculate_T();
+        pre.M = pre.calculate_M();
+        pre.N = pre.calculate_N();
+
+        return pre;
+    }
+
+    fn calculate_doy_percentage(self: *Self) f64 {
+        return @as(f64, @floatFromInt(self.datetime.doy.?)) / @as(f64, @floatFromInt(self.datetime.days_in_year));
+    }
+
+    fn calculate_t(self: *Self) f64 {
+        return @as(f64, @floatFromInt(self.datetime.year.?)) + self.calculate_doy_percentage();
+    }
+
+    fn calculate_T(self: *Self) f64 {
+        return (self.calculate_t() - constants.j2k) / 100.0;
+    }
+
+    fn calculate_M(self: *Self) f64 {
+        return 1.2812323 * self.T + 0.0003879 * std.math.pow(f64, self.T, 2.0) + 0.0000101 * std.math.pow(f64, self.T, 3.0);
+    }
+
+    fn calculate_N(self: *Self) f64 {
+        return 0.5567530 * self.T - 0.0001185 * std.math.pow(f64, self.T, 2.0) - 0.0000116 * std.math.pow(f64, self.T, 3.0);
+    }
+};
+
+test "Equatorial Coordinates" {
+    const test_ra = Right_Ascension.new(19, 50, 47.0);
+    const test_dec = Declination.new(8, 52, 6.0);
+    const test_coord = Equatorial_Coordinate_System.new(test_dec, test_ra);
+
+    try std.testing.expectEqual(test_coord.right_ascension, test_ra);
+    try std.testing.expectEqual(test_coord.declination, test_dec);
+}
+
+test "Precess" {
+    const test_dt = time.Datetime.new_date(2005, 6, 30);
+    const test_pre = Precess.precess(test_dt);
+
+    try std.testing.expectEqual(2005.495890410959, test_pre.t);
+    try std.testing.expectEqual(0.05495890410958964, test_pre.T);
+    try std.testing.expectEqual(0.07041629643906712, test_pre.M);
+    try std.testing.expectEqual(0.030598174887084096, test_pre.N);
+}
