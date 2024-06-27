@@ -32,6 +32,12 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
+    _ = b.addModule("astroz.coordinates", .{
+        .root_source_file = b.path("src/coordinates.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+
     const lib_unit_tests = b.addTest(.{
         .root_source_file = b.path("src/ccsds.zig"),
         .target = target,
