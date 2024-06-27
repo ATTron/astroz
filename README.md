@@ -14,7 +14,7 @@ NOTE this is new and I'm adding to in my free time so things might take some tim
 ### Astronomical
 
 - [x] Astronomical Constants
-- [ ] Astronomical Coordinates
+- [x] Astronomical Coordinates
 - [ ] Astronomical Computation
 
 ## Usage
