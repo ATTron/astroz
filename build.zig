@@ -44,6 +44,12 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
+    _ = b.addModule("astroz.calculations", .{
+        .root_source_file = b.path("src/calculations.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+
     const coord_unit_tests = b.addTest(.{
         .root_source_file = b.path("src/coordinates.zig"),
     });
