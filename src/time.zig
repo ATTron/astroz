@@ -97,6 +97,22 @@ pub const Datetime = struct {
     fn isLeapYear(year: u16) bool {
         return (year % 4 == 0 and year % 100 != 0) or (year % 400 == 0);
     }
+
+    pub fn convert_to_j2000(self: Self) f32 {
+        const step_1 = 367.0 * @as(f32, @floatFromInt(self.year.?));
+        const step_2 = @as(f32, @floatFromInt(self.year.?)) + @floor((@as(f32, @floatFromInt(self.month.?)) + 9.0) / 12.0);
+        const step_3 = @as(f32, @floatFromInt(self.month.?)) * step_2;
+        const step_4 = @floor(step_3 / 4.0);
+        const step_5 = 275.0 * @as(f32, @floatFromInt(self.month.?));
+        const step_6 = @floor(step_5 / 9.0);
+        const step_7 = step_1 - step_4 + step_6 + @as(f32, @floatFromInt(self.day.?)) + 1721013.5;
+
+        return step_7;
+    }
+
+    pub fn convert_to_modified_jd(self: Self) f32 {
+        return self.convert_to_j2000() - 2400000.5;
+    }
 };
 
 test "Test Date" {
@@ -134,9 +150,7 @@ test "Test Datetime" {
 }
 
 test "Test Datetime Functions" {
-    const ts = 800077635;
-
-    const dt = Datetime.epoch_to_datetime(ts);
+    const dt = Datetime.epoch_to_datetime(800077635);
 
     try std.testing.expectEqual(1995, dt.year);
     try std.testing.expectEqual(5, dt.month);
@@ -144,4 +158,11 @@ test "Test Datetime Functions" {
     try std.testing.expectEqual(3, dt.hours);
     try std.testing.expectEqual(47, dt.minutes);
     try std.testing.expectEqual(15, dt.seconds);
+}
+
+test "Test J2000" {
+    const j2000 = Datetime.new_date(2005, 7, 30);
+
+    try std.testing.expectEqual(2453581.5, j2000.convert_to_j2000());
+    try std.testing.expectEqual(53581.0, j2000.convert_to_modified_jd());
 }
