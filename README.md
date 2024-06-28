@@ -15,7 +15,8 @@ NOTE this is new and I'm adding to in my free time so things might take some tim
 
 - [x] Astronomical Constants
 - [x] Astronomical Coordinates
-- [ ] Astronomical Computation
+- [x] Astronomical Computation
+- [ ] Orbital Mechanics
 
 ## Usage
 

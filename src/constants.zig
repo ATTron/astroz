@@ -10,3 +10,5 @@ pub const mos = 1.49597871e+11;
 pub const h = 6.62607015e-34;
 // astronmical unit
 pub const au = 1.49597871e+11;
+// Year 2000
+pub const j2k = 2000.0;
