@@ -18,8 +18,6 @@ pub const Equatorial_Coordinate_System = struct {
         const precess_constants = Precess.precess(date);
         const deltas = self.calculate_ra_dec(precess_constants);
 
-        std.debug.print("{d}\n{d}", .{ deltas.ra, deltas.dec });
-
         const total_seconds = self.right_ascension.seconds + deltas.ra;
         const new_seconds = @mod(total_seconds, 60.0);
         const total_minutes = self.right_ascension.minutes + @as(u16, @intFromFloat(total_seconds)) / 60;
