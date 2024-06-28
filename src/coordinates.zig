@@ -12,10 +12,12 @@ pub const Equatorial_Coordinate_System = struct {
         return .{ .declination = declination, .right_ascension = right_ascension };
     }
 
-    pub fn precess(self: Self, date: time.Datetime) Equatorial_Coordinate_System {
-        std.debug.print("HEYO IMPLEMENT ME: {any} : {date}", .{ self, date });
-        const calculated_precess = Precess.precess(date);
-        std.debug.print("Waiting to implement rest of precess: {any}", .{calculated_precess});
+    pub fn precess(self: Self, date: time.Datetime) void {
+        const precess_constants = Precess.precess(date);
+        const delta_ra = precess_constants.M + (precess_constants.N * std.math.sin(self.right_ascension.convert_to_angular()) * std.math.tan(self.declination.convert_to_angular()));
+        const delta_dec = precess_constants.N * std.math.cos(self.right_ascension.convert_to_angular());
+
+        std.debug.print("\ndelta ra: {d}\ndelta dec: {d}\n", .{ delta_ra, delta_dec });
     }
 };
 
@@ -29,6 +31,13 @@ pub const Declination = struct {
     pub fn new(degrees: ?u8, arcminutes: ?u8, arcseconds: ?f32) Self {
         return .{ .degrees = degrees orelse 0, .arcminutes = arcminutes orelse 0.0, .arcseconds = arcseconds orelse 0.0 };
     }
+
+    pub fn convert_to_angular(self: Self) f32 {
+        const degrees = @as(f32, @floatFromInt(self.degrees));
+        const arcminutes = @as(f32, @floatFromInt(self.arcminutes)) / 60;
+        const arcseconds = self.arcseconds / 3600;
+        return degrees + arcminutes + arcseconds;
+    }
 };
 
 pub const Right_Ascension = struct {
@@ -40,6 +49,13 @@ pub const Right_Ascension = struct {
 
     pub fn new(hours: ?u8, minutes: ?u8, seconds: ?f32) Self {
         return .{ .hours = hours orelse 0, .minutes = minutes orelse 0, .seconds = seconds orelse 0.0 };
+    }
+
+    pub fn convert_to_angular(self: Self) f32 {
+        const hours = @as(f32, @floatFromInt(self.hours));
+        const minutes = @as(f32, @floatFromInt(self.minutes)) / 60.0;
+        const seconds = self.seconds / 3600.0;
+        return (hours + minutes + seconds) * 15;
     }
 };
 
@@ -87,9 +103,14 @@ test "Equatorial Coordinates" {
     const test_ra = Right_Ascension.new(19, 50, 47.0);
     const test_dec = Declination.new(8, 52, 6.0);
     const test_coord = Equatorial_Coordinate_System.new(test_dec, test_ra);
+    const angular_ra = test_ra.convert_to_angular();
+    const angular_dec = test_dec.convert_to_angular();
+    test_coord.precess(time.Datetime.new_date(2005, 6, 30));
 
     try std.testing.expectEqual(test_coord.right_ascension, test_ra);
     try std.testing.expectEqual(test_coord.declination, test_dec);
+    try std.testing.expectEqual(297.69586, angular_ra);
+    try std.testing.expectEqual(8.868334, angular_dec);
 }
 
 test "Precess" {
