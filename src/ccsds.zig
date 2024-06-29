@@ -5,15 +5,11 @@ pub const Config = struct {
     secondary_header_length: u8,
 };
 
+pub const Header_Metadata = packed struct { version: u3, packet_type: u1, secondary_header_flag: bool, apid: u11, sequence_flag: u2, packet_sequence_count: u14, packet_data_length: u16 };
+
 /// CCSDS Data Structure
 pub const CCSDS = struct {
-    version: u3,
-    packet_type: u1,
-    secondary_header_flag: bool,
-    apid: u11,
-    sequence_flag: u2,
-    packet_sequence_count: u14,
-    packet_data_length: u16,
+    header_metadata: Header_Metadata,
     primary_header: []const u8,
     secondary_header: ?[]const u8,
     packets: []const u8,
@@ -40,8 +36,9 @@ pub const CCSDS = struct {
             break :blk raw_packets[6..10];
         } else null;
         const packets = raw_packets[start..];
+        const header_metadata = Header_Metadata{ .version = version, .packet_type = packet_type, .secondary_header_flag = secondary_header_flag, .apid = apid, .sequence_flag = sequence_flag, .packet_sequence_count = packet_sequence_count, .packet_data_length = packet_data_length + 1 };
 
-        return .{ .version = version, .packet_type = packet_type, .secondary_header_flag = secondary_header_flag, .apid = apid, .sequence_flag = sequence_flag, .packet_sequence_count = packet_sequence_count, .packet_data_length = packet_data_length + 1, .primary_header = primary_header, .secondary_header = secondary_header, .packets = packets };
+        return .{ .header_metadata = header_metadata, .primary_header = primary_header, .secondary_header = secondary_header, .packets = packets };
     }
 };
 
@@ -70,12 +67,12 @@ test "CCSDS Structure Testing w/ config" {
 
     const packets = .{ 7, 8, 9, 10 };
 
-    try std.testing.expectEqual(3, converted_test_packet.version);
-    try std.testing.expectEqual(1, converted_test_packet.packet_type); // telemetry packet type
-    try std.testing.expectEqual(true, converted_test_packet.secondary_header_flag);
-    try std.testing.expectEqual(3, converted_test_packet.sequence_flag);
-    try std.testing.expectEqual(0, converted_test_packet.packet_sequence_count);
-    try std.testing.expectEqual(11, converted_test_packet.packet_data_length);
+    try std.testing.expectEqual(3, converted_test_packet.header_metadata.version);
+    try std.testing.expectEqual(1, converted_test_packet.header_metadata.packet_type); // telemetry packet type
+    try std.testing.expectEqual(true, converted_test_packet.header_metadata.secondary_header_flag);
+    try std.testing.expectEqual(3, converted_test_packet.header_metadata.sequence_flag);
+    try std.testing.expectEqual(0, converted_test_packet.header_metadata.packet_sequence_count);
+    try std.testing.expectEqual(11, converted_test_packet.header_metadata.packet_data_length);
     try std.testing.expectEqualSlices(u8, &packets, converted_test_packet.packets);
 }
 
@@ -85,11 +82,11 @@ test "CCSDS Structure Testing w/o config" {
 
     const packets = .{ 5, 6, 7, 8, 9, 10 };
 
-    try std.testing.expectEqual(3, converted_test_packet.version);
-    try std.testing.expectEqual(1, converted_test_packet.packet_type); // telemetry packet type
-    try std.testing.expectEqual(true, converted_test_packet.secondary_header_flag);
-    try std.testing.expectEqual(3, converted_test_packet.sequence_flag);
-    try std.testing.expectEqual(0, converted_test_packet.packet_sequence_count);
-    try std.testing.expectEqual(11, converted_test_packet.packet_data_length);
+    try std.testing.expectEqual(3, converted_test_packet.header_metadata.version);
+    try std.testing.expectEqual(1, converted_test_packet.header_metadata.packet_type); // telemetry packet type
+    try std.testing.expectEqual(true, converted_test_packet.header_metadata.secondary_header_flag);
+    try std.testing.expectEqual(3, converted_test_packet.header_metadata.sequence_flag);
+    try std.testing.expectEqual(0, converted_test_packet.header_metadata.packet_sequence_count);
+    try std.testing.expectEqual(11, converted_test_packet.header_metadata.packet_data_length);
     try std.testing.expectEqualSlices(u8, &packets, converted_test_packet.packets);
 }
