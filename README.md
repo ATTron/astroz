@@ -21,14 +21,17 @@ Astronomical and Spacecraft Toolkit Written in Zig for Zig!
 **Please use the master branch of the zig repository as that is what I'm developing against**
 
 The easiest way I've found to get started with dependencies in zig is the following.  
-- in your `main.zig` import the dependency.
+- in your `main.zig` import the dependency.  
+
 ```zig
 const astroz = @import("astroz");
 
 ...
 ```
+
 - run `zig fetch --save git+https://github.com/ATTron/astroz/#HEAD`  
 - inside `build.zig`  
+
 ```zig
 ...
 const package = b.dependency("astroz", .{
@@ -44,7 +47,6 @@ b.installArtifact(exe);
 
 ...
 ```
-
 
 ## Usage
 
