@@ -104,6 +104,7 @@ const Config = ccsds.Config;
 
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    defer _ = gpa.deinit();
     const allocator = gpa.allocator();
 
     const config_file = try std.fs.cwd().readFileAlloc(allocator, "config.json", 512);
