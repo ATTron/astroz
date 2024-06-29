@@ -91,7 +91,7 @@ pub fn main() !void {
 
 ```json
 {
-  "secondar_header_length": 12
+  "secondary_header_length": 12
 }
 ```
 
