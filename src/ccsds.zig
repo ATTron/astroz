@@ -63,10 +63,9 @@ test "CCSDS Structure Testing w/ config" {
         \\{"secondary_header_length": 12}
     ;
     const raw_test_packet: [16]u8 = .{ 0x78, 0x97, 0xC0, 0x00, 0x00, 0x0A, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A };
-
     var test_allocator = std.testing.allocator;
-    const config = try parse_config(test_config, &test_allocator);
 
+    const config = try parse_config(test_config, &test_allocator);
     const converted_test_packet = CCSDS.new(&raw_test_packet, config);
 
     const packets = .{ 7, 8, 9, 10 };
