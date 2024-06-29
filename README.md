@@ -26,14 +26,12 @@ The easiest way I've found to get started with dependencies in zig is the follow
 ```zig
 const astroz = @import("astroz");
 
-...
 ```
 
 - run `zig fetch --save git+https://github.com/ATTron/astroz/#HEAD`  
 - inside `build.zig`  
 
 ```zig
-...
 const package = b.dependency("astroz", .{
     .target = target,
     .optimize = optimize,
@@ -45,7 +43,6 @@ exe.root_module.addImport("astroz", module);
 
 b.installArtifact(exe);
 
-...
 ```
 
 ## Usage
