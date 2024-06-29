@@ -8,19 +8,38 @@ Astronomical and Spacecraft Toolkit Written in Zig for Zig!
 
 - [x] CCSDS Packets
 - [ ] VITA49 Packets
+- [ ] Orbital Maneuvers
+  - [ ] Impulse Maneuvers
+  - [ ] Phase Maneuvers
+  - [ ] Plane Change Maneuvers
 
 ### Astronomical
 
-- [x] Astronomical Constants
+- [x] Astronomical References
+  - [x] J2000 and JD
+  - [x] Celestial Bodies
+    - [x] Mass
+    - [x] Radius
+    - [x] Orbital Details
 - [x] Astronomical Coordinates
+  - [x] Equatorial Coordinate System
 - [x] Astronomical Computation
+  - [x] Precession
+- [x] Celestial Bodies
 - [ ] Orbital Mechanics
+  - [ ] Interplanetary Maneuvers
+
+### Feature not listed ?
+
+To request a feature, please create an issue for this project and I will try my
+best to be responsive.  
 
 ## Install
 
 **Please use the master branch of the zig repository as that is what I'm developing against**
 
 The easiest way I've found to get started with dependencies in zig is the following.  
+
 - in your `main.zig` import the dependency.  
 
 ```zig
