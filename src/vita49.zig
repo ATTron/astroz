@@ -26,11 +26,17 @@ pub const TSI = enum(u2) {
     other = 3,
 };
 
+pub const Class_ID = packed struct {
+    reserved: u8,
+    oui: u24,
+    info_class_code: u16,
+    packet_class_code: u16,
+};
+
 pub const Header = packed struct {
     packet_type: Packet_Type,
     class_id: bool,
     trailer: bool,
-    metadata: bool,
     tsi: TSI,
     tsf: TSF,
     packet_count: u4,
@@ -47,26 +53,25 @@ pub const Header = packed struct {
         std.debug.print("\nshowing entire stream: {x}\n", .{little_endian_stream});
         std.debug.print("\nshowing tsi area probably: {x}\n", .{little_endian_stream >> 22});
 
-        return .{ .packet_type = @enumFromInt(packet_as_uint), .class_id = ((little_endian_stream >> 27) & 1) == 1, .trailer = ((little_endian_stream >> 24) & 1) == 1, .metadata = ((little_endian_stream >> 26) & 1) == 1, .tsi = @enumFromInt(tsi), .tsf = @enumFromInt(tsf), .packet_count = @as(u4, @truncate((little_endian_stream >> 14) & 0xF)), .packet_size = @as(u16, @truncate(little_endian_stream & 0xFFFF)) };
+        return .{ .packet_type = @enumFromInt(packet_as_uint), .class_id = ((little_endian_stream >> 27) & 1) == 1, .trailer = ((little_endian_stream >> 24) & 1) == 1, .tsi = @enumFromInt(tsi), .tsf = @enumFromInt(tsf), .packet_count = @as(u4, @truncate((little_endian_stream >> 14) & 0xF)), .packet_size = @as(u16, @truncate(little_endian_stream & 0xFFFF)) };
     }
 
     pub fn output(self: Self) void {
         std.debug.print("Vita49 Packet Header:\n", .{});
-        std.debug.print("packet type: {}\n", .{self.packet_type});
-        std.debug.print("class ID: {}\n", .{self.class_id});
+        std.debug.print("Packet type: {}\n", .{self.packet_type});
+        std.debug.print("Class ID: {}\n", .{self.class_id});
         std.debug.print("Trailer Present: {}\n", .{self.trailer});
-        std.debug.print("Metadata Present: {}\n", .{self.metadata});
-        std.debug.print("tsi: {}\n", .{self.tsi});
-        std.debug.print("tsf: {}\n", .{self.tsf});
-        std.debug.print("packet_count: {}\n", .{self.packet_count});
-        std.debug.print("packet_size: {}\n", .{self.packet_size});
+        std.debug.print("TSI: {}\n", .{self.tsi});
+        std.debug.print("TSF: {}\n", .{self.tsf});
+        std.debug.print("Packet_Count: {}\n", .{self.packet_count});
+        std.debug.print("Packet_Size: {}\n", .{self.packet_size});
     }
 };
 
 pub const Vita49 = struct {
     header: Header,
     stream_id: ?u32,
-    class_id: ?u64,
+    class_id: ?Class_ID,
     i_timestamp: ?u32,
     f_timestampt: ?u64,
     payload: []const u8,
