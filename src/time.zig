@@ -51,7 +51,7 @@ pub const Datetime = struct {
         self.doy = doy;
     }
 
-    fn epoch_to_datetime(timestamp: i64) Self {
+    fn epoch_to_datetime(comptime timestamp: i64) Self {
         const days_per_year = 365;
 
         var remaining_seconds: i64 = timestamp;
