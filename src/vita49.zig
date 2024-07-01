@@ -31,6 +31,19 @@ pub const Class_ID = packed struct {
     oui: u24,
     info_class_code: u16,
     packet_class_code: u16,
+
+    const Self = @This();
+
+    pub fn new(stream: [8]u8) Self {
+        const bytes_1 = stream[0..3];
+        const bytes_2 = stream[4..];
+        return .{
+            .reserved = @as(u8, @truncate((bytes_1 >> 24) & 0xF)),
+            .oui = @as(u24, @truncate((bytes_1 >> 0xFFFFFF))),
+            .info_class_code = @as(u16, @truncate((bytes_2 >> 16) & 0xFFFF)),
+            .packet_class_code = @as(u16, @truncate(bytes_2 & 0xFFFF)),
+        };
+    }
 };
 
 pub const Trailer = packed struct {
@@ -95,11 +108,13 @@ pub const Vita49 = struct {
     const Self = @This();
 
     pub fn new(stream: []const u8) !Self {
-        const header = try Header.new(stream[0..4]);
+        const little_endian_stream = std.mem.readInt(u32, &stream, .little);
+
+        const header = try Header.new(little_endian_stream[0..4]);
         var stream_id: ?32 = undefined;
         switch (header.packet_type) {
-            Packet_Type.ctx_packet, Packet_Type.ext_ctx_packet, Packet_Type.signal_w_stream_id, Packet_Type.ext_data_w_steam_id => {
-                stream_id = stream[32..63];
+            Packet_Type.signal_w_stream_id, Packet_Type.ext_data_w_steam_id => {
+                stream_id = @as(u32, @truncate((little_endian_stream >> 32) & 0xF));
             },
             Packet_Type.signal_wo_stream_id, Packet_Type.signal_wo_stream_id, Packet_Type.ext_data_wo_steam_id => {},
             _ => {
