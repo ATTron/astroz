@@ -65,21 +65,21 @@ pub const Header = packed struct {
         const tsi = @as(u2, @truncate((little_endian_stream >> 22) & 0x3));
         const tsf = @as(u2, @truncate((little_endian_stream >> 24) & 0x3));
 
-        std.debug.print("\nshowing entire stream: {x}\n", .{little_endian_stream});
-        std.debug.print("\nshowing tsi area probably: {x}\n", .{little_endian_stream >> 22});
+        debug.print("\nshowing entire stream: {x}\n", .{little_endian_stream});
+        debug.print("\nshowing tsi area probably: {x}\n", .{little_endian_stream >> 22});
 
         return .{ .packet_type = @enumFromInt(packet_as_uint), .class_id = ((little_endian_stream >> 27) & 1) == 1, .trailer = ((little_endian_stream >> 24) & 1) == 1, .tsi = @enumFromInt(tsi), .tsf = @enumFromInt(tsf), .packet_count = @as(u4, @truncate((little_endian_stream >> 14) & 0xF)), .packet_size = @as(u16, @truncate(little_endian_stream & 0xFFFF)) };
     }
 
     pub fn output(self: Self) void {
-        std.debug.print("Vita49 Packet Header:\n", .{});
-        std.debug.print("Packet type: {}\n", .{self.packet_type});
-        std.debug.print("Class ID: {}\n", .{self.class_id});
-        std.debug.print("Trailer Present: {}\n", .{self.trailer});
-        std.debug.print("TSI: {}\n", .{self.tsi});
-        std.debug.print("TSF: {}\n", .{self.tsf});
-        std.debug.print("Packet_Count: {}\n", .{self.packet_count});
-        std.debug.print("Packet_Size: {}\n", .{self.packet_size});
+        debug.print("Vita49 Packet Header:\n", .{});
+        debug.print("Packet type: {}\n", .{self.packet_type});
+        debug.print("Class ID: {}\n", .{self.class_id});
+        debug.print("Trailer Present: {}\n", .{self.trailer});
+        debug.print("TSI: {}\n", .{self.tsi});
+        debug.print("TSF: {}\n", .{self.tsf});
+        debug.print("Packet_Count: {}\n", .{self.packet_count});
+        debug.print("Packet_Size: {}\n", .{self.packet_size});
     }
 };
 
@@ -94,8 +94,8 @@ pub const Vita49 = struct {
 
     const Self = @This();
 
-    pub fn new(stream: []const u8) Self {
-        const header = Header.new(stream[0..31]);
+    pub fn new(stream: []const u8) !Self {
+        const header = try Header.new(stream[0..4]);
         var stream_id: ?32 = undefined;
         switch (header.packet_type) {
             Packet_Type.ctx_packet, Packet_Type.ext_ctx_packet, Packet_Type.signal_w_stream_id, Packet_Type.ext_data_w_steam_id => {
@@ -103,7 +103,7 @@ pub const Vita49 = struct {
             },
             Packet_Type.signal_wo_stream_id, Packet_Type.signal_wo_stream_id, Packet_Type.ext_data_wo_steam_id => {},
             _ => {
-                std.debug.print("Not currently implemented", .{});
+                debug.print("Not currently implemented", .{});
             },
         }
     }
@@ -116,8 +116,48 @@ pub const Vita49 = struct {
 pub const Vita49_Parser = struct { stream: []const u8, packets: []const Vita49 };
 
 test "Test Vita49 Header" {
-    const test_packet = [_]u8{ 0x1C, 0x00, 0xC0, 0x18 };
+    const test_header = [_]u8{ 0x18, 0xC3, 0x00, 0x00 };
 
-    const header = try Header.new(test_packet);
+    const header = try Header.new(test_header);
     header.output();
 }
+
+// TODO: Fix this
+// test "Test Vita49 Packet" {
+//     const test_packet = [_]u8{
+//         // Packet header
+//         0x18, 0xC3, 0x00, 0x00, // Packet type and header size
+//         0x00, 0x00, 0x00, 0x01, // Stream ID
+//
+//         // Class ID
+//         0x00, 0x00, 0x00, 0x00, // Reserved
+//         0xAB, 0xCD, 0xEF, // OUI (example: AB:CD:EF)
+//         0x12, 0x34, // Information Class Code
+//         0x56, 0x78, // Packet Class Code
+//
+//         // Timestamp - Integer-seconds timestamp
+//         0x00, 0x00,
+//         0x00, 0x00,
+//         // Timestamp - Fractional-seconds timestamp
+//         0x00, 0x00,
+//         0x00, 0x00,
+//
+//         // Payload data (example: 16 bytes)
+//         0x11, 0x22,
+//         0x33, 0x44,
+//         0x55, 0x66,
+//         0x77, 0x88,
+//         0x99, 0xAA,
+//         0xBB, 0xCC,
+//         0xDD, 0xEE,
+//         0xFF,
+//         0x00,
+//
+//         // Trailer
+//         0x00, 0x00, 0x00, 0x00, // CRC-32C
+//     };
+//
+//     const vita49_packet = Vita49.new(&test_packet);
+//
+//     debug.print("\nvita49 packet: {any}\n", .{vita49_packet});
+// }
