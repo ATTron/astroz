@@ -33,6 +33,21 @@ pub const Class_ID = packed struct {
     packet_class_code: u16,
 };
 
+pub const Trailer = packed struct {
+    calibrated_time: bool,
+    valid_data: bool,
+    reference_lock: bool,
+    agc_mgc: bool,
+    detected_signal: bool,
+    spectral_inversion: bool,
+    over_range: bool,
+    sample_loss: bool,
+    user_defined_0: bool,
+    user_defined_1: bool,
+    user_defined_2: bool,
+    user_defined_3: bool,
+};
+
 pub const Header = packed struct {
     packet_type: Packet_Type,
     class_id: bool,
@@ -75,7 +90,7 @@ pub const Vita49 = struct {
     i_timestamp: ?u32,
     f_timestampt: ?u64,
     payload: []const u8,
-    trailer: ?u32,
+    trailer: ?Trailer,
 
     const Self = @This();
 
@@ -86,13 +101,15 @@ pub const Vita49 = struct {
             Packet_Type.ctx_packet, Packet_Type.ext_ctx_packet, Packet_Type.signal_w_stream_id, Packet_Type.ext_data_w_steam_id => {
                 stream_id = stream[32..63];
             },
-            Packet_Type.signal_wo_stream_id, Packet_Type.signal_wo_stream_id, Packet_Type.ext_data_wo_steam_id => {
-                stream_id = null;
-            },
+            Packet_Type.signal_wo_stream_id, Packet_Type.signal_wo_stream_id, Packet_Type.ext_data_wo_steam_id => {},
             _ => {
                 std.debug.print("Not currently implemented", .{});
             },
         }
+    }
+
+    pub fn read_trailer(self: Self) void {
+        switch (self.trailer.?) {}
     }
 };
 
