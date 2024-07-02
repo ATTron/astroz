@@ -10,7 +10,10 @@ pub const Equatorial_Coordinate_System = struct {
     const Self = @This();
 
     pub fn new(declination: Declination, right_ascension: Right_Ascension) Self {
-        return .{ .declination = declination, .right_ascension = right_ascension };
+        return .{
+            .declination = declination,
+            .right_ascension = right_ascension,
+        };
     }
 
     // this can 100% be done better
@@ -24,7 +27,11 @@ pub const Equatorial_Coordinate_System = struct {
         const new_minutes = @mod(total_minutes, 60);
         const new_hours = self.right_ascension.hours + total_minutes / 60;
 
-        const precessed_right_ascension = Right_Ascension.new(new_hours, new_minutes, new_seconds);
+        const precessed_right_ascension = Right_Ascension.new(
+            new_hours,
+            new_minutes,
+            new_seconds,
+        );
 
         const total_arcseconds = self.declination.arcseconds + deltas.dec;
         const new_arcseconds = @mod(total_arcseconds, 60.0);
@@ -32,9 +39,16 @@ pub const Equatorial_Coordinate_System = struct {
         const new_arcminutes = @mod(total_arcminutes, 60);
         const new_degrees = self.declination.degrees + total_arcminutes / 60;
 
-        const precessed_declination = Declination.new(new_degrees, new_arcminutes, new_arcseconds);
+        const precessed_declination = Declination.new(
+            new_degrees,
+            new_arcminutes,
+            new_arcseconds,
+        );
 
-        return .{ .declination = precessed_declination, .right_ascension = precessed_right_ascension };
+        return .{
+            .declination = precessed_declination,
+            .right_ascension = precessed_right_ascension,
+        };
     }
 
     fn calculate_ra_dec(self: Self, precess_constants: Precess) struct { ra: f64, dec: f64 } {
@@ -60,7 +74,11 @@ pub const Declination = struct {
     const Self = @This();
 
     pub fn new(degrees: ?u16, arcminutes: ?u16, arcseconds: ?f64) Self {
-        return .{ .degrees = degrees orelse 0, .arcminutes = arcminutes orelse 0.0, .arcseconds = arcseconds orelse 0.0 };
+        return .{
+            .degrees = degrees orelse 0,
+            .arcminutes = arcminutes orelse 0.0,
+            .arcseconds = arcseconds orelse 0.0,
+        };
     }
 
     pub fn convert_to_angular(self: Self) f64 {
@@ -79,7 +97,11 @@ pub const Right_Ascension = struct {
     const Self = @This();
 
     pub fn new(hours: ?u16, minutes: ?u16, seconds: ?f64) Self {
-        return .{ .hours = hours orelse 0, .minutes = minutes orelse 0, .seconds = seconds orelse 0.0 };
+        return .{
+            .hours = hours orelse 0,
+            .minutes = minutes orelse 0,
+            .seconds = seconds orelse 0.0,
+        };
     }
 
     pub fn convert_to_angular(self: Self) f64 {
@@ -100,7 +122,13 @@ const Precess = struct {
     const Self = @This();
 
     pub fn precess(date: time.Datetime) Self {
-        var pre = Precess{ .datetime = date, .t = 0, .T = 0, .M = 0, .N = 0 };
+        var pre = Precess{
+            .datetime = date,
+            .t = 0,
+            .T = 0,
+            .M = 0,
+            .N = 0,
+        };
         pre.t = pre.calculate_t();
         pre.T = pre.calculate_T();
         pre.M = pre.calculate_M();
@@ -133,11 +161,17 @@ const Precess = struct {
 test "Equatorial Coordinates" {
     const test_ra = Right_Ascension.new(19, 50, 47.0);
     const test_dec = Declination.new(8, 52, 6.0);
-    const test_coord = Equatorial_Coordinate_System.new(test_dec, test_ra);
+    const test_coord = Equatorial_Coordinate_System.new(
+        test_dec,
+        test_ra,
+    );
     const angular_ra = test_ra.convert_to_angular();
     const angular_dec = test_dec.convert_to_angular();
     const precessed_output = test_coord.precess(time.Datetime.new_date(2005, 7, 30));
-    const expected_precessed = Equatorial_Coordinate_System.new(Declination.new(8, 52, 57.962516014965246), Right_Ascension.new(19, 51, 3.122949149012854));
+    const expected_precessed = Equatorial_Coordinate_System.new(
+        Declination.new(8, 52, 57.962516014965246),
+        Right_Ascension.new(19, 51, 3.122949149012854),
+    );
 
     try std.testing.expectEqual(test_coord.right_ascension, test_ra);
     try std.testing.expectEqual(test_coord.declination, test_dec);
