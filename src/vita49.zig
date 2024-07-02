@@ -1,11 +1,13 @@
 const std = @import("std");
 const debug = std.debug;
 
+pub const Vita49Error = error{ MalformedPayloadRange, InsufficentData };
+
 pub const Packet_Type = enum(u4) {
     signal_wo_stream_id = 0,
     signal_w_stream_id = 1,
-    ext_data_wo_steam_id = 2,
-    ext_data_w_steam_id = 3,
+    ext_data_wo_stream_id = 2,
+    ext_data_w_stream_id = 3,
     ctx_packet = 4,
     ext_ctx_packet = 5,
     cmd_packet = 6,
@@ -27,37 +29,18 @@ pub const TSI = enum(u2) {
 };
 
 pub const Trailer = packed struct {
-    calibrated_time: bool,
-    valid_data: bool,
-    reference_lock: bool,
-    agc_mgc: bool,
-    detected_signal: bool,
-    spectral_inversion: bool,
-    over_range: bool,
-    sample_loss: bool,
-    user_defined_0: bool,
-    user_defined_1: bool,
-    user_defined_2: bool,
-    user_defined_3: bool,
+    enables: u12,
+    state: u12,
+    e: bool,
+    ctx: u7,
 
     const Self = @This();
 
     pub fn new(trailer: []const u8) Self {
-        debug.print("\ntrailer being created: {any}\n", .{trailer});
-        return .{
-            .calibrated_time = false,
-            .valid_data = false,
-            .reference_lock = false,
-            .agc_mgc = false,
-            .detected_signal = false,
-            .spectral_inversion = false,
-            .over_range = false,
-            .sample_loss = false,
-            .user_defined_0 = false,
-            .user_defined_1 = false,
-            .user_defined_2 = false,
-            .user_defined_3 = false,
-        };
+        // debug.print("\ntrailer being created: {any}\n", .{trailer});
+        var tmp_array: [4]u8 = undefined;
+        @memcpy(&tmp_array, trailer);
+        return @bitCast(tmp_array);
     }
 };
 
@@ -78,7 +61,15 @@ pub const Header = packed struct {
         const tsi = @as(u2, @truncate((little_endian_stream >> 10) & 0x3));
         const tsf = @as(u2, @truncate((little_endian_stream >> 8) & 0x3));
 
-        return .{ .packet_type = @enumFromInt(packet_as_uint), .class_id = ((little_endian_stream >> 5) & 1) == 1, .trailer = ((little_endian_stream >> 6) & 1) == 1, .tsi = @enumFromInt(tsi), .tsf = @enumFromInt(tsf), .packet_count = @as(u4, @truncate((little_endian_stream >> 16) & 0xF)), .packet_size = @truncate((little_endian_stream >> 16) & 0xFFFF) };
+        return .{
+            .packet_type = @enumFromInt(packet_as_uint),
+            .class_id = ((little_endian_stream >> 5) & 1) == 1,
+            .trailer = ((little_endian_stream >> 6) & 1) == 1,
+            .tsi = @enumFromInt(tsi),
+            .tsf = @enumFromInt(tsf),
+            .packet_count = @as(u4, @truncate((little_endian_stream >> 16) & 0xF)),
+            .packet_size = @truncate((little_endian_stream >> 16) & 0xFFFF),
+        };
     }
 
     pub fn output(self: Self) void {
@@ -124,31 +115,54 @@ pub const Vita49 = struct {
 
     pub fn new(stream: []const u8) !Self {
         if (stream.len < 4) {
-            return error.InsufficientData;
+            return Vita49Error.InsufficentData;
         }
         const header = try Header.new(stream[0..4].*);
-        const packet = stream[4 .. (header.packet_size * 4) - 1];
         var stream_id: ?u32 = undefined;
         var class_id: ?Class_ID = undefined;
         var payload: []const u8 = undefined;
         var trailer: ?Trailer = undefined;
+
         switch (header.packet_type) {
-            Packet_Type.signal_w_stream_id, Packet_Type.ext_data_w_steam_id => {
-                stream_id = std.mem.readInt(u32, packet[0..4], .little);
-                class_id = Class_ID.new(packet[4..12].*);
-                if (header.trailer) {
-                    trailer = Trailer.new(packet[packet.len - 4 ..]);
-                    payload = stream[24 .. 22 + header.packet_size];
+            Packet_Type.signal_w_stream_id,
+            Packet_Type.ext_data_w_stream_id,
+            Packet_Type.ext_cmd_packet,
+            Packet_Type.cmd_packet,
+            Packet_Type.ctx_packet,
+            Packet_Type.ext_ctx_packet,
+            => {
+                stream_id = std.mem.readInt(u32, stream[4..8], .little);
+                const payload_range = try get_payload_range(header, true);
+                // debug.print("\nclass id found?: {any}\n", .{header});
+                // debug.print("\nstream: {any}\n", .{stream});
+                if (header.class_id) {
+                    class_id = Class_ID.new(stream[8..16].*);
                 } else {
-                    payload = stream[24..];
+                    class_id = null;
+                }
+                if (header.trailer) {
+                    trailer = Trailer.new(stream[payload_range.end..]);
+                    payload = stream[payload_range.start..payload_range.end];
+                } else {
+                    payload = stream[payload_range.start..];
                 }
             },
-            Packet_Type.signal_wo_stream_id, Packet_Type.ext_data_wo_steam_id => {
-                class_id = Class_ID.new(packet[0..8].*);
-                debug.print("Not currently implemented", .{});
-            },
-            else => {
-                debug.print("Not currently implemented", .{});
+            Packet_Type.signal_wo_stream_id,
+            Packet_Type.ext_data_wo_stream_id,
+            => {
+                const payload_range = try get_payload_range(header, false);
+                if (header.class_id) {
+                    class_id = Class_ID.new(stream[4..12].*);
+                } else {
+                    class_id = null;
+                }
+                if (header.trailer) {
+                    trailer = Trailer.new(stream[payload_range.end..]);
+                    payload = stream[payload_range.start..payload_range.end];
+                } else {
+                    trailer = null;
+                    payload = stream[payload_range.start..];
+                }
             },
         }
         return .{
@@ -162,8 +176,28 @@ pub const Vita49 = struct {
         };
     }
 
-    pub fn read_trailer(self: Self) void {
-        switch (self.trailer.?) {}
+    fn get_payload_range(header: Header, has_stream_id: bool) !struct { start: usize, end: usize } {
+        var start: usize = 4;
+        var end: usize = @as(usize, (header.packet_size * 4)) - 1;
+        if (has_stream_id) {
+            start += 4;
+        }
+        if (header.class_id) {
+            start += 8;
+        }
+        if (header.tsi != TSI.none) {
+            start += 4;
+        }
+        if (header.tsf != TSF.none) {
+            start += 8;
+        }
+        if (header.trailer) {
+            end -= 4;
+        }
+        if (start > end) {
+            return Vita49Error.MalformedPayloadRange;
+        }
+        return .{ .start = start, .end = end };
     }
 };
 
@@ -213,46 +247,31 @@ test "Test Vita49 Packet w/o trailer" {
     try std.testing.expectEqualStrings("Hello, VITA 49!", vita49_packet.payload);
 }
 
-// TODO: the next tests to fix
-// test "Test Vita49 Packet w/ trailer" {
-//     const vita49_test_packet = [_]u8{
-//         // Packet header
-//         0x3A, 0x02, 0x0B, 0x00, // Packet type (0x023A) and packet size (11 words)
-//         0x34, 0x12, 0x00, 0x00, // Stream ID (0x1234 in this example)
-//
-//         // Class ID
-//         0x00, // Reserved
-//         0x56, 0x34, 0x12, // OUI (example: 12:34:56)
-//         0x78, 0x9A, // Information Class Code
-//         0xBC, 0xDE, // Packet Class Code
-//
-//         // Timestamp - Integer-seconds timestamp
-//         0x00, 0x00,
-//         0x00, 0x01,
-//         // Timestamp - Fractional-seconds timestamp
-//         0x80, 0x00,
-//         0x00, 0x00,
-//
-//         // Payload data (example: "Hello, VITA 49!")
-//         0x48, 0x65,
-//         0x6C, 0x6C,
-//         0x6F, 0x2C,
-//         0x20, 0x56,
-//         0x49, 0x54,
-//         0x41, 0x20,
-//         0x34, 0x39,
-//         0x21,
-//
-//         // Trailer (4 bytes)
-//         0xAA,
-//         0xBB, 0xCC,
-//         0xDD,
-//     };
-//
-//     const vita49_packet = try Vita49.new(&vita49_test_packet);
-//
-//     debug.print("\nshowing vita49 packet: {any}\n", .{vita49_packet});
-//     try std.testing.expectEqual(4660, vita49_packet.stream_id.?);
-//     try std.testing.expectEqual(1193046, vita49_packet.class_id.?.oui);
-//     try std.testing.expectEqualStrings("Hello, VITA 49!", vita49_packet.payload);
-// }
+test "Test Vita49 Packet w/ trailer" {
+    const vita49_test_packet = [_]u8{
+        // Packet header
+        0x4A, 0x02, 0x09, 0x00, // Packet type (0x027A) and packet size (9 words)
+        0x34, 0x12, 0x00, 0x00, // Stream ID (0x1234 in this example)
+
+        // Timestamp - Integer-seconds timestamp
+        0x00, 0x00, 0x00, 0x01,
+        // Timestamp - Fractional-seconds timestamp
+        0x80, 0x00, 0x00, 0x00,
+
+        // Payload data (example: "Hello, VITA 49!")
+        0x48, 0x65, 0x6C, 0x6C,
+        0x6F, 0x2C, 0x20, 0x56,
+        0x49, 0x54, 0x41, 0x20,
+        0x34, 0x39, 0x21,
+
+        // Trailer (4 bytes)
+        0xAA,
+        0xBB, 0xCC, 0xDD,
+    };
+
+    const vita49_packet = try Vita49.new(&vita49_test_packet);
+
+    try std.testing.expectEqual(4660, vita49_packet.stream_id);
+    try std.testing.expectEqual(null, vita49_packet.class_id);
+    try std.testing.expectEqualStrings("Hello, VITA 49!", vita49_packet.payload);
+}
