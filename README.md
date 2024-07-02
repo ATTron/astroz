@@ -7,7 +7,9 @@ Astronomical and Spacecraft Toolkit Written in Zig for Zig!
 ### Spacecraft
 
 - [x] CCSDS Packets
-- [ ] VITA49 Packets
+  - [ ] CCSDS Stream Parser
+- [x] VITA49 Packets
+  - [ ] Vita49 Stream Parser
 - [ ] Orbital Maneuvers
   - [ ] Impulse Maneuvers
   - [ ] Phase Maneuvers
