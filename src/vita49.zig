@@ -58,15 +58,6 @@ pub const Header = packed struct {
         const tsi = @as(u2, @truncate((little_endian_stream >> 10) & 0x3));
         const tsf = @as(u2, @truncate((little_endian_stream >> 8) & 0x3));
 
-        debug.print("\nshowing entire stream: {x}\n", .{little_endian_stream});
-        debug.print("\nshowing packet_type area probably: {x}\n", .{packet_as_uint});
-        debug.print("\nshowing class_id area probably: {x}\n", .{(little_endian_stream >> 5) & 1});
-        debug.print("\nshowing trailer area probably: {x}\n", .{(little_endian_stream >> 6) & 1});
-        debug.print("\nshowing packet count area probably: {x}\n", .{(little_endian_stream >> 16) & 0xF});
-        debug.print("\nshowing packet size area probably: {x}\n", .{(little_endian_stream >> 16) & 0xFFFF});
-        // debug.print("\nshowing tsi area probably: {x}\n", .{little_endian_stream >> 10});
-        // debug.print("\nshowing packet size area probably: {x}\n{d}\n", .{ little_endian_stream >> 16, little_endian_stream >> 16 });
-
         return .{ .packet_type = @enumFromInt(packet_as_uint), .class_id = ((little_endian_stream >> 5) & 1) == 1, .trailer = ((little_endian_stream >> 6) & 1) == 1, .tsi = @enumFromInt(tsi), .tsf = @enumFromInt(tsf), .packet_count = @as(u4, @truncate((little_endian_stream >> 16) & 0xF)), .packet_size = @truncate((little_endian_stream >> 16) & 0xFFFF) };
     }
 
@@ -94,7 +85,6 @@ pub const Class_ID = packed struct {
         return .{
             .reserved = stream[0],
             .oui = @as(u24, @bitCast(stream[1..4].*)),
-            // .oui = @as(u24, @truncate(@as(u24, @bitCast(stream[1..4].*)))),
             .info_class_code = @bitCast(stream[4..6].*),
             .packet_class_code = @bitCast(stream[6..8].*),
         };
@@ -117,15 +107,13 @@ pub const Vita49 = struct {
             return error.InsufficientData;
         }
         const header = try Header.new(stream[0..4].*);
-        debug.print("\n\nshowing header packet size: {d}", .{header.packet_size});
-        const packet = stream[4 .. (header.packet_size * 4) - 1]; // get the rest of the packet... need to multiply by 4 to get in bytes
+        const packet = stream[4 .. (header.packet_size * 4) - 1];
         var stream_id: ?u32 = undefined;
         var class_id: ?Class_ID = undefined;
         switch (header.packet_type) {
             Packet_Type.signal_w_stream_id, Packet_Type.ext_data_w_steam_id => {
-                stream_id = std.mem.readInt(u32, packet[4..8], .little);
-                class_id = Class_ID.new(packet[8..16].*);
-                debug.print("\nshowing class_id: {any}\n", .{class_id});
+                stream_id = std.mem.readInt(u32, packet[0..4], .little);
+                class_id = Class_ID.new(packet[4..12].*);
             },
             Packet_Type.signal_wo_stream_id, Packet_Type.ext_data_wo_steam_id => {
                 debug.print("Not currently implemented", .{});
@@ -163,12 +151,12 @@ pub const Vita49_Parser = struct { stream: []const u8, packets: []const Vita49 }
 test "Test Vita49 Packet w/ no trailer" {
     const vita49_test_packet = [_]u8{
         // Packet header
-        0x3A, 0x02, 0x0A, 0x00, // Packet type (0x4A02) and packet size (11 words)
-        0x00, 0x00, 0x12, 0x34, // Stream ID (0x1234 in this example)
+        0x3A, 0x02, 0x0A, 0x00, // Packet type (0x023A) and packet size (10 words)
+        0x34, 0x12, 0x00, 0x00, // Stream ID (0x1234 in this example)
 
         // Class ID
         0x00, // Reserved
-        0x12, 0x34, 0x56, // OUI (example: 12:34:56)
+        0x56, 0x34, 0x12, // OUI (example: 12:34:56)
         0x78, 0x9A, // Information Class Code
         0xBC, 0xDE, // Packet Class Code
 
@@ -192,8 +180,8 @@ test "Test Vita49 Packet w/ no trailer" {
 
     const vita49_packet = try Vita49.new(&vita49_test_packet);
 
-    debug.print("\nvita49 packet: {any}\n", .{vita49_packet});
     debug.print("\ndebug output: {s}\n", .{vita49_packet.payload});
     try std.testing.expectEqual(4660, vita49_packet.stream_id.?);
-    try std.testing.expectEqual(15715755, vita49_packet.class_id.?.oui);
+    try std.testing.expectEqual(1193046, vita49_packet.class_id.?.oui);
+    try std.testing.expectEqualStrings("Hello, VITA 49!", vita49_packet.payload);
 }
