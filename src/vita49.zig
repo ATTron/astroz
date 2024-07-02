@@ -180,7 +180,6 @@ test "Test Vita49 Packet w/ no trailer" {
 
     const vita49_packet = try Vita49.new(&vita49_test_packet);
 
-    debug.print("\ndebug output: {s}\n", .{vita49_packet.payload});
     try std.testing.expectEqual(4660, vita49_packet.stream_id.?);
     try std.testing.expectEqual(1193046, vita49_packet.class_id.?.oui);
     try std.testing.expectEqualStrings("Hello, VITA 49!", vita49_packet.payload);
