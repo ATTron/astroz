@@ -39,6 +39,26 @@ pub const Trailer = packed struct {
     user_defined_1: bool,
     user_defined_2: bool,
     user_defined_3: bool,
+
+    const Self = @This();
+
+    pub fn new(trailer: []const u8) Self {
+        debug.print("\ntrailer being created: {any}\n", .{trailer});
+        return .{
+            .calibrated_time = false,
+            .valid_data = false,
+            .reference_lock = false,
+            .agc_mgc = false,
+            .detected_signal = false,
+            .spectral_inversion = false,
+            .over_range = false,
+            .sample_loss = false,
+            .user_defined_0 = false,
+            .user_defined_1 = false,
+            .user_defined_2 = false,
+            .user_defined_3 = false,
+        };
+    }
 };
 
 pub const Header = packed struct {
@@ -110,12 +130,21 @@ pub const Vita49 = struct {
         const packet = stream[4 .. (header.packet_size * 4) - 1];
         var stream_id: ?u32 = undefined;
         var class_id: ?Class_ID = undefined;
+        var payload: []const u8 = undefined;
+        var trailer: ?Trailer = undefined;
         switch (header.packet_type) {
             Packet_Type.signal_w_stream_id, Packet_Type.ext_data_w_steam_id => {
                 stream_id = std.mem.readInt(u32, packet[0..4], .little);
                 class_id = Class_ID.new(packet[4..12].*);
+                if (header.trailer) {
+                    trailer = Trailer.new(packet[packet.len - 4 ..]);
+                    payload = stream[24 .. 22 + header.packet_size];
+                } else {
+                    payload = stream[24..];
+                }
             },
             Packet_Type.signal_wo_stream_id, Packet_Type.ext_data_wo_steam_id => {
+                class_id = Class_ID.new(packet[0..8].*);
                 debug.print("Not currently implemented", .{});
             },
             else => {
@@ -128,8 +157,8 @@ pub const Vita49 = struct {
             .class_id = class_id,
             .i_timestamp = null,
             .f_timestamp = null,
-            .payload = stream[24..],
-            .trailer = null,
+            .payload = payload,
+            .trailer = trailer,
         };
     }
 
@@ -147,8 +176,7 @@ pub const Vita49_Parser = struct { stream: []const u8, packets: []const Vita49 }
 //     header.output();
 // }
 
-// TODO: Fix this
-test "Test Vita49 Packet w/ no trailer" {
+test "Test Vita49 Packet w/o trailer" {
     const vita49_test_packet = [_]u8{
         // Packet header
         0x3A, 0x02, 0x0A, 0x00, // Packet type (0x023A) and packet size (10 words)
@@ -184,3 +212,47 @@ test "Test Vita49 Packet w/ no trailer" {
     try std.testing.expectEqual(1193046, vita49_packet.class_id.?.oui);
     try std.testing.expectEqualStrings("Hello, VITA 49!", vita49_packet.payload);
 }
+
+// TODO: the next tests to fix
+// test "Test Vita49 Packet w/ trailer" {
+//     const vita49_test_packet = [_]u8{
+//         // Packet header
+//         0x3A, 0x02, 0x0B, 0x00, // Packet type (0x023A) and packet size (11 words)
+//         0x34, 0x12, 0x00, 0x00, // Stream ID (0x1234 in this example)
+//
+//         // Class ID
+//         0x00, // Reserved
+//         0x56, 0x34, 0x12, // OUI (example: 12:34:56)
+//         0x78, 0x9A, // Information Class Code
+//         0xBC, 0xDE, // Packet Class Code
+//
+//         // Timestamp - Integer-seconds timestamp
+//         0x00, 0x00,
+//         0x00, 0x01,
+//         // Timestamp - Fractional-seconds timestamp
+//         0x80, 0x00,
+//         0x00, 0x00,
+//
+//         // Payload data (example: "Hello, VITA 49!")
+//         0x48, 0x65,
+//         0x6C, 0x6C,
+//         0x6F, 0x2C,
+//         0x20, 0x56,
+//         0x49, 0x54,
+//         0x41, 0x20,
+//         0x34, 0x39,
+//         0x21,
+//
+//         // Trailer (4 bytes)
+//         0xAA,
+//         0xBB, 0xCC,
+//         0xDD,
+//     };
+//
+//     const vita49_packet = try Vita49.new(&vita49_test_packet);
+//
+//     debug.print("\nshowing vita49 packet: {any}\n", .{vita49_packet});
+//     try std.testing.expectEqual(4660, vita49_packet.stream_id.?);
+//     try std.testing.expectEqual(1193046, vita49_packet.class_id.?.oui);
+//     try std.testing.expectEqualStrings("Hello, VITA 49!", vita49_packet.payload);
+// }
