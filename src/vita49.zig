@@ -37,7 +37,6 @@ pub const Trailer = packed struct {
     const Self = @This();
 
     pub fn new(trailer: []const u8) Self {
-        // debug.print("\ntrailer being created: {any}\n", .{trailer});
         var tmp_array: [4]u8 = undefined;
         @memcpy(&tmp_array, trailer);
         return @bitCast(tmp_array);
@@ -122,6 +121,11 @@ pub const Vita49 = struct {
         var class_id: ?Class_ID = undefined;
         var payload: []const u8 = undefined;
         var trailer: ?Trailer = undefined;
+        var i_start: usize = 4;
+        var f_start: usize = 4;
+        var i_timestamp: ?u32 = undefined;
+        var f_timestamp: ?u64 = undefined;
+        var payload_range = try get_payload_range(header, true);
 
         switch (header.packet_type) {
             Packet_Type.signal_w_stream_id,
@@ -132,45 +136,49 @@ pub const Vita49 = struct {
             Packet_Type.ext_ctx_packet,
             => {
                 stream_id = std.mem.readInt(u32, stream[4..8], .little);
-                const payload_range = try get_payload_range(header, true);
-                // debug.print("\nclass id found?: {any}\n", .{header});
-                // debug.print("\nstream: {any}\n", .{stream});
-                if (header.class_id) {
-                    class_id = Class_ID.new(stream[8..16].*);
-                } else {
-                    class_id = null;
-                }
-                if (header.trailer) {
-                    trailer = Trailer.new(stream[payload_range.end..]);
-                    payload = stream[payload_range.start..payload_range.end];
-                } else {
-                    payload = stream[payload_range.start..];
-                }
+                i_start += 4;
+                f_start += 4;
             },
             Packet_Type.signal_wo_stream_id,
             Packet_Type.ext_data_wo_stream_id,
             => {
-                const payload_range = try get_payload_range(header, false);
-                if (header.class_id) {
-                    class_id = Class_ID.new(stream[4..12].*);
-                } else {
-                    class_id = null;
-                }
-                if (header.trailer) {
-                    trailer = Trailer.new(stream[payload_range.end..]);
-                    payload = stream[payload_range.start..payload_range.end];
-                } else {
-                    trailer = null;
-                    payload = stream[payload_range.start..];
-                }
+                payload_range = try get_payload_range(header, false);
             },
+        }
+        if (header.class_id) {
+            class_id = Class_ID.new(stream[8..16].*);
+            i_start += 8;
+            f_start += 8;
+        } else {
+            class_id = null;
+        }
+        if (header.trailer) {
+            trailer = Trailer.new(stream[payload_range.end..]);
+            payload = stream[payload_range.start..payload_range.end];
+        } else {
+            payload = stream[payload_range.start..];
+        }
+        if (header.tsi != TSI.none) {
+            var tmp_array: [4]u8 = undefined;
+            @memcpy(&tmp_array, stream[i_start .. i_start + 4]);
+            i_timestamp = std.mem.readInt(u32, &tmp_array, .little);
+            f_start += 4;
+        } else {
+            i_timestamp = null;
+        }
+        if (header.tsf != TSF.none) {
+            var tmp_array: [8]u8 = undefined;
+            @memcpy(&tmp_array, stream[f_start .. f_start + 8]);
+            f_timestamp = std.mem.readInt(u64, &tmp_array, .little);
+        } else {
+            f_timestamp = null;
         }
         return .{
             .header = header,
             .stream_id = stream_id,
             .class_id = class_id,
-            .i_timestamp = null,
-            .f_timestamp = null,
+            .i_timestamp = i_timestamp,
+            .f_timestamp = f_timestamp,
             .payload = payload,
             .trailer = trailer,
         };
@@ -203,17 +211,10 @@ pub const Vita49 = struct {
 
 pub const Vita49_Parser = struct { stream: []const u8, packets: []const Vita49 };
 
-// test "Test Vita49 Header" {
-//     const test_header = [_]u8{ 0x18, 0xC3, 0x00, 0x00 };
-//
-//     const header = try Header.new(test_header);
-//     header.output();
-// }
-
 test "Test Vita49 Packet w/o trailer" {
     const vita49_test_packet = [_]u8{
         // Packet header
-        0x3A, 0x02, 0x0A, 0x00, // Packet type (0x023A) and packet size (10 words)
+        0x3A, 0x02, 0x0A, 0x00, // Packet type (0x023A), packet size (10 words), tsi (0), and tsf(2 realtime)
         0x34, 0x12, 0x00, 0x00, // Stream ID (0x1234 in this example)
 
         // Class ID
@@ -222,11 +223,10 @@ test "Test Vita49 Packet w/o trailer" {
         0x78, 0x9A, // Information Class Code
         0xBC, 0xDE, // Packet Class Code
 
-        // Timestamp - Integer-seconds timestamp
-        0x00, 0x00,
-        0x00, 0x01,
         // Timestamp - Fractional-seconds timestamp
         0x80, 0x00,
+        0x00, 0x00,
+        0x00, 0x00,
         0x00, 0x00,
 
         // Payload data (example: "Hello, VITA 49!")
@@ -242,6 +242,8 @@ test "Test Vita49 Packet w/o trailer" {
 
     const vita49_packet = try Vita49.new(&vita49_test_packet);
 
+    try std.testing.expectEqual(null, vita49_packet.i_timestamp);
+    try std.testing.expectEqual(128, vita49_packet.f_timestamp);
     try std.testing.expectEqual(4660, vita49_packet.stream_id.?);
     try std.testing.expectEqual(1193046, vita49_packet.class_id.?.oui);
     try std.testing.expectEqualStrings("Hello, VITA 49!", vita49_packet.payload);
@@ -250,13 +252,14 @@ test "Test Vita49 Packet w/o trailer" {
 test "Test Vita49 Packet w/ trailer" {
     const vita49_test_packet = [_]u8{
         // Packet header
-        0x4A, 0x02, 0x09, 0x00, // Packet type (0x027A) and packet size (9 words)
+        0x4A, 0x06, 0x0A, 0x00, // Packet type (0x064A) and packet size (9 words)
         0x34, 0x12, 0x00, 0x00, // Stream ID (0x1234 in this example)
 
         // Timestamp - Integer-seconds timestamp
         0x00, 0x00, 0x00, 0x01,
         // Timestamp - Fractional-seconds timestamp
         0x80, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00,
 
         // Payload data (example: "Hello, VITA 49!")
         0x48, 0x65, 0x6C, 0x6C,
@@ -273,5 +276,7 @@ test "Test Vita49 Packet w/ trailer" {
 
     try std.testing.expectEqual(4660, vita49_packet.stream_id);
     try std.testing.expectEqual(null, vita49_packet.class_id);
+    try std.testing.expectEqual(16777216, vita49_packet.i_timestamp);
+    try std.testing.expectEqual(128, vita49_packet.f_timestamp);
     try std.testing.expectEqualStrings("Hello, VITA 49!", vita49_packet.payload);
 }
