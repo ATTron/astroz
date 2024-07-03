@@ -1,5 +1,4 @@
 const std = @import("std");
-const debug = std.debug;
 
 pub const Vita49Error = error{ MalformedPayloadRange, InsufficentData };
 
@@ -72,14 +71,14 @@ pub const Header = packed struct {
     }
 
     pub fn output(self: Self) void {
-        debug.print("Vita49 Packet Header:\n", .{});
-        debug.print("Packet type: {}\n", .{self.packet_type});
-        debug.print("Class ID: {}\n", .{self.class_id});
-        debug.print("Trailer Present: {}\n", .{self.trailer});
-        debug.print("TSI: {}\n", .{self.tsi});
-        debug.print("TSF: {}\n", .{self.tsf});
-        debug.print("Packet_Count: {}\n", .{self.packet_count});
-        debug.print("Packet_Size: {}\n", .{self.packet_size});
+        std.log.info("Vita49 Packet Header:\n", .{});
+        std.log.info("Packet type: {}\n", .{self.packet_type});
+        std.log.info.print("Class ID: {}\n", .{self.class_id});
+        std.log.info("Trailer Present: {}\n", .{self.trailer});
+        std.log.info("TSI: {}\n", .{self.tsi});
+        std.log.info("TSF: {}\n", .{self.tsf});
+        std.log.info("Packet_Count: {}\n", .{self.packet_count});
+        std.log.info("Packet_Size: {}\n", .{self.packet_size});
     }
 };
 
@@ -112,7 +111,10 @@ pub const Vita49 = struct {
 
     const Self = @This();
 
-    pub fn new(stream: []const u8) !Self {
+    pub fn new(stream: []const u8, config: ?[]const u8) !Self {
+        if (config != null) {
+            std.log.debug("Config found for Vita49 but this hasnt been implemeneted yet", .{});
+        }
         if (stream.len < 4) {
             return Vita49Error.InsufficentData;
         }
@@ -156,7 +158,7 @@ pub const Vita49 = struct {
             trailer = Trailer.new(stream[payload_range.end..]);
             payload = stream[payload_range.start..payload_range.end];
         } else {
-            payload = stream[payload_range.start..];
+            payload = stream[payload_range.start..payload_range.end];
         }
         if (header.tsi != TSI.none) {
             var tmp_array: [4]u8 = undefined;
@@ -209,8 +211,6 @@ pub const Vita49 = struct {
     }
 };
 
-pub const Vita49_Parser = struct { stream: []const u8, packets: []const Vita49 };
-
 test "Test Vita49 Packet w/o trailer" {
     const vita49_test_packet = [_]u8{
         // Packet header
@@ -240,7 +240,7 @@ test "Test Vita49 Packet w/o trailer" {
         0x21,
     };
 
-    const vita49_packet = try Vita49.new(&vita49_test_packet);
+    const vita49_packet = try Vita49.new(&vita49_test_packet, null);
 
     try std.testing.expectEqual(null, vita49_packet.i_timestamp);
     try std.testing.expectEqual(128, vita49_packet.f_timestamp);
@@ -272,7 +272,7 @@ test "Test Vita49 Packet w/ trailer" {
         0xBB, 0xCC, 0xDD,
     };
 
-    const vita49_packet = try Vita49.new(&vita49_test_packet);
+    const vita49_packet = try Vita49.new(&vita49_test_packet, null);
 
     try std.testing.expectEqual(4660, vita49_packet.stream_id);
     try std.testing.expectEqual(null, vita49_packet.class_id);
