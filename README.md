@@ -70,9 +70,9 @@ b.installArtifact(exe);
 
 ### Examples
 
-### Setup Vita49 Parser
+#### Setup Vita49 Parser
 
-#### W/ Callback
+##### W/ Callback
 
 ```zig
 const std = @import("std");
@@ -97,7 +97,7 @@ fn callback(packet: Vita49) void {
 }
 ```
 
-#### W/O Callback
+##### W/O Callback
 
 ```zig
 const std = @import("std");
