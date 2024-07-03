@@ -70,7 +70,6 @@ b.installArtifact(exe);
 
 ### Examples
 
-
 ### Setup Vita49 Parser
 
 #### W/ Callback
