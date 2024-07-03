@@ -112,7 +112,10 @@ pub const Vita49 = struct {
 
     const Self = @This();
 
-    pub fn new(stream: []const u8) !Self {
+    pub fn new(stream: []const u8, config: ?[]const u8) !Self {
+        if (config != null) {
+            std.log.debug("Config found for Vita49 but this hasnt been implemeneted yet", .{});
+        }
         if (stream.len < 4) {
             return Vita49Error.InsufficentData;
         }
@@ -238,7 +241,7 @@ test "Test Vita49 Packet w/o trailer" {
         0x21,
     };
 
-    const vita49_packet = try Vita49.new(&vita49_test_packet);
+    const vita49_packet = try Vita49.new(&vita49_test_packet, null);
 
     try std.testing.expectEqual(null, vita49_packet.i_timestamp);
     try std.testing.expectEqual(128, vita49_packet.f_timestamp);
@@ -270,7 +273,7 @@ test "Test Vita49 Packet w/ trailer" {
         0xBB, 0xCC, 0xDD,
     };
 
-    const vita49_packet = try Vita49.new(&vita49_test_packet);
+    const vita49_packet = try Vita49.new(&vita49_test_packet, null);
 
     try std.testing.expectEqual(4660, vita49_packet.stream_id);
     try std.testing.expectEqual(null, vita49_packet.class_id);

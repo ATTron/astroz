@@ -26,7 +26,6 @@ pub fn Parser(comptime Frame: type) type {
         }
 
         pub fn start(self: *Self) !void {
-            std.log.warn("print something out and keep it please", .{});
             const addr = try net.Address.parseIp4(self.ip_address, self.port);
             // const stream_ip = net.Address{ .in = loopback };
 
@@ -38,7 +37,7 @@ pub fn Parser(comptime Frame: type) type {
             var incoming_buffer = std.mem.zeroes([1024]u8);
             while (!self.should_stop) {
                 _ = try stream.read(&incoming_buffer);
-                const new_frame = Frame.new(&incoming_buffer);
+                const new_frame = Frame.new(&incoming_buffer, null);
                 std.log.info("message recieved: {any}", .{new_frame});
             }
         }
@@ -50,7 +49,7 @@ pub fn Parser(comptime Frame: type) type {
 }
 
 /// this is for running the tests ONLY
-fn _run_test_server() !void {
+fn _run_test_server(parse_type: []const u8) !void {
     const loopback = try net.Ip4Address.parse("127.0.0.1", 65432);
     const localhost = net.Address{ .in = loopback };
     var server = try localhost.listen(.{
@@ -65,15 +64,24 @@ fn _run_test_server() !void {
     defer client.stream.close();
 
     std.log.info("Connection received! {}\n", .{client.address});
-    const vita49_pkt = [_]u8{
-        0x3A, 0x02, 0x0A, 0x00, 0x34, 0x12, 0x00, 0x00, 0x00, 0x56, 0x34,
-        0x12, 0x78, 0x9A, 0xBC, 0xDE, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0x48, 0x65, 0x6C, 0x6C, 0x6F, 0x2C, 0x20, 0x56, 0x49,
-        0x54, 0x41, 0x20, 0x34, 0x39, 0x21,
-    };
+
+    var _pkt: []const u8 = undefined;
+    if (std.mem.eql(u8, parse_type, "vita49")) {
+        _pkt = &[_]u8{
+            0x3A, 0x02, 0x0A, 0x00, 0x34, 0x12, 0x00, 0x00, 0x00, 0x56, 0x34,
+            0x12, 0x78, 0x9A, 0xBC, 0xDE, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x48, 0x65, 0x6C, 0x6C, 0x6F, 0x2C, 0x20, 0x56, 0x49,
+            0x54, 0x41, 0x20, 0x34, 0x39, 0x21,
+        };
+    } else {
+        _pkt = &[_]u8{
+            0x78, 0x97, 0xC0, 0x00, 0x00, 0x0A, 0x01, 0x02,
+            0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A,
+        };
+    }
     var counter: usize = 0;
     while (counter < 5) {
-        _ = try client.stream.writeAll(&vita49_pkt);
+        _ = try client.stream.writeAll(_pkt);
         std.time.sleep(2 * std.time.ns_per_s);
         counter += 1;
     }
@@ -86,7 +94,37 @@ test "Vita49 Parser Test" {
     var par_test = parser.new(&ip, port, 1024);
 
     {
-        const t1 = try std.Thread.spawn(.{}, _run_test_server, .{});
+        const t1 = try std.Thread.spawn(.{}, _run_test_server, .{"vita49"});
+        defer t1.join();
+
+        std.time.sleep(2 * std.time.ns_per_s);
+
+        const t2 = try std.Thread.spawn(.{}, struct {
+            fn run(pt: *parser) !void {
+                try pt.start();
+            }
+        }.run, .{&par_test});
+        defer t2.join();
+
+        std.time.sleep(10 * std.time.ns_per_s);
+
+        const t3 = try std.Thread.spawn(.{}, struct {
+            fn run(pt: *parser) void {
+                pt.stop();
+            }
+        }.run, .{&par_test});
+        defer t3.join();
+    }
+}
+
+test "CCSDS Parser Test" {
+    const ip = "127.0.0.1".*;
+    const port: u16 = 65432;
+    const parser = Parser(CCSDS);
+    var par_test = parser.new(&ip, port, 1024);
+
+    {
+        const t1 = try std.Thread.spawn(.{}, _run_test_server, .{"ccsds"});
         defer t1.join();
 
         std.time.sleep(2 * std.time.ns_per_s);
