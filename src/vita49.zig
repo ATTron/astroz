@@ -156,7 +156,7 @@ pub const Vita49 = struct {
             trailer = Trailer.new(stream[payload_range.end..]);
             payload = stream[payload_range.start..payload_range.end];
         } else {
-            payload = stream[payload_range.start..];
+            payload = stream[payload_range.start..payload_range.end];
         }
         if (header.tsi != TSI.none) {
             var tmp_array: [4]u8 = undefined;
@@ -208,8 +208,6 @@ pub const Vita49 = struct {
         return .{ .start = start, .end = end };
     }
 };
-
-pub const Vita49_Parser = struct { stream: []const u8, packets: []const Vita49 };
 
 test "Test Vita49 Packet w/o trailer" {
     const vita49_test_packet = [_]u8{
