@@ -45,7 +45,7 @@ pub fn Parser(comptime Frame: type) type {
             while (!self.should_stop) {
                 _ = try stream.read(&incoming_buffer);
                 const new_frame = try Frame.new(&incoming_buffer, null);
-                std.log.info("message recieved: {any}", .{new_frame});
+                std.log.debug("message recieved: {any}", .{new_frame});
                 _ = try self.packets.append(new_frame);
                 if (callback != null) {
                     callback.?(new_frame);
