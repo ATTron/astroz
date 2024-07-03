@@ -1,6 +1,6 @@
 # ASTROZ  
 
-![Tests](https://github.com/ATTron/astroz/actions/workflows/testing.yml/badge.svg)
+![Testing](https://github.com/ATTron/astroz/actions/workflows/test_zig.yml/badge.svg)
 
 Astronomical and Spacecraft Toolkit Written in Zig for Zig!  
 
