@@ -88,7 +88,6 @@ pub const Datetime = struct {
         const hours = @as(u8, @intCast(@divFloor(remaining_seconds, std.time.s_per_hour)));
         remaining_seconds -= hours * @as(i64, std.time.s_per_hour);
         const minutes = @as(u8, @intCast(@divFloor(remaining_seconds, std.time.s_per_min)));
-        // const seconds = @as(u8, @intCast(remaining_seconds % std.time.s_per_min));
         const seconds = @mod(remaining_seconds, std.time.s_per_min);
 
         return Datetime.new_datetime(year, month, day, hours, minutes, @as(f16, @floatFromInt(seconds)));

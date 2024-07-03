@@ -7,9 +7,9 @@ Astronomical and Spacecraft Toolkit Written in Zig for Zig!
 ### Spacecraft
 
 - [x] CCSDS Packets
-  - [ ] CCSDS Stream Parser
+  - [x] CCSDS Stream Parser
 - [x] VITA49 Packets
-  - [ ] Vita49 Stream Parser
+  - [x] Vita49 Stream Parser
 - [ ] Orbital Maneuvers
   - [ ] Impulse Maneuvers
   - [ ] Phase Maneuvers
@@ -70,7 +70,56 @@ b.installArtifact(exe);
 
 ### Examples
 
-#### Create a CCSDS Parser
+### Setup Vita49 Parser
+
+#### W/ Callback
+
+```zig
+const std = @import("std");
+const astroz = @import("astroz");
+const Vita49 = astroz.vita49.Vita49;
+const Parser = astroz.parsers.Parser;
+
+pub fn main() !void {
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    defer _ = gpa.deinit();
+    const allocator = gpa.allocator();
+
+    const P = Parser(Vita49);
+    const ip = "127.0.0.1".*;
+    const port: u16 = 65432;
+    var parser = P.new(&ip, port, 1024, allocator);
+    _ = try parser.start(callback);
+}
+
+fn callback(packet: Vita49) void {
+    std.debug.print("Packet recieved: {any}", .{packet});
+}
+```
+
+#### W/O Callback
+
+```zig
+const std = @import("std");
+const astroz = @import("astroz");
+const Vita49 = astroz.vita49.Vita49;
+const Parser = astroz.parsers.Parser;
+
+pub fn main() !void {
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    defer _ = gpa.deinit();
+    const allocator = gpa.allocator();
+
+    const P = Parser(Vita49);
+    const ip = "127.0.0.1".*;
+    const port: u16 = 65432;
+    var parser = P.new(&ip, port, 1024, allocator);
+    _ = try parser.start(null);
+}
+
+```
+
+#### Create a CCSDS Packet
 
 ##### W/O Config
 
@@ -121,7 +170,6 @@ pub fn main() !void {
 }
 
 ```
-
 
 #### precess a star to July 30, 2005
 

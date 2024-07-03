@@ -16,7 +16,7 @@ pub const CCSDS = struct {
 
     const Self = @This();
 
-    pub fn new(raw_packets: []const u8, config: ?Config) Self {
+    pub fn new(raw_packets: []const u8, config: ?Config) !Self {
         const primary_header = raw_packets[0..6];
         const version = @as(u3, @truncate((primary_header[0] >> 5) & 0x07));
         const packet_type = @as(u1, @truncate((primary_header[0] >> 4) & 0x01));
@@ -29,7 +29,7 @@ pub const CCSDS = struct {
         var start: u8 = 6;
         const secondary_header: ?[]const u8 = if (secondary_header_flag) blk: {
             if (raw_packets.len < 10) {
-                std.debug.print("packet length is too short to have a secondary header", .{});
+                std.log.warn("packet length is too short to have a secondary header", .{});
                 break :blk null;
             }
             start = if (config != null) config.?.secondary_header_length else 10;
@@ -63,7 +63,7 @@ test "CCSDS Structure Testing w/ config" {
     const test_allocator = std.testing.allocator;
 
     const config = try parse_config(test_config, test_allocator);
-    const converted_test_packet = CCSDS.new(&raw_test_packet, config);
+    const converted_test_packet = try CCSDS.new(&raw_test_packet, config);
 
     const packets = .{ 7, 8, 9, 10 };
 
@@ -78,7 +78,7 @@ test "CCSDS Structure Testing w/ config" {
 
 test "CCSDS Structure Testing w/o config" {
     const raw_test_packet: [16]u8 = .{ 0x78, 0x97, 0xC0, 0x00, 0x00, 0x0A, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A };
-    const converted_test_packet = CCSDS.new(&raw_test_packet, null);
+    const converted_test_packet = try CCSDS.new(&raw_test_packet, null);
 
     const packets = .{ 5, 6, 7, 8, 9, 10 };
 
