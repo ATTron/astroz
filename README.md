@@ -91,6 +91,7 @@ pub fn main() !void {
     const ip = "127.0.0.1".*;
     const port: u16 = 65432;
     var parser = P.new(&ip, port, 1024, allocator);
+    defer parser.deinit();
     _ = try parser.start(callback);
 }
 
@@ -116,6 +117,7 @@ pub fn main() !void {
     const ip = "127.0.0.1".*;
     const port: u16 = 65432;
     var parser = P.new(&ip, port, 1024, allocator);
+    defer parser.deinit();
     _ = try parser.start(null);
 }
 
