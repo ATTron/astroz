@@ -70,7 +70,7 @@ b.installArtifact(exe);
 
 ### Examples
 
-#### Create a CCSDS Parser
+#### Create a CCSDS Packet
 
 ##### W/O Config
 
@@ -121,7 +121,10 @@ pub fn main() !void {
 }
 
 ```
+#### Setup Vita49 Parser
 
+```zig
+```
 
 #### precess a star to July 30, 2005
 
