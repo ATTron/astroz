@@ -10,15 +10,23 @@ pub fn Parser(comptime Frame: type) type {
         buffer_size: u64 = 1024,
         is_running: bool = false,
         should_stop: bool = false,
+        packets: std.ArrayList(Frame),
+        allocator: std.mem.Allocator,
 
         const Self = @This();
 
-        pub fn new(ip_address: []const u8, port: u16, buffer_size: u64) Self {
+        pub fn new(ip_address: []const u8, port: u16, buffer_size: u64, allocator: std.mem.Allocator) Self {
             return .{
                 .ip_address = ip_address,
                 .port = port,
                 .buffer_size = buffer_size,
+                .packets = std.ArrayList(Frame).init(allocator),
+                .allocator = allocator,
             };
+        }
+
+        pub fn deinit(self: *Self) void {
+            self.packets.deinit();
         }
 
         pub fn parse_from_file(self: Self) void {
@@ -37,8 +45,9 @@ pub fn Parser(comptime Frame: type) type {
             var incoming_buffer = std.mem.zeroes([1024]u8);
             while (!self.should_stop) {
                 _ = try stream.read(&incoming_buffer);
-                const new_frame = Frame.new(&incoming_buffer, null);
+                const new_frame = try Frame.new(&incoming_buffer, null);
                 std.log.info("message recieved: {any}", .{new_frame});
+                _ = try self.packets.append(new_frame);
             }
         }
 
@@ -50,9 +59,9 @@ pub fn Parser(comptime Frame: type) type {
 
 /// this is for running the tests ONLY
 fn _run_test_server(parse_type: []const u8) !void {
-    const loopback = try net.Ip4Address.parse("127.0.0.1", 65432);
-    const localhost = net.Address{ .in = loopback };
-    var server = try localhost.listen(.{
+    const ip_addr = try net.Ip4Address.parse("127.0.0.1", 65432);
+    const test_host = net.Address{ .in = ip_addr };
+    var server = try test_host.listen(.{
         .reuse_port = true,
     });
     defer server.deinit();
@@ -91,7 +100,8 @@ test "Vita49 Parser Test" {
     const ip = "127.0.0.1".*;
     const port: u16 = 65432;
     const parser = Parser(Vita49);
-    var par_test = parser.new(&ip, port, 1024);
+    var par_test = parser.new(&ip, port, 1024, std.testing.allocator);
+    defer par_test.deinit();
 
     {
         const t1 = try std.Thread.spawn(.{}, _run_test_server, .{"vita49"});
@@ -115,13 +125,15 @@ test "Vita49 Parser Test" {
         }.run, .{&par_test});
         defer t3.join();
     }
+    try std.testing.expectEqual(8, par_test.packets.capacity);
 }
 
 test "CCSDS Parser Test" {
     const ip = "127.0.0.1".*;
     const port: u16 = 65432;
     const parser = Parser(CCSDS);
-    var par_test = parser.new(&ip, port, 1024);
+    var par_test = parser.new(&ip, port, 1024, std.testing.allocator);
+    defer par_test.deinit();
 
     {
         const t1 = try std.Thread.spawn(.{}, _run_test_server, .{"ccsds"});
@@ -145,4 +157,5 @@ test "CCSDS Parser Test" {
         }.run, .{&par_test});
         defer t3.join();
     }
+    try std.testing.expectEqual(8, par_test.packets.capacity);
 }
