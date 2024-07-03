@@ -29,7 +29,7 @@ pub const CCSDS = struct {
         var start: u8 = 6;
         const secondary_header: ?[]const u8 = if (secondary_header_flag) blk: {
             if (raw_packets.len < 10) {
-                std.debug.print("packet length is too short to have a secondary header", .{});
+                std.log.warn("packet length is too short to have a secondary header", .{});
                 break :blk null;
             }
             start = if (config != null) config.?.secondary_header_length else 10;

@@ -33,9 +33,8 @@ pub fn Parser(comptime Frame: type) type {
             self.is_running;
         }
 
-        pub fn start(self: *Self) !void {
+        pub fn start(self: *Self, comptime callback: ?fn (Frame) void) !void {
             const addr = try net.Address.parseIp4(self.ip_address, self.port);
-            // const stream_ip = net.Address{ .in = loopback };
 
             const stream = try net.tcpConnectToAddress(addr);
             defer stream.close();
@@ -48,6 +47,9 @@ pub fn Parser(comptime Frame: type) type {
                 const new_frame = try Frame.new(&incoming_buffer, null);
                 std.log.info("message recieved: {any}", .{new_frame});
                 _ = try self.packets.append(new_frame);
+                if (callback != null) {
+                    callback.?(new_frame);
+                }
             }
         }
 
@@ -96,6 +98,11 @@ fn _run_test_server(parse_type: []const u8) !void {
     }
 }
 
+/// this is for running tests ONLY
+fn _test_callback(packet: Vita49) void {
+    std.log.debug("CALLBACK CALLED: {any}", .{packet});
+}
+
 test "Vita49 Parser Test" {
     const ip = "127.0.0.1".*;
     const port: u16 = 65432;
@@ -111,7 +118,39 @@ test "Vita49 Parser Test" {
 
         const t2 = try std.Thread.spawn(.{}, struct {
             fn run(pt: *parser) !void {
-                try pt.start();
+                try pt.start(null);
+            }
+        }.run, .{&par_test});
+        defer t2.join();
+
+        std.time.sleep(10 * std.time.ns_per_s);
+
+        const t3 = try std.Thread.spawn(.{}, struct {
+            fn run(pt: *parser) void {
+                pt.stop();
+            }
+        }.run, .{&par_test});
+        defer t3.join();
+    }
+    try std.testing.expectEqual(8, par_test.packets.capacity);
+}
+
+test "Vita49 Parser Test w/ Callback" {
+    const ip = "127.0.0.1".*;
+    const port: u16 = 65432;
+    const parser = Parser(Vita49);
+    var par_test = parser.new(&ip, port, 1024, std.testing.allocator);
+    defer par_test.deinit();
+
+    {
+        const t1 = try std.Thread.spawn(.{}, _run_test_server, .{"vita49"});
+        defer t1.join();
+
+        std.time.sleep(2 * std.time.ns_per_s);
+
+        const t2 = try std.Thread.spawn(.{}, struct {
+            fn run(pt: *parser) !void {
+                try pt.start(_test_callback);
             }
         }.run, .{&par_test});
         defer t2.join();
@@ -143,7 +182,7 @@ test "CCSDS Parser Test" {
 
         const t2 = try std.Thread.spawn(.{}, struct {
             fn run(pt: *parser) !void {
-                try pt.start();
+                try pt.start(null);
             }
         }.run, .{&par_test});
         defer t2.join();

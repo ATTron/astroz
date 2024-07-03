@@ -1,5 +1,4 @@
 const std = @import("std");
-const debug = std.debug;
 
 pub const Vita49Error = error{ MalformedPayloadRange, InsufficentData };
 
@@ -72,14 +71,14 @@ pub const Header = packed struct {
     }
 
     pub fn output(self: Self) void {
-        debug.print("Vita49 Packet Header:\n", .{});
-        debug.print("Packet type: {}\n", .{self.packet_type});
-        debug.print("Class ID: {}\n", .{self.class_id});
-        debug.print("Trailer Present: {}\n", .{self.trailer});
-        debug.print("TSI: {}\n", .{self.tsi});
-        debug.print("TSF: {}\n", .{self.tsf});
-        debug.print("Packet_Count: {}\n", .{self.packet_count});
-        debug.print("Packet_Size: {}\n", .{self.packet_size});
+        std.log.info("Vita49 Packet Header:\n", .{});
+        std.log.info("Packet type: {}\n", .{self.packet_type});
+        std.log.info.print("Class ID: {}\n", .{self.class_id});
+        std.log.info("Trailer Present: {}\n", .{self.trailer});
+        std.log.info("TSI: {}\n", .{self.tsi});
+        std.log.info("TSF: {}\n", .{self.tsf});
+        std.log.info("Packet_Count: {}\n", .{self.packet_count});
+        std.log.info("Packet_Size: {}\n", .{self.packet_size});
     }
 };
 
