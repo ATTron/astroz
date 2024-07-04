@@ -29,8 +29,35 @@ pub fn Parser(comptime Frame: type) type {
             self.packets.deinit();
         }
 
-        pub fn parse_from_file(self: Self) void {
-            self.is_running;
+        pub fn parse_from_file(self: Self, file_name: []const u8) void {
+            const file = try std.fs.cwd().openFile(&file_name, .{});
+            defer file.close();
+
+            var buffer = std.io.bufferedReader(file.reader());
+            const reader = buffer.reader();
+
+            var line = std.ArrayList(u8).init(self.allocator);
+            defer line.deinit();
+
+            const writer = line.writer();
+            var line_no: usize = 0;
+
+            while (reader.streamUntilDelimiter(writer, "\n", null)) {
+                defer line.clearRetainingCapacity();
+                line_no += 1;
+
+                std.log.warn("\n{s}\n", .{line.items});
+            } else |err| switch (err) {
+                error.EndOfStream => {
+                    if (line.items.len > 0) {
+                        line_no += 1;
+                        std.log.warn("\n{s}\n", .{line.items});
+                    }
+                },
+                else => return err,
+            }
+
+            std.log.debug("Total Lines Read: {d}\n", .{line_no});
         }
 
         pub fn start(self: *Self, comptime callback: ?fn (Frame) void) !void {
