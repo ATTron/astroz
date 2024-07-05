@@ -15,10 +15,10 @@ pub fn Parser(comptime Frame: type) type {
 
         const Self = @This();
 
-        pub fn new(ip_address: []const u8, port: u16, buffer_size: u64, allocator: std.mem.Allocator) Self {
+        pub fn new(ip_address: ?[]const u8, port: ?u16, buffer_size: u64, allocator: std.mem.Allocator) !Self {
             return .{
-                .ip_address = ip_address,
-                .port = port,
+                .ip_address = ip_address orelse "127.0.0.1",
+                .port = port orelse 65432,
                 .buffer_size = buffer_size,
                 .packets = std.ArrayList(Frame).init(allocator),
                 .allocator = allocator,
@@ -29,35 +29,41 @@ pub fn Parser(comptime Frame: type) type {
             self.packets.deinit();
         }
 
-        pub fn parse_from_file(self: Self, file_name: []const u8) void {
-            const file = try std.fs.cwd().openFile(&file_name, .{});
+        pub fn parse_from_file(self: *Self, file_name: []const u8, callback: ?fn (Frame) void) !void {
+            const allocator = std.heap.page_allocator;
+            const file = try std.fs.cwd().openFile(file_name, .{});
             defer file.close();
 
-            var buffer = std.io.bufferedReader(file.reader());
-            const reader = buffer.reader();
+            const stat = try file.stat();
+            var file_content = try file.readToEndAlloc(allocator, stat.size);
+            defer allocator.free(file_content);
 
-            var line = std.ArrayList(u8).init(self.allocator);
-            defer line.deinit();
+            const first_frame = try Frame.new(file_content, null);
+            _ = try self.packets.append(first_frame);
+            std.log.debug("type of Frame is: {s}", .{@typeName(Frame)});
+            if (std.mem.eql(u8, @typeName(Frame), "vita49.Vita49")) {
+                file_content = file_content[first_frame.header.packet_size * 4 - 1 ..];
+                while (file_content.len > 4) {
+                    const new_frame = try Frame.new(file_content, null);
+                    file_content = file_content[new_frame.header.packet_size * 4 - 1 ..];
 
-            const writer = line.writer();
-            var line_no: usize = 0;
-
-            while (reader.streamUntilDelimiter(writer, "\n", null)) {
-                defer line.clearRetainingCapacity();
-                line_no += 1;
-
-                std.log.warn("\n{s}\n", .{line.items});
-            } else |err| switch (err) {
-                error.EndOfStream => {
-                    if (line.items.len > 0) {
-                        line_no += 1;
-                        std.log.warn("\n{s}\n", .{line.items});
+                    try self.packets.append(new_frame);
+                    if (callback != null) {
+                        callback.?(new_frame);
                     }
-                },
-                else => return err,
-            }
+                }
+            } else if (std.mem.eql(u8, @typeName(Frame), "ccsds.CCSDS")) {
+                file_content = file_content[first_frame.header.packet_size + 5 ..];
+                while (file_content.len > 4) {
+                    const new_frame = try Frame.new(file_content, null);
+                    file_content = file_content[first_frame.header.packet_size + 5 ..];
 
-            std.log.debug("Total Lines Read: {d}\n", .{line_no});
+                    try self.packets.append(new_frame);
+                    if (callback != null) {
+                        callback.?(new_frame);
+                    }
+                }
+            }
         }
 
         pub fn start(self: *Self, comptime callback: ?fn (Frame) void) !void {
@@ -130,11 +136,37 @@ fn _test_callback(packet: Vita49) void {
     std.log.debug("CALLBACK CALLED: {any}", .{packet});
 }
 
+test "Vita49 Parse From File" {
+    const file_name = "./test/files/vita49.bin".*;
+    const P = Parser(Vita49);
+    var parser = try P.new(null, null, 1024, std.testing.allocator);
+    defer parser.deinit();
+
+    _ = try parser.parse_from_file(&file_name, null);
+    for (parser.packets.items) |packet| {
+        try std.testing.expectEqualStrings("Hello, VITA 49!", packet.payload);
+    }
+}
+
+test "CCSDS Parse From File" {
+    const file_name = "./test/files/ccsds.bin".*;
+    const P = Parser(CCSDS);
+    var parser = try P.new(null, null, 1024, std.testing.allocator);
+    defer parser.deinit();
+
+    const packets = .{ 5, 6, 7, 8, 9, 10 };
+
+    _ = try parser.parse_from_file(&file_name, null);
+    for (parser.packets.items) |packet| {
+        try std.testing.expectEqualSlices(u8, &packets, packet.packets);
+    }
+}
+
 test "Vita49 Parser Test" {
     const ip = "127.0.0.1".*;
     const port: u16 = 65432;
     const parser = Parser(Vita49);
-    var par_test = parser.new(&ip, port, 1024, std.testing.allocator);
+    var par_test = try parser.new(&ip, port, 1024, std.testing.allocator);
     defer par_test.deinit();
 
     {
@@ -166,7 +198,7 @@ test "Vita49 Parser Test w/ Callback" {
     const ip = "127.0.0.1".*;
     const port: u16 = 65432;
     const parser = Parser(Vita49);
-    var par_test = parser.new(&ip, port, 1024, std.testing.allocator);
+    var par_test = try parser.new(&ip, port, 1024, std.testing.allocator);
     defer par_test.deinit();
 
     {
@@ -198,7 +230,7 @@ test "CCSDS Parser Test" {
     const ip = "127.0.0.1".*;
     const port: u16 = 65432;
     const parser = Parser(CCSDS);
-    var par_test = parser.new(&ip, port, 1024, std.testing.allocator);
+    var par_test = try parser.new(&ip, port, 1024, std.testing.allocator);
     defer par_test.deinit();
 
     {
