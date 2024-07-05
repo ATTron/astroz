@@ -29,7 +29,8 @@ pub fn Parser(comptime Frame: type) type {
             self.packets.deinit();
         }
 
-        pub fn parse_from_file(self: *Self, file_name: []const u8, callback: ?fn (Frame) void) !void {
+        pub fn parse_from_file(self: *Self, file_name: []const u8, sync_pattern: []const u8, callback: ?fn (Frame) void) !void {
+            std.log.debug("Sync Pattern Passed In: 0x{x}", .{sync_pattern});
             const allocator = std.heap.page_allocator;
             const file = try std.fs.cwd().openFile(file_name, .{});
             defer file.close();
@@ -142,7 +143,7 @@ test "Vita49 Parse From File" {
     var parser = try P.new(null, null, 1024, std.testing.allocator);
     defer parser.deinit();
 
-    _ = try parser.parse_from_file(&file_name, null);
+    _ = try parser.parse_from_file(&file_name, null, null);
     for (parser.packets.items) |packet| {
         try std.testing.expectEqualStrings("Hello, VITA 49!", packet.payload);
     }
@@ -156,7 +157,7 @@ test "CCSDS Parse From File" {
 
     const packets = .{ 5, 6, 7, 8, 9, 10 };
 
-    _ = try parser.parse_from_file(&file_name, null);
+    _ = try parser.parse_from_file(&file_name, null, null);
     for (parser.packets.items) |packet| {
         try std.testing.expectEqualSlices(u8, &packets, packet.packets);
     }
