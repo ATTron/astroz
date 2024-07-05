@@ -15,7 +15,12 @@ pub fn Parser(comptime Frame: type) type {
 
         const Self = @This();
 
-        pub fn new(ip_address: ?[]const u8, port: ?u16, buffer_size: u64, allocator: std.mem.Allocator) !Self {
+        pub fn new(
+            ip_address: ?[]const u8,
+            port: ?u16,
+            buffer_size: u64,
+            allocator: std.mem.Allocator,
+        ) !Self {
             return .{
                 .ip_address = ip_address orelse "127.0.0.1",
                 .port = port orelse 65432,
@@ -29,7 +34,12 @@ pub fn Parser(comptime Frame: type) type {
             self.packets.deinit();
         }
 
-        pub fn parse_from_file(self: *Self, file_name: []const u8, sync_pattern: ?[]const u8, callback: ?fn (Frame) void) !void {
+        pub fn parse_from_file(
+            self: *Self,
+            file_name: []const u8,
+            sync_pattern: ?[]const u8,
+            callback: ?fn (Frame) void,
+        ) !void {
             if (sync_pattern != null) {
                 std.log.debug("Sync Pattern Passed In: 0x{x}", .{sync_pattern.?});
             }

@@ -21,9 +21,15 @@ pub const CCSDS = struct {
         const version = @as(u3, @truncate((primary_header[0] >> 5) & 0x07));
         const packet_type = @as(u1, @truncate((primary_header[0] >> 4) & 0x01));
         const secondary_header_flag = (primary_header[0] >> 3) & 0x01 != 0;
-        const apid = @as(u11, @truncate(read_big_endian_u16(.{ primary_header[0] & 0x07, primary_header[1] })));
+        const apid = @as(u11, @truncate(read_big_endian_u16(.{
+            primary_header[0] & 0x07,
+            primary_header[1],
+        })));
         const sequence_flag = @as(u2, @truncate((primary_header[2] >> 6) & 0x03));
-        const packet_sequence_count = @as(u14, @truncate(read_big_endian_u16(.{ primary_header[2] & 0x3F, primary_header[3] })));
+        const packet_sequence_count = @as(u14, @truncate(read_big_endian_u16(.{
+            primary_header[2] & 0x3F,
+            primary_header[3],
+        })));
         const packet_size = read_big_endian_u16(.{ primary_header[4], primary_header[5] });
 
         var start: u8 = 6;
