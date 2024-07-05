@@ -29,8 +29,10 @@ pub fn Parser(comptime Frame: type) type {
             self.packets.deinit();
         }
 
-        pub fn parse_from_file(self: *Self, file_name: []const u8, sync_pattern: []const u8, callback: ?fn (Frame) void) !void {
-            std.log.debug("Sync Pattern Passed In: 0x{x}", .{sync_pattern});
+        pub fn parse_from_file(self: *Self, file_name: []const u8, sync_pattern: ?[]const u8, callback: ?fn (Frame) void) !void {
+            if (sync_pattern != null) {
+                std.log.debug("Sync Pattern Passed In: 0x{x}", .{sync_pattern});
+            }
             const allocator = std.heap.page_allocator;
             const file = try std.fs.cwd().openFile(file_name, .{});
             defer file.close();
