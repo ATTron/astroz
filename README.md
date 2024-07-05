@@ -123,6 +123,33 @@ pub fn main() !void {
 
 ```
 
+#### CCSDS Parser from File
+
+```zig
+const std = @import("std");
+const astroz = @import("astroz");
+const CCSDS = astroz.ccsds.CCSDS;
+const Parser = astroz.parsers.Parser;
+
+pub fn main() !void {
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    defer _ = gpa.deinit();
+    const allocator = gpa.allocator();
+
+    const file_name = "./test/files/ccsds.bin".*;
+
+    const P = Parser(CCSDS);
+    var parser = P.new(null, null, 1024, allocator);
+    defer parser.deinit();
+
+    _ = try parser.parse_from_file(&file_name, null);
+
+    for (parser.packets.items) |packet| {
+        std.log.info("Packets from files: 0x{x}", .{packet.packets});
+    }
+}
+```
+
 #### Create a CCSDS Packet
 
 ##### W/O Config
