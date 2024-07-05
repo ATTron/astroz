@@ -5,11 +5,11 @@ pub const Config = struct {
     secondary_header_length: u8,
 };
 
-pub const Header_Metadata = packed struct { version: u3, packet_type: u1, secondary_header_flag: bool, apid: u11, sequence_flag: u2, packet_sequence_count: u14, packet_data_length: u16 };
+pub const Header_Metadata = packed struct { version: u3, packet_type: u1, secondary_header_flag: bool, apid: u11, sequence_flag: u2, packet_sequence_count: u14, packet_size: u16 };
 
 /// CCSDS Data Structure
 pub const CCSDS = struct {
-    header_metadata: Header_Metadata,
+    header: Header_Metadata,
     primary_header: []const u8,
     secondary_header: ?[]const u8,
     packets: []const u8,
@@ -24,7 +24,7 @@ pub const CCSDS = struct {
         const apid = @as(u11, @truncate(read_big_endian_u16(.{ primary_header[0] & 0x07, primary_header[1] })));
         const sequence_flag = @as(u2, @truncate((primary_header[2] >> 6) & 0x03));
         const packet_sequence_count = @as(u14, @truncate(read_big_endian_u16(.{ primary_header[2] & 0x3F, primary_header[3] })));
-        const packet_data_length = read_big_endian_u16(.{ primary_header[4], primary_header[5] });
+        const packet_size = read_big_endian_u16(.{ primary_header[4], primary_header[5] });
 
         var start: u8 = 6;
         const secondary_header: ?[]const u8 = if (secondary_header_flag) blk: {
@@ -35,10 +35,19 @@ pub const CCSDS = struct {
             start = if (config != null) config.?.secondary_header_length else 10;
             break :blk raw_packets[6..10];
         } else null;
-        const packets = raw_packets[start..];
-        const header_metadata = Header_Metadata{ .version = version, .packet_type = packet_type, .secondary_header_flag = secondary_header_flag, .apid = apid, .sequence_flag = sequence_flag, .packet_sequence_count = packet_sequence_count, .packet_data_length = packet_data_length + 1 };
+        const header = Header_Metadata{
+            .version = version,
+            .packet_type = packet_type,
+            .secondary_header_flag = secondary_header_flag,
+            .apid = apid,
+            .sequence_flag = sequence_flag,
+            .packet_sequence_count = packet_sequence_count,
+            .packet_size = packet_size + 1,
+        };
+        const end = 5 + header.packet_size; // num of header bytes + packet_size
+        const packets = raw_packets[start..end];
 
-        return .{ .header_metadata = header_metadata, .primary_header = primary_header, .secondary_header = secondary_header, .packets = packets };
+        return .{ .header = header, .primary_header = primary_header, .secondary_header = secondary_header, .packets = packets };
     }
 };
 
@@ -67,12 +76,12 @@ test "CCSDS Structure Testing w/ config" {
 
     const packets = .{ 7, 8, 9, 10 };
 
-    try std.testing.expectEqual(3, converted_test_packet.header_metadata.version);
-    try std.testing.expectEqual(1, converted_test_packet.header_metadata.packet_type); // telemetry packet type
-    try std.testing.expectEqual(true, converted_test_packet.header_metadata.secondary_header_flag);
-    try std.testing.expectEqual(3, converted_test_packet.header_metadata.sequence_flag);
-    try std.testing.expectEqual(0, converted_test_packet.header_metadata.packet_sequence_count);
-    try std.testing.expectEqual(11, converted_test_packet.header_metadata.packet_data_length);
+    try std.testing.expectEqual(3, converted_test_packet.header.version);
+    try std.testing.expectEqual(1, converted_test_packet.header.packet_type); // telemetry packet type
+    try std.testing.expectEqual(true, converted_test_packet.header.secondary_header_flag);
+    try std.testing.expectEqual(3, converted_test_packet.header.sequence_flag);
+    try std.testing.expectEqual(0, converted_test_packet.header.packet_sequence_count);
+    try std.testing.expectEqual(11, converted_test_packet.header.packet_size);
     try std.testing.expectEqualSlices(u8, &packets, converted_test_packet.packets);
 }
 
@@ -82,11 +91,11 @@ test "CCSDS Structure Testing w/o config" {
 
     const packets = .{ 5, 6, 7, 8, 9, 10 };
 
-    try std.testing.expectEqual(3, converted_test_packet.header_metadata.version);
-    try std.testing.expectEqual(1, converted_test_packet.header_metadata.packet_type); // telemetry packet type
-    try std.testing.expectEqual(true, converted_test_packet.header_metadata.secondary_header_flag);
-    try std.testing.expectEqual(3, converted_test_packet.header_metadata.sequence_flag);
-    try std.testing.expectEqual(0, converted_test_packet.header_metadata.packet_sequence_count);
-    try std.testing.expectEqual(11, converted_test_packet.header_metadata.packet_data_length);
+    try std.testing.expectEqual(3, converted_test_packet.header.version);
+    try std.testing.expectEqual(1, converted_test_packet.header.packet_type); // telemetry packet type
+    try std.testing.expectEqual(true, converted_test_packet.header.secondary_header_flag);
+    try std.testing.expectEqual(3, converted_test_packet.header.sequence_flag);
+    try std.testing.expectEqual(0, converted_test_packet.header.packet_sequence_count);
+    try std.testing.expectEqual(11, converted_test_packet.header.packet_size);
     try std.testing.expectEqualSlices(u8, &packets, converted_test_packet.packets);
 }
