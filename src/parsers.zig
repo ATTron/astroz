@@ -48,7 +48,10 @@ pub fn Parser(comptime Frame: type) type {
             defer file.close();
 
             const stat = try file.stat();
-            var file_content = try file.readToEndAlloc(allocator, stat.size);
+            var file_content = try file.readToEndAlloc(
+                allocator,
+                stat.size,
+            );
             defer allocator.free(file_content);
 
             const first_frame = try Frame.new(file_content, null);
