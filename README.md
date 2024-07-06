@@ -16,6 +16,7 @@ Astronomical and Spacecraft Toolkit Written in Zig for Zig!
   - [ ] Impulse Maneuvers
   - [ ] Phase Maneuvers
   - [ ] Plane Change Maneuvers
+- [ ] TLE Support
 
 ### Astronomical
 
