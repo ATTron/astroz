@@ -15,7 +15,12 @@ pub fn Parser(comptime Frame: type) type {
 
         const Self = @This();
 
-        pub fn new(ip_address: ?[]const u8, port: ?u16, buffer_size: u64, allocator: std.mem.Allocator) !Self {
+        pub fn new(
+            ip_address: ?[]const u8,
+            port: ?u16,
+            buffer_size: u64,
+            allocator: std.mem.Allocator,
+        ) !Self {
             return .{
                 .ip_address = ip_address orelse "127.0.0.1",
                 .port = port orelse 65432,
@@ -26,44 +31,109 @@ pub fn Parser(comptime Frame: type) type {
         }
 
         pub fn deinit(self: *Self) void {
+            for (self.packets.items) |*packet| {
+                packet.deinit();
+            }
             self.packets.deinit();
         }
 
-        pub fn parse_from_file(self: *Self, file_name: []const u8, callback: ?fn (Frame) void) !void {
-            const allocator = std.heap.page_allocator;
+        pub fn parse_from_file(
+            self: *Self,
+            file_name: []const u8,
+            sync_pattern: ?[]const u8,
+            callback: ?fn (Frame) void,
+        ) !void {
             const file = try std.fs.cwd().openFile(file_name, .{});
             defer file.close();
 
             const stat = try file.stat();
-            var file_content = try file.readToEndAlloc(allocator, stat.size);
-            defer allocator.free(file_content);
+            var file_content = try file.readToEndAlloc(
+                self.allocator,
+                stat.size,
+            );
+            defer self.allocator.free(file_content);
 
-            const first_frame = try Frame.new(file_content, null);
-            _ = try self.packets.append(first_frame);
             std.log.debug("type of Frame is: {s}", .{@typeName(Frame)});
             if (std.mem.eql(u8, @typeName(Frame), "vita49.Vita49")) {
-                file_content = file_content[first_frame.header.packet_size * 4 - 1 ..];
-                while (file_content.len > 4) {
-                    const new_frame = try Frame.new(file_content, null);
-                    file_content = file_content[new_frame.header.packet_size * 4 - 1 ..];
+                if (sync_pattern) |sp| {
+                    var i: usize = 0;
+                    while (file_content.len > 4) : (i += 1) {
+                        if (std.mem.eql(u8, file_content[i .. i + sp.len], sp)) {
+                            const new_frame = try Frame.new(file_content[i..], self.allocator, null);
+                            try self.packets.append(new_frame);
+                            if (callback) |cb| {
+                                cb(new_frame);
+                            }
 
-                    try self.packets.append(new_frame);
-                    if (callback != null) {
-                        callback.?(new_frame);
+                            const skip_lengh = new_frame.header.packet_size * 4;
+                            if (skip_lengh > file_content.len - i) {
+                                break;
+                            }
+
+                            std.mem.copyForwards(u8, file_content[0..], file_content[i..]);
+
+                            const new_alloc_size = file_content.len - i;
+                            file_content = self.allocator.realloc(file_content, new_alloc_size) catch |err| {
+                                std.log.err("Failed to reallocate memory for parsing: {}", .{err});
+                                break;
+                            };
+
+                            i = 0;
+                        }
                     }
                 }
             } else if (std.mem.eql(u8, @typeName(Frame), "ccsds.CCSDS")) {
-                file_content = file_content[first_frame.header.packet_size + 5 ..];
-                while (file_content.len > 4) {
-                    const new_frame = try Frame.new(file_content, null);
-                    file_content = file_content[first_frame.header.packet_size + 5 ..];
+                if (sync_pattern) |sp| {
+                    var i: usize = 0;
+                    while (file_content.len > 4) : (i += 1) {
+                        if (std.mem.eql(u8, file_content[i .. i + sp.len], sp)) {
+                            const new_frame = try Frame.new(file_content[i..], self.allocator, null);
+                            try self.packets.append(new_frame);
+                            if (callback) |cb| {
+                                cb(new_frame);
+                            }
 
-                    try self.packets.append(new_frame);
-                    if (callback != null) {
-                        callback.?(new_frame);
+                            const skip_lengh = new_frame.header.packet_size + 6;
+                            if (skip_lengh > file_content.len - i) {
+                                break;
+                            }
+
+                            std.mem.copyForwards(u8, file_content[0..], file_content[i..]);
+
+                            const new_alloc_size = file_content.len - i;
+                            file_content = self.allocator.realloc(file_content, new_alloc_size) catch |err| {
+                                std.log.err("Failed to reallocate memory for parsing: {}", .{err});
+                                break;
+                            };
+
+                            i = 0;
+                        }
                     }
                 }
             }
+            // if (std.mem.eql(u8, @typeName(Frame), "vita49.Vita49")) {
+            //     file_content = file_content[first_frame.header.packet_size * 4 - 1 ..];
+            //     while (file_content.len > 4) {
+            //         const new_frame = try Frame.new(file_content, null);
+            //         file_content = file_content[new_frame.header.packet_size * 4 - 1 ..];
+            //
+            //         try self.packets.append(new_frame);
+            //         if (callback != null) {
+            //             callback.?(new_frame);
+            //         }
+            //     }
+            // } else if (std.mem.eql(u8, @typeName(Frame), "ccsds.CCSDS")) {
+            //     file_content = file_content[first_frame.header.packet_size + 5 ..];
+            //     while (file_content.len > 4) {
+            //         const new_frame = try Frame.new(file_content, null);
+            //         file_content = file_content[first_frame.header.packet_size + 5 ..];
+            //
+            //         try self.packets.append(new_frame);
+            //         if (callback != null) {
+            //             callback.?(new_frame);
+            //         }
+            //     }
+            // }
         }
 
         pub fn start(self: *Self, comptime callback: ?fn (Frame) void) !void {
@@ -77,7 +147,7 @@ pub fn Parser(comptime Frame: type) type {
             var incoming_buffer = std.mem.zeroes([1024]u8);
             while (!self.should_stop) {
                 _ = try stream.read(&incoming_buffer);
-                const new_frame = try Frame.new(&incoming_buffer, null);
+                const new_frame = try Frame.new(&incoming_buffer, self.allocator, null);
                 std.log.debug("message recieved: {any}", .{new_frame});
                 _ = try self.packets.append(new_frame);
                 if (callback != null) {
@@ -136,19 +206,34 @@ fn _test_callback(packet: Vita49) void {
     std.log.debug("CALLBACK CALLED: {any}", .{packet});
 }
 
-test "Vita49 Parse From File" {
+test "Vita49 Parse From File w/ sync" {
     const file_name = "./test/files/vita49.bin".*;
+    //3a02 0a00 3412 0000 0056
+    const sync_pattern = .{ 0x3A, 0x02, 0x0a, 0x00, 0x34, 0x12, 0x00, 0x00, 0x00, 0x56 };
     const P = Parser(Vita49);
     var parser = try P.new(null, null, 1024, std.testing.allocator);
     defer parser.deinit();
 
-    _ = try parser.parse_from_file(&file_name, null);
+    _ = try parser.parse_from_file(&file_name, &sync_pattern, null);
     for (parser.packets.items) |packet| {
         try std.testing.expectEqualStrings("Hello, VITA 49!", packet.payload);
     }
 }
 
-test "CCSDS Parse From File" {
+test "Vita49 Parse From File w/o sync" {
+    const file_name = "./test/files/vita49.bin".*;
+    //3a02 0a00 3412 0000 0056
+    const P = Parser(Vita49);
+    var parser = try P.new(null, null, 1024, std.testing.allocator);
+    defer parser.deinit();
+
+    _ = try parser.parse_from_file(&file_name, null, null);
+    for (parser.packets.items) |packet| {
+        try std.testing.expectEqualStrings("Hello, VITA 49!", packet.payload);
+    }
+}
+
+test "CCSDS Parse From File w/o sync" {
     const file_name = "./test/files/ccsds.bin".*;
     const P = Parser(CCSDS);
     var parser = try P.new(null, null, 1024, std.testing.allocator);
@@ -156,7 +241,23 @@ test "CCSDS Parse From File" {
 
     const packets = .{ 5, 6, 7, 8, 9, 10 };
 
-    _ = try parser.parse_from_file(&file_name, null);
+    _ = try parser.parse_from_file(&file_name, null, null);
+    for (parser.packets.items) |packet| {
+        try std.testing.expectEqualSlices(u8, &packets, packet.packets);
+    }
+}
+
+test "CCSDS Parse From File w/ sync" {
+    const file_name = "./test/files/ccsds.bin".*;
+    // 7897 c000 000a 0102
+    const sync_pattern = .{ 0x78, 0x97, 0xC0, 0x00, 0x00, 0x0A, 0x01, 0x02 };
+    const P = Parser(CCSDS);
+    var parser = try P.new(null, null, 1024, std.testing.allocator);
+    defer parser.deinit();
+
+    const packets = .{ 5, 6, 7, 8, 9, 10 };
+
+    _ = try parser.parse_from_file(&file_name, &sync_pattern, null);
     for (parser.packets.items) |packet| {
         try std.testing.expectEqualSlices(u8, &packets, packet.packets);
     }
