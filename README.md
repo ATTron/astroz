@@ -16,6 +16,7 @@ Astronomical and Spacecraft Toolkit Written in Zig for Zig!
   - [ ] Impulse Maneuvers
   - [ ] Phase Maneuvers
   - [ ] Plane Change Maneuvers
+- [x] TLE Support
 
 ### Astronomical
 
@@ -72,7 +73,33 @@ b.installArtifact(exe);
 
 ### Examples
 
+#### Parse a TLE
+
 #### Setup Vita49 Parser
+
+```zig
+const std = @import("std");
+const astroz = @import("astroz");
+const TLE = astroz.tle.TLE;
+
+pub fn main() !void {
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    defer _ = gpa.deinit();
+    const allocator = gpa.allocator();
+
+    const test_tle =
+        \\1 55909U 23035B   24187.51050877  .00023579  00000+0  16099-2 0  9998
+        \\2 55909  43.9978 311.8012 0011446 278.6226  81.3336 15.05761711 71371
+    ;
+
+    var tle = try TLE.parse(raw_tle, gpa);
+    defer tle.deinit();
+
+    tle.output();
+
+}
+
+```
 
 ##### W/ Callback
 
