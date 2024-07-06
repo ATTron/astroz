@@ -77,8 +77,6 @@ b.installArtifact(exe);
 
 #### Parse a TLE
 
-#### Setup Vita49 Parser
-
 ```zig
 const std = @import("std");
 const astroz = @import("astroz");
@@ -102,6 +100,8 @@ pub fn main() !void {
 }
 
 ```
+
+#### Setup Vita49 Parser
 
 ##### W/ Callback
 
