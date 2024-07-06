@@ -1,8 +1,9 @@
 # ASTROZ  
 
-![Testing](https://github.com/ATTron/astroz/actions/workflows/test_zig.yml/badge.svg)
+![Testing](https://github.com/ATTron/astroz/actions/workflows/test_zig.yml/badge.svg) 
+<img src="https://repository-images.githubusercontent.com/819657891/291c28ef-4c03-4d0e-bb0c-41d4662867c3" width="100" height="100"/> 
 
-Astronomical and Spacecraft Toolkit Written in Zig for Zig!  
+### Astronomical and Spacecraft Toolkit Written in Zig for Zig!  
 
 ## Features / Plans
 
@@ -12,11 +13,11 @@ Astronomical and Spacecraft Toolkit Written in Zig for Zig!
   - [x] CCSDS Stream Parser
 - [x] VITA49 Packets
   - [x] Vita49 Stream Parser
-- [ ] Orbital Maneuvers
-  - [ ] Impulse Maneuvers
-  - [ ] Phase Maneuvers
-  - [ ] Plane Change Maneuvers
 - [x] TLE Support
+  - [ ] Orbital Maneuvers
+    - [ ] Impulse Maneuvers
+    - [ ] Phase Maneuvers
+    - [ ] Plane Change Maneuvers
 
 ### Astronomical
 
@@ -280,3 +281,5 @@ pub fn main() !void {
 }
 
 ```
+
+
