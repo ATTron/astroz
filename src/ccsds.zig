@@ -13,17 +13,26 @@ pub const CCSDS = struct {
     primary_header: []const u8,
     secondary_header: ?[]const u8,
     packets: []const u8,
+    raw_data: []const u8,
+    allocator: std.mem.Allocator,
 
     const Self = @This();
 
-    pub fn new(raw_packets: []const u8, config: ?Config) !Self {
+    pub fn new(pl: []const u8, allocator: std.mem.Allocator, config: ?Config) !Self {
+        var raw_packets = try allocator.dupe(u8, pl);
         const primary_header = raw_packets[0..6];
         const version = @as(u3, @truncate((primary_header[0] >> 5) & 0x07));
         const packet_type = @as(u1, @truncate((primary_header[0] >> 4) & 0x01));
         const secondary_header_flag = (primary_header[0] >> 3) & 0x01 != 0;
-        const apid = @as(u11, @truncate(read_big_endian_u16(.{ primary_header[0] & 0x07, primary_header[1] })));
+        const apid = @as(u11, @truncate(read_big_endian_u16(.{
+            primary_header[0] & 0x07,
+            primary_header[1],
+        })));
         const sequence_flag = @as(u2, @truncate((primary_header[2] >> 6) & 0x03));
-        const packet_sequence_count = @as(u14, @truncate(read_big_endian_u16(.{ primary_header[2] & 0x3F, primary_header[3] })));
+        const packet_sequence_count = @as(u14, @truncate(read_big_endian_u16(.{
+            primary_header[2] & 0x3F,
+            primary_header[3],
+        })));
         const packet_size = read_big_endian_u16(.{ primary_header[4], primary_header[5] });
 
         var start: u8 = 6;
@@ -47,7 +56,13 @@ pub const CCSDS = struct {
         const end = 5 + header.packet_size; // num of header bytes + packet_size
         const packets = raw_packets[start..end];
 
-        return .{ .header = header, .primary_header = primary_header, .secondary_header = secondary_header, .packets = packets };
+        raw_packets = try allocator.realloc(raw_packets, end);
+
+        return .{ .header = header, .primary_header = primary_header, .secondary_header = secondary_header, .packets = packets, .raw_data = raw_packets, .allocator = allocator };
+    }
+
+    pub fn deinit(self: *Self) void {
+        self.allocator.free(self.raw_data);
     }
 };
 
@@ -72,7 +87,8 @@ test "CCSDS Structure Testing w/ config" {
     const test_allocator = std.testing.allocator;
 
     const config = try parse_config(test_config, test_allocator);
-    const converted_test_packet = try CCSDS.new(&raw_test_packet, config);
+    var converted_test_packet = try CCSDS.new(&raw_test_packet, std.testing.allocator, config);
+    defer converted_test_packet.deinit();
 
     const packets = .{ 7, 8, 9, 10 };
 
@@ -87,7 +103,8 @@ test "CCSDS Structure Testing w/ config" {
 
 test "CCSDS Structure Testing w/o config" {
     const raw_test_packet: [16]u8 = .{ 0x78, 0x97, 0xC0, 0x00, 0x00, 0x0A, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A };
-    const converted_test_packet = try CCSDS.new(&raw_test_packet, null);
+    var converted_test_packet = try CCSDS.new(&raw_test_packet, std.testing.allocator, null);
+    defer converted_test_packet.deinit();
 
     const packets = .{ 5, 6, 7, 8, 9, 10 };
 
