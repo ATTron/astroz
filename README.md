@@ -123,7 +123,7 @@ pub fn main() !void {
 
 ```
 
-#### CCSDS Parser from File
+#### CCSDS Parser from File w/o file sync
 
 ```zig
 const std = @import("std");
@@ -142,7 +142,35 @@ pub fn main() !void {
     var parser = P.new(null, null, 1024, allocator);
     defer parser.deinit();
 
-    _ = try parser.parse_from_file(&file_name, null);
+    _ = try parser.parse_from_file(&file_name, null, null);
+
+    for (parser.packets.items) |packet| {
+        std.log.info("Packets from files: 0x{x}", .{packet.packets});
+    }
+}
+```
+
+#### CCSDS Parser from File w/ file sync
+
+```zig
+const std = @import("std");
+const astroz = @import("astroz");
+const CCSDS = astroz.ccsds.CCSDS;
+const Parser = astroz.parsers.Parser;
+
+pub fn main() !void {
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    defer _ = gpa.deinit();
+    const allocator = gpa.allocator();
+
+    const file_name = "./test/files/ccsds.bin".*;
+    const sync_pattern = .{ 0x78, 0x97, 0xC0, 0x00, 0x00, 0x0A, 0x01, 0x02 };
+
+    const P = Parser(CCSDS);
+    var parser = P.new(null, null, 1024, allocator);
+    defer parser.deinit();
+
+    _ = try parser.parse_from_file(&file_name, &sync_pattern, null);
 
     for (parser.packets.items) |packet| {
         std.log.info("Packets from files: 0x{x}", .{packet.packets});
@@ -160,8 +188,13 @@ const astroz = @import("astroz");
 const CCSDS = astroz.ccsds.CCSDS;
 
 pub fn main() !void {
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    defer _ = gpa.deinit();
+    const allocator = gpa.allocator();
+
     const raw_test_packet: [16]u8 = .{ 0x78, 0x97, 0xC0, 0x00, 0x00, 0x0A, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A };
-    const converted_test_packet = CCSDS.new(&raw_test_packet, null);
+    const converted_test_packet = CCSDS.new(&raw_test_packet, allocator, null);
+    defer converted_test_packet.deinit();
 
     std.debug.print("CCSDS Packet Created:\n{any}", .{converted_test_packet});
 }
@@ -195,7 +228,8 @@ pub fn main() !void {
     const config = try ccsds.parse_config(config_file, allocator);
 
     const raw_test_packet: [16]u8 = .{ 0x78, 0x97, 0xC0, 0x00, 0x00, 0x0A, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A };
-    const converted_test_packet = CCSDS.new(&raw_test_packet, config);
+    const converted_test_packet = CCSDS.new(&raw_test_packet, allocator, config);
+    defer converted_test_packet.deinit();
 
     std.debug.print("\nCCSDS Packet Created:\n{any}", .{converted_test_packet});
 }

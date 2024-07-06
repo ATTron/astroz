@@ -108,10 +108,16 @@ pub const Vita49 = struct {
     f_timestamp: ?u64,
     payload: []const u8,
     trailer: ?Trailer,
+    allocator: std.mem.Allocator,
+    end: usize,
+
+    // private
+    raw_data: []const u8,
 
     const Self = @This();
 
-    pub fn new(stream: []const u8, config: ?[]const u8) !Self {
+    pub fn new(pl: []const u8, allocator: std.mem.Allocator, config: ?[]const u8) !Self {
+        var stream = try allocator.dupe(u8, pl); // dupe the data so we dont ever lose it
         if (config != null) {
             std.log.debug("Config found for Vita49 but this hasnt been implemeneted yet", .{});
         }
@@ -175,6 +181,8 @@ pub const Vita49 = struct {
         } else {
             f_timestamp = null;
         }
+        const end_of_data = if (header.trailer) payload_range.end + 4 else payload_range.end;
+        stream = try allocator.realloc(stream, end_of_data);
         return .{
             .header = header,
             .stream_id = stream_id,
@@ -183,7 +191,14 @@ pub const Vita49 = struct {
             .f_timestamp = f_timestamp,
             .payload = payload,
             .trailer = trailer,
+            .allocator = allocator,
+            .end = payload_range.end,
+            .raw_data = stream,
         };
+    }
+
+    pub fn deinit(self: *Self) void {
+        self.allocator.free(self.raw_data);
     }
 
     fn get_payload_range(header: Header, has_stream_id: bool) !struct { start: usize, end: usize } {
@@ -240,7 +255,8 @@ test "Test Vita49 Packet w/o trailer" {
         0x21,
     };
 
-    const vita49_packet = try Vita49.new(&vita49_test_packet, null);
+    var vita49_packet = try Vita49.new(&vita49_test_packet, std.testing.allocator, null);
+    defer vita49_packet.deinit();
 
     try std.testing.expectEqual(null, vita49_packet.i_timestamp);
     try std.testing.expectEqual(128, vita49_packet.f_timestamp);
@@ -272,7 +288,8 @@ test "Test Vita49 Packet w/ trailer" {
         0xBB, 0xCC, 0xDD,
     };
 
-    const vita49_packet = try Vita49.new(&vita49_test_packet, null);
+    var vita49_packet = try Vita49.new(&vita49_test_packet, std.testing.allocator, null);
+    defer vita49_packet.deinit();
 
     try std.testing.expectEqual(4660, vita49_packet.stream_id);
     try std.testing.expectEqual(null, vita49_packet.class_id);
