@@ -5,3 +5,4 @@ pub const coordinates = @import("coordinates.zig");
 pub const calculations = @import("calculations.zig");
 pub const vita49 = @import("vita49.zig");
 pub const parsers = @import("parsers.zig");
+pub const tle = @import("tle.zig");
