@@ -82,6 +82,20 @@ pub fn Parser(comptime Frame: type) type {
                         }
                     }
                 }
+                // else {
+                //     const first_frame = try Frame.new(file_content, self.allocator, null);
+                //     _ = try self.packets.append(first_frame);
+                //     file_content = file_content[first_frame.header.packet_size * 4 - 1 ..];
+                //     while (file_content.len > 4) {
+                //         const new_frame = try Frame.new(file_content, self.allocator, null);
+                //         file_content = file_content[new_frame.header.packet_size * 4 - 1 ..];
+                //
+                //         try self.packets.append(new_frame);
+                //         if (callback != null) {
+                //             callback.?(new_frame);
+                //         }
+                //     }
+                // }
             } else if (std.mem.eql(u8, @typeName(Frame), "ccsds.CCSDS")) {
                 if (sync_pattern) |sp| {
                     var i: usize = 0;
@@ -110,30 +124,21 @@ pub fn Parser(comptime Frame: type) type {
                         }
                     }
                 }
+                // else {
+                //     const first_frame = try Frame.new(file_content, self.allocator, null);
+                //     _ = try self.packets.append(first_frame);
+                //     file_content = file_content[first_frame.header.packet_size + 5 ..];
+                //     while (file_content.len > 4) {
+                //         const new_frame = try Frame.new(file_content, self.allocator, null);
+                //         file_content = file_content[first_frame.header.packet_size + 5 ..];
+                //
+                //         try self.packets.append(new_frame);
+                //         if (callback != null) {
+                //             callback.?(new_frame);
+                //         }
+                //     }
+                // }
             }
-            // if (std.mem.eql(u8, @typeName(Frame), "vita49.Vita49")) {
-            //     file_content = file_content[first_frame.header.packet_size * 4 - 1 ..];
-            //     while (file_content.len > 4) {
-            //         const new_frame = try Frame.new(file_content, null);
-            //         file_content = file_content[new_frame.header.packet_size * 4 - 1 ..];
-            //
-            //         try self.packets.append(new_frame);
-            //         if (callback != null) {
-            //             callback.?(new_frame);
-            //         }
-            //     }
-            // } else if (std.mem.eql(u8, @typeName(Frame), "ccsds.CCSDS")) {
-            //     file_content = file_content[first_frame.header.packet_size + 5 ..];
-            //     while (file_content.len > 4) {
-            //         const new_frame = try Frame.new(file_content, null);
-            //         file_content = file_content[first_frame.header.packet_size + 5 ..];
-            //
-            //         try self.packets.append(new_frame);
-            //         if (callback != null) {
-            //             callback.?(new_frame);
-            //         }
-            //     }
-            // }
         }
 
         pub fn start(self: *Self, comptime callback: ?fn (Frame) void) !void {

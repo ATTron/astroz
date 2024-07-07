@@ -15,6 +15,8 @@
 - [x] VITA49 Packets
   - [x] Vita49 Stream Parser
 - [x] TLE Support
+  - [x] Orbital Propagation
+    - [x] RK4
   - [ ] Orbital Maneuvers
     - [ ] Impulse Maneuvers
     - [ ] Phase Maneuvers
@@ -100,6 +102,51 @@ pub fn main() !void {
 }
 
 ```
+
+#### Orbit Prop for the next 3 days
+
+```zig
+const std = @import("std");
+const astroz = @import("astroz");
+const TLE = astroz.tle.TLE;
+const spacecraft = astroz.spacecraft;
+const Spacecraft = spacecraft.Spacecraft;
+
+pub fn main() !void {
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    defer _ = gpa.deinit();
+    const allocator = gpa.allocator();
+
+    const test_tle =
+        \\1 55909U 23035B   24187.51050877  .00023579  00000+0  16099-2 0  9998
+        \\2 55909  43.9978 311.8012 0011446 278.6226  81.3336 15.05761711 71371
+    ;
+
+    var tle = try TLE.parse(raw_tle, gpa);
+    defer tle.deinit();
+
+    var test_sc = Spacecraft.create("dummy_sc", test_tle, 300.000, spacecraft.Satellite_Size.Cube, constants.earth, std.testing.allocator);
+    defer test_sc.deinit();
+
+    try test_sc.propagate(
+        test_sc.tle.first_line.epoch,
+        test_sc.tle.first_line.epoch + 3 * 86400.0, // 2 days worth of orbit predictions
+        1,
+    );
+
+    for (test_sc.orbit_predictions.items) |iter| {
+        const r = math.sqrt(iter.state[0] * iter.state[0] + iter.state[1] * iter.state[1] + iter.state[2] * iter.state[2]);
+
+        std.debug.print("Next Prediction is: {any}", .{iter});
+
+    }
+}
+
+```
+
+<img src="https://raw.githubusercontent.com/ATTron/astroz/88ae02a3ffcc70b13dcd91d510e9f65f9768f96a/assets/cut.gif" width="400" height="400" alt="visualization of orbit prop"/>
+
+**NOTE: The HTML for this visualization lives in this repo `test/files/orbit_interactive.html`**
 
 #### Setup Vita49 Parser
 

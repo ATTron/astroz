@@ -1,5 +1,6 @@
 const std = @import("std");
 const math = std.math;
+const DateTime = @import("time.zig").Datetime;
 
 pub const TleError = error{BadTLELength};
 
@@ -10,6 +11,7 @@ pub const First_Line = struct {
     intl_designator: []u8,
     epoch_year: u16,
     epoch_day: f32,
+    epoch: f64,
     first_der_m_motion: f32,
     secnd_der_m_motion: [7]u8,
     bstar_drag: f32,
@@ -49,14 +51,18 @@ pub const First_Line = struct {
             result *= 10.0;
         }
         bstar_drag = @abs(-result / drag);
+        const epoch_year = try std.fmt.parseInt(u16, line[18..20], 10);
+        const epoch_day = try std.fmt.parseFloat(f32, line[20..32]);
+        const epoch = tle_epoch_to_epoch(epoch_year, epoch_day);
 
         return .{
             .line_number = line[0],
             .satellite_number = try std.fmt.parseInt(u32, line[2..7], 10),
             .classification = line[7],
             .intl_designator = string,
-            .epoch_year = try std.fmt.parseInt(u16, line[18..20], 10),
-            .epoch_day = try std.fmt.parseFloat(f32, line[20..32]),
+            .epoch_year = epoch_year,
+            .epoch_day = epoch_day,
+            .epoch = epoch,
             .first_der_m_motion = try std.fmt.parseFloat(f32, line[34..43]),
             .secnd_der_m_motion = line[45..52].*,
             .bstar_drag = bstar_drag,
@@ -64,6 +70,17 @@ pub const First_Line = struct {
             .elem_number = try std.fmt.parseInt(u32, line[65..68], 10),
             .checksum = line[68],
         };
+    }
+
+    fn tle_epoch_to_epoch(year: u16, doy: f64) f32 {
+        const epoch_year = 2000 + year;
+        const month_day = DateTime.doy_to_month_day(epoch_year, doy);
+
+        const full_epoch = DateTime.new_date(epoch_year, month_day.month, month_day.day).convert_to_j2000();
+
+        // std.log.warn("FULL EPOCH IS: {d}", .{full_epoch});
+
+        return full_epoch;
     }
 };
 
@@ -139,6 +156,7 @@ pub const TLE = struct {
         std.debug.print("intl_designator: {s}\n", .{self.first_line.intl_designator});
         std.debug.print("epoch_year: {d}\n", .{self.first_line.epoch_year});
         std.debug.print("epoch_day: {d}\n", .{self.first_line.epoch_day});
+        std.debug.print("epoch: {d}\n", .{self.first_line.epoch});
         std.debug.print("first_der_m_motion: {d}\n", .{self.first_line.first_der_m_motion});
         std.debug.print("second_der_m_motion: {s}\n", .{self.first_line.secnd_der_m_motion});
         std.debug.print("bstar_drag: {d}\n", .{self.first_line.bstar_drag});
