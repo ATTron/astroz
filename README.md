@@ -146,8 +146,6 @@ pub fn main() !void {
 
 <img src="https://raw.githubusercontent.com/ATTron/astroz/88ae02a3ffcc70b13dcd91d510e9f65f9768f96a/assets/cut.gif" width="400" height="400" alt="visualization of orbit prop"/>
 
-**NOTE: The HTML for this visualization lives in this repo `test/files/orbit_interactive.html`**
-
 #### Setup Vita49 Parser
 
 ##### W/ Callback
