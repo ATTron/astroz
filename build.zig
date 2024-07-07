@@ -117,7 +117,7 @@ pub fn build(b: *std.Build) void {
     const run_tle_unit_tests = b.addRunArtifact(tle_unit_tests);
 
     const spacecraft_unit_tests = b.addTest(.{
-        .root_source_file = b.path("src/spacecraft.zig.zig"),
+        .root_source_file = b.path("src/spacecraft.zig"),
     });
 
     const run_spacecraft_unit_tests = b.addRunArtifact(spacecraft_unit_tests);
