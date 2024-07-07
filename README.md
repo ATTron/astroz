@@ -94,7 +94,7 @@ pub fn main() !void {
         \\2 55909  43.9978 311.8012 0011446 278.6226  81.3336 15.05761711 71371
     ;
 
-    var tle = try TLE.parse(raw_tle, gpa);
+    var tle = try TLE.parse(raw_tle, allocator);
     defer tle.deinit();
 
     tle.output();
@@ -122,7 +122,7 @@ pub fn main() !void {
         \\2 55909  43.9978 311.8012 0011446 278.6226  81.3336 15.05761711 71371
     ;
 
-    var tle = try TLE.parse(raw_tle, gpa);
+    var tle = try TLE.parse(raw_tle, allocator);
     defer tle.deinit();
 
     var test_sc = Spacecraft.create("dummy_sc", test_tle, 300.000, spacecraft.Satellite_Size.Cube, constants.earth, allocator);
