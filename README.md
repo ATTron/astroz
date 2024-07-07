@@ -125,7 +125,7 @@ pub fn main() !void {
     var tle = try TLE.parse(raw_tle, gpa);
     defer tle.deinit();
 
-    var test_sc = Spacecraft.create("dummy_sc", test_tle, 300.000, spacecraft.Satellite_Size.Cube, constants.earth, std.testing.allocator);
+    var test_sc = Spacecraft.create("dummy_sc", test_tle, 300.000, spacecraft.Satellite_Size.Cube, constants.earth, allocator);
     defer test_sc.deinit();
 
     try test_sc.propagate(
