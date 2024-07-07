@@ -139,7 +139,7 @@ pub fn main() !void {
     for (test_sc.orbit_predictions.items) |iter| {
         const r = math.sqrt(iter.state[0] * iter.state[0] + iter.state[1] * iter.state[1] + iter.state[2] * iter.state[2]);
 
-        std.debug.print("Next Prediction is: {any}", .{r});
+        std.debug.print("Next Prediction is: {any}\n", .{r});
     }
 }
 ```
