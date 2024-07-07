@@ -81,21 +81,20 @@ pub fn Parser(comptime Frame: type) type {
                             i = 0;
                         }
                     }
+                } else {
+                    const new_frame = try Frame.new(file_content, self.allocator, null);
+                    try self.packets.append(new_frame);
+                    if (callback) |cb| {
+                        cb(new_frame);
+                    }
+
+                    const skip_lengh = new_frame.header.packet_size * 4;
+
+                    std.mem.copyForwards(u8, file_content[0..], file_content[skip_lengh - 1 ..]);
+
+                    const new_alloc_size = file_content.len - 1;
+                    file_content = try self.allocator.realloc(file_content, new_alloc_size);
                 }
-                // else {
-                //     const first_frame = try Frame.new(file_content, self.allocator, null);
-                //     _ = try self.packets.append(first_frame);
-                //     file_content = file_content[first_frame.header.packet_size * 4 - 1 ..];
-                //     while (file_content.len > 4) {
-                //         const new_frame = try Frame.new(file_content, self.allocator, null);
-                //         file_content = file_content[new_frame.header.packet_size * 4 - 1 ..];
-                //
-                //         try self.packets.append(new_frame);
-                //         if (callback != null) {
-                //             callback.?(new_frame);
-                //         }
-                //     }
-                // }
             } else if (std.mem.eql(u8, @typeName(Frame), "ccsds.CCSDS")) {
                 if (sync_pattern) |sp| {
                     var i: usize = 0;
@@ -123,21 +122,20 @@ pub fn Parser(comptime Frame: type) type {
                             i = 0;
                         }
                     }
+                } else {
+                    const new_frame = try Frame.new(file_content, self.allocator, null);
+                    try self.packets.append(new_frame);
+                    if (callback) |cb| {
+                        cb(new_frame);
+                    }
+
+                    const skip_lengh = new_frame.header.packet_size + 6;
+
+                    std.mem.copyForwards(u8, file_content[0..], file_content[skip_lengh - 1 ..]);
+
+                    const new_alloc_size = file_content.len - 1;
+                    file_content = try self.allocator.realloc(file_content, new_alloc_size);
                 }
-                // else {
-                //     const first_frame = try Frame.new(file_content, self.allocator, null);
-                //     _ = try self.packets.append(first_frame);
-                //     file_content = file_content[first_frame.header.packet_size + 5 ..];
-                //     while (file_content.len > 4) {
-                //         const new_frame = try Frame.new(file_content, self.allocator, null);
-                //         file_content = file_content[first_frame.header.packet_size + 5 ..];
-                //
-                //         try self.packets.append(new_frame);
-                //         if (callback != null) {
-                //             callback.?(new_frame);
-                //         }
-                //     }
-                // }
             }
         }
 
