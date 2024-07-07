@@ -97,6 +97,38 @@ pub const Datetime = struct {
         return (year % 4 == 0 and year % 100 != 0) or (year % 400 == 0);
     }
 
+    pub fn doy_to_month_day(year: u16, doy: f64) struct { month: u8, day: u8 } {
+        var days_in_month = [_]f64{
+            31.0,
+            28.0,
+            31.0,
+            30.0,
+            31.0,
+            30.0,
+            31.0,
+            31.0,
+            30.0,
+            31.0,
+            30.0,
+            31.0,
+        };
+        if (isLeapYear(year)) days_in_month[1] = 29.0;
+        var month: u8 = 1;
+        var day = doy;
+
+        for (days_in_month) |days| {
+            if (day > days) {
+                day -= days;
+                month += 1;
+            }
+        }
+
+        return .{
+            .month = month,
+            .day = @as(u8, @intFromFloat(day)),
+        };
+    }
+
     pub fn convert_to_j2000(self: Self) f32 {
         const step_1 = 367.0 * @as(f32, @floatFromInt(self.year.?));
         const step_2 = @as(f32, @floatFromInt(self.year.?)) + @floor((@as(f32, @floatFromInt(self.month.?)) + 9.0) / 12.0);

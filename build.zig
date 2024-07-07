@@ -68,6 +68,12 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
+    _ = b.addModule("astroz.spacecraft", .{
+        .root_source_file = b.path("src/spacecraft.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+
     const coord_unit_tests = b.addTest(.{
         .root_source_file = b.path("src/coordinates.zig"),
     });
@@ -110,6 +116,12 @@ pub fn build(b: *std.Build) void {
 
     const run_tle_unit_tests = b.addRunArtifact(tle_unit_tests);
 
+    const spacecraft_unit_tests = b.addTest(.{
+        .root_source_file = b.path("src/spacecraft.zig"),
+    });
+
+    const run_spacecraft_unit_tests = b.addRunArtifact(spacecraft_unit_tests);
+
     const test_step = b.step("test", "Run unit tests");
     test_step.dependOn(&run_coord_unit_tests.step);
     test_step.dependOn(&run_ccsds_unit_tests.step);
@@ -118,4 +130,5 @@ pub fn build(b: *std.Build) void {
     test_step.dependOn(&run_vita49_unit_tests.step);
     test_step.dependOn(&run_parsers_unit_tests.step);
     test_step.dependOn(&run_tle_unit_tests.step);
+    test_step.dependOn(&run_spacecraft_unit_tests.step);
 }
