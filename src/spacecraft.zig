@@ -17,7 +17,7 @@ pub const Satellite_Parameters = struct {
     cross_section: f64,
 };
 
-const Satellite_Size = enum {
+pub const Satellite_Size = enum {
     Cube,
     Medium,
     Large,
