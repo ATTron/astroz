@@ -107,8 +107,10 @@ pub fn main() !void {
 
 ```zig
 const std = @import("std");
+const math = std.math;
 const astroz = @import("astroz");
 const TLE = astroz.tle.TLE;
+const constants = astroz.constants;
 const spacecraft = astroz.spacecraft;
 const Spacecraft = spacecraft.Spacecraft;
 
@@ -122,10 +124,10 @@ pub fn main() !void {
         \\2 55909  43.9978 311.8012 0011446 278.6226  81.3336 15.05761711 71371
     ;
 
-    var tle = try TLE.parse(raw_tle, allocator);
+    var tle = try TLE.parse(test_tle, allocator);
     defer tle.deinit();
 
-    var test_sc = Spacecraft.create("dummy_sc", test_tle, 300.000, spacecraft.Satellite_Size.Cube, constants.earth, allocator);
+    var test_sc = Spacecraft.create("dummy_sc", tle, 300.000, spacecraft.Satellite_Size.Cube, constants.earth, allocator);
     defer test_sc.deinit();
 
     try test_sc.propagate(
@@ -137,11 +139,9 @@ pub fn main() !void {
     for (test_sc.orbit_predictions.items) |iter| {
         const r = math.sqrt(iter.state[0] * iter.state[0] + iter.state[1] * iter.state[1] + iter.state[2] * iter.state[2]);
 
-        std.debug.print("Next Prediction is: {any}", .{iter});
-
+        std.debug.print("Next Prediction is: {any}", .{r});
     }
 }
-
 ```
 
 <img src="https://raw.githubusercontent.com/ATTron/astroz/main/assets/orbit_prop.gif" width="450" height="400" alt="visualization of orbit prop"/>
