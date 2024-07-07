@@ -130,7 +130,7 @@ pub fn main() !void {
 
     try test_sc.propagate(
         test_sc.tle.first_line.epoch,
-        test_sc.tle.first_line.epoch + 3 * 86400.0, // 2 days worth of orbit predictions
+        test_sc.tle.first_line.epoch + 3 * 86400.0, // 3 days worth of orbit predictions
         1,
     );
 
