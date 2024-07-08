@@ -361,7 +361,7 @@ test "create spacecraft" {
     // std.debug.print("Orbit data written to orbit_data.csv\n", .{});
 }
 
-test "prop spacecraft w/ impulses" {
+test "prop spacecraft w/ impulse" {
     const raw_tle =
         \\1 55909U 23035B   24187.51050877  .00023579  00000+0  16099-2 0  9998
         \\2 55909  43.9978 311.8012 0011446 278.6226  81.3336 15.05761711 71371
@@ -369,17 +369,17 @@ test "prop spacecraft w/ impulses" {
     var test_tle = try TLE.parse(raw_tle, std.testing.allocator);
     defer test_tle.deinit();
 
-    const impulses = [_]Impulse{
-        .{ .time = 3600.0, .delta_v = .{ 0.05, 0.03, 0.01 } },
-        .{ .time = 7200.0, .delta_v = .{ 1.1, -0.05, 0.02 } },
-        .{ .time = 10800.0, .delta_v = .{ -0.03, 0.08, -0.01 } },
-    };
-
     var test_sc = Spacecraft.create("dummy_sc", test_tle, 300.000, Satellite_Size.Cube, constants.earth, std.testing.allocator);
     defer test_sc.deinit();
+
+    const t = (test_sc.tle.first_line.epoch + 3 * 86400.0) - 20800.0;
+    const impulses = [_]Impulse{
+        .{ .time = t, .delta_v = .{ -1.0, -0.18, 0.0 } },
+    };
+
     try test_sc.propagate(
         test_sc.tle.first_line.epoch,
-        test_sc.tle.first_line.epoch + 2 * 86400.0,
+        test_sc.tle.first_line.epoch + 3 * 86400.0,
         1,
         &impulses,
     );
