@@ -174,7 +174,7 @@ pub fn main() !void {
     var test_sc = Spacecraft.create("dummy_sc", tle, 300.000, spacecraft.Satellite_Size.Cube, constants.earth, allocator);
     defer test_sc.deinit();
 
-    const impulses = [_]Impulse{
+    const impulses = [_]spacecraft.Impulse{
         .{ .time = 3600.0, .delta_v = .{ 0.05, 0.03, 0.01 }, .mode = .Absolute },
         .{ .time = 7200.0, .delta_v = .{ 1.1, -0.05, 0.02 }, .mode = .Absolute },
         .{ .time = 10800.0, .delta_v = .{ -0.03, 0.08, -0.01 }, .mode = .Absolute },
