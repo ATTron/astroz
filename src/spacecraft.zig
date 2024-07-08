@@ -319,8 +319,8 @@ test "create spacecraft" {
 
     try test_sc.propagate(
         test_sc.tle.first_line.epoch,
-        test_sc.tle.first_line.epoch + 2 * 86400.0,
-        1,
+        3, // days to predict
+        1, // steps, i.e. predict every simulated second
         null,
     );
 
