@@ -132,8 +132,8 @@ pub fn main() !void {
 
     try test_sc.propagate(
         test_sc.tle.first_line.epoch,
-        test_sc.tle.first_line.epoch + 3 * 86400.0, // 3 days worth of orbit predictions
-        1,
+        3, // 3 days worth of orbit predictions
+        1, // steps, i.e. repredict every simulated second
         null,
     );
 
@@ -182,8 +182,8 @@ pub fn main() !void {
 
     try test_sc.propagate(
         test_sc.tle.first_line.epoch,
-        test_sc.tle.first_line.epoch + 3 * 86400.0, // 3 days worth of orbit predictions
-        1,
+        3, // 3 days worth of orbit predictions
+        1, // steps, i.e. repredict every simulated second
         &impulses,
     );
 

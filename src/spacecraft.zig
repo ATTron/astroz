@@ -73,9 +73,10 @@ pub const Spacecraft = struct {
         self.orbit_predictions.deinit();
     }
 
-    pub fn propagate(self: *Self, t0: f64, tf: f64, h: f64, impulse_list: ?[]const Impulse) !void {
+    pub fn propagate(self: *Self, t0: f64, days: f64, h: f64, impulse_list: ?[]const Impulse) !void {
         const y0 = self.tle_to_state_vector();
         var t = t0;
+        const tf = self.tle.first_line.epoch + days * 86400.0;
         var y = y0;
         const initial_energy = self.calculate_energy(y);
         std.log.debug("Initial energy established: {d}\n", .{initial_energy});
@@ -362,8 +363,8 @@ test "prop spacecraft w/ impulse" {
 
     try test_sc.propagate(
         test_sc.tle.first_line.epoch,
-        test_sc.tle.first_line.epoch + 3 * 86400.0,
-        1,
+        3, // days to predict
+        1, // steps, i.e. predict every simulated second
         &impulses,
     );
 
