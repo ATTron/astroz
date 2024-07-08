@@ -195,6 +195,8 @@ pub fn main() !void {
 }
 ```
 
+<img src="https://raw.githubusercontent.com/ATTron/astroz/main/assets/orbit_prop_w_impulse.gif" width="450" height="400" alt="visualization of orbit prop with impulses"/>
+
 #### Setup Vita49 Parser
 
 ##### W/ Callback
