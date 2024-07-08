@@ -18,7 +18,7 @@
   - [x] Orbital Propagation
     - [x] RK4
   - [ ] Orbital Maneuvers
-    - [ ] Impulse Maneuvers
+    - [x] Impulse Maneuvers
     - [ ] Phase Maneuvers
     - [ ] Plane Change Maneuvers
 
@@ -134,6 +134,7 @@ pub fn main() !void {
         test_sc.tle.first_line.epoch,
         test_sc.tle.first_line.epoch + 3 * 86400.0, // 3 days worth of orbit predictions
         1,
+        null,
     );
 
     for (test_sc.orbit_predictions.items) |iter| {
@@ -145,6 +146,56 @@ pub fn main() !void {
 ```
 
 <img src="https://raw.githubusercontent.com/ATTron/astroz/main/assets/orbit_prop.gif" width="450" height="400" alt="visualization of orbit prop"/>
+
+#### Orbit Prop for the next 3 days w/ impulse manuevers
+
+```zig
+const std = @import("std");
+const math = std.math;
+const astroz = @import("astroz");
+const TLE = astroz.tle.TLE;
+const constants = astroz.constants;
+const spacecraft = astroz.spacecraft;
+const Spacecraft = spacecraft.Spacecraft;
+
+pub fn main() !void {
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    defer _ = gpa.deinit();
+    const allocator = gpa.allocator();
+
+    const test_tle =
+        \\1 55909U 23035B   24187.51050877  .00023579  00000+0  16099-2 0  9998
+        \\2 55909  43.9978 311.8012 0011446 278.6226  81.3336 15.05761711 71371
+    ;
+
+    var tle = try TLE.parse(test_tle, allocator);
+    defer tle.deinit();
+
+    var test_sc = Spacecraft.create("dummy_sc", tle, 300.000, spacecraft.Satellite_Size.Cube, constants.earth, allocator);
+    defer test_sc.deinit();
+
+    const impulses = [_]Impulse{
+        .{ .time = 3600.0, .delta_v = .{ 0.05, 0.03, 0.01 } },
+        .{ .time = 7200.0, .delta_v = .{ 1.1, -0.05, 0.02 } },
+        .{ .time = 10800.0, .delta_v = .{ -0.03, 0.08, -0.01 } },
+    };
+
+    try test_sc.propagate(
+        test_sc.tle.first_line.epoch,
+        test_sc.tle.first_line.epoch + 3 * 86400.0, // 3 days worth of orbit predictions
+        1,
+        &impulses,
+    );
+
+    for (test_sc.orbit_predictions.items) |iter| {
+        const r = math.sqrt(iter.state[0] * iter.state[0] + iter.state[1] * iter.state[1] + iter.state[2] * iter.state[2]);
+
+        std.debug.print("Next Prediction is: {any}\n", .{r});
+    }
+}
+```
+
+<img src="https://raw.githubusercontent.com/ATTron/astroz/main/assets/orbit_prop_w_impulse.gif" width="450" height="400" alt="visualization of orbit prop with impulses"/>
 
 #### Setup Vita49 Parser
 

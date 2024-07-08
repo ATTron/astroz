@@ -17,6 +17,11 @@ pub const Satellite_Parameters = struct {
     cross_section: f64,
 };
 
+pub const Impulse = struct {
+    time: f64,
+    delta_v: [3]f64,
+};
+
 pub const Satellite_Size = enum {
     Cube,
     Medium,
@@ -67,24 +72,43 @@ pub const Spacecraft = struct {
         self.orbit_predictions.deinit();
     }
 
-    pub fn propagate(self: *Self, t0: f64, tf: f64, h: f64) !void {
+    pub fn propagate(self: *Self, t0: f64, tf: f64, h: f64, impulse_list: ?[]const Impulse) !void {
         const y0 = self.tle_to_state_vector();
-
         var t = t0;
         var y = y0;
         const initial_energy = self.calculate_energy(y);
-        std.log.debug("Inital energy established: {d}\n", .{initial_energy});
-
+        std.log.debug("Initial energy established: {d}\n", .{initial_energy});
         try self.orbit_predictions.append(StateTime{ .time = t, .state = y });
-
         var step: usize = 0;
+        var impulse_index: usize = 0;
+
         while (t < tf) : (step += 1) {
-            y = self.rk4(y, h);
-            t += h;
+            // Check for impulses
+            if (impulse_list) |impulses| {
+                while (impulse_index < impulses.len and impulses[impulse_index].time <= t + h) {
+                    // Propagate to the impulse time
+                    const dt = impulses[impulse_index].time - t;
+                    if (dt > 0) {
+                        y = self.rk4(y, dt);
+                        t += dt;
+                        try self.orbit_predictions.append(StateTime{ .time = t, .state = y });
+                    }
+
+                    // Apply the impulse
+                    y = impulse(y, impulses[impulse_index].delta_v);
+                    try self.orbit_predictions.append(StateTime{ .time = t, .state = y });
+
+                    impulse_index += 1;
+                }
+            }
+
+            // Regular propagation step
+            const step_size = @min(h, tf - t);
+            y = self.rk4(y, step_size);
+            t += step_size;
 
             const energy = self.calculate_energy(y);
             const r = math.sqrt(y[0] * y[0] + y[1] * y[1] + y[2] * y[2]);
-
             try self.orbit_predictions.append(StateTime{ .time = t, .state = y });
 
             if (energy > 0 or std.math.isNan(energy) or r > 100000) {
@@ -97,6 +121,37 @@ pub const Spacecraft = struct {
             }
         }
     }
+
+    // pub fn propagate(self: *Self, t0: f64, tf: f64, h: f64) !void {
+    //     const y0 = self.tle_to_state_vector();
+    //
+    //     var t = t0;
+    //     var y = y0;
+    //     const initial_energy = self.calculate_energy(y);
+    //     std.log.debug("Inital energy established: {d}\n", .{initial_energy});
+    //
+    //     try self.orbit_predictions.append(StateTime{ .time = t, .state = y });
+    //
+    //     var step: usize = 0;
+    //     while (t < tf) : (step += 1) {
+    //         y = self.rk4(y, h);
+    //         t += h;
+    //
+    //         const energy = self.calculate_energy(y);
+    //         const r = math.sqrt(y[0] * y[0] + y[1] * y[1] + y[2] * y[2]);
+    //
+    //         try self.orbit_predictions.append(StateTime{ .time = t, .state = y });
+    //
+    //         if (energy > 0 or std.math.isNan(energy) or r > 100000) {
+    //             std.log.warn("Abnormal orbit detected at step {d}", .{step});
+    //             std.log.warn("Time: {d} seconds", .{t - t0});
+    //             std.log.warn("State vector: {any}", .{y});
+    //             std.log.warn("Radius: {d} km", .{r});
+    //             std.log.warn("Energy: {d}", .{energy});
+    //             break;
+    //         }
+    //     }
+    // }
 
     fn rk4(self: Self, y: StateV, h: f64) StateV {
         const k1 = scalar_multiply(h, self.derivative(y));
@@ -259,6 +314,13 @@ pub const Spacecraft = struct {
 
         return E;
     }
+
+    pub fn impulse(state: StateV, delta_v: [3]f64) StateV {
+        return .{
+            state[0],              state[1],              state[2],
+            state[3] + delta_v[0], state[4] + delta_v[1], state[5] + delta_v[2],
+        };
+    }
 };
 
 test "create spacecraft" {
@@ -274,8 +336,52 @@ test "create spacecraft" {
 
     try test_sc.propagate(
         test_sc.tle.first_line.epoch,
-        test_sc.tle.first_line.epoch + 2 * 86400.0, // 2 days worth of orbit predictions
+        test_sc.tle.first_line.epoch + 2 * 86400.0,
         1,
+        null,
+    );
+
+    for (test_sc.orbit_predictions.items) |iter| {
+        const r = math.sqrt(iter.state[0] * iter.state[0] + iter.state[1] * iter.state[1] + iter.state[2] * iter.state[2]);
+
+        try std.testing.expect(r > test_sc.orbiting_object.eq_radius.?);
+    }
+
+    // write out to file for creating test mapping data
+    // const file = try std.fs.cwd().createFile("./test/files/orbit_data.csv", .{});
+    // defer file.close();
+    // const writer = file.writer();
+    //
+    // try writer.writeAll("time,x,y,z\n");
+    //
+    // for (test_sc.orbit_predictions.items) |item| {
+    //     try writer.print("{d},{d},{d},{d}\n", .{ item.time, item.state[0], item.state[1], item.state[2] });
+    // }
+    //
+    // std.debug.print("Orbit data written to orbit_data.csv\n", .{});
+}
+
+test "prop spacecraft w/ impulses" {
+    const raw_tle =
+        \\1 55909U 23035B   24187.51050877  .00023579  00000+0  16099-2 0  9998
+        \\2 55909  43.9978 311.8012 0011446 278.6226  81.3336 15.05761711 71371
+    ;
+    var test_tle = try TLE.parse(raw_tle, std.testing.allocator);
+    defer test_tle.deinit();
+
+    const impulses = [_]Impulse{
+        .{ .time = 3600.0, .delta_v = .{ 0.05, 0.03, 0.01 } },
+        .{ .time = 7200.0, .delta_v = .{ 1.1, -0.05, 0.02 } },
+        .{ .time = 10800.0, .delta_v = .{ -0.03, 0.08, -0.01 } },
+    };
+
+    var test_sc = Spacecraft.create("dummy_sc", test_tle, 300.000, Satellite_Size.Cube, constants.earth, std.testing.allocator);
+    defer test_sc.deinit();
+    try test_sc.propagate(
+        test_sc.tle.first_line.epoch,
+        test_sc.tle.first_line.epoch + 2 * 86400.0,
+        1,
+        &impulses,
     );
 
     for (test_sc.orbit_predictions.items) |iter| {
