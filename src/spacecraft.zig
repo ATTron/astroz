@@ -20,6 +20,7 @@ pub const Satellite_Parameters = struct {
 pub const Impulse = struct {
     time: f64,
     delta_v: [3]f64,
+    mode: enum { Absolute, Prograde },
 };
 
 pub const Satellite_Size = enum {
@@ -83,10 +84,8 @@ pub const Spacecraft = struct {
         var impulse_index: usize = 0;
 
         while (t < tf) : (step += 1) {
-            // Check for impulses
             if (impulse_list) |impulses| {
                 while (impulse_index < impulses.len and impulses[impulse_index].time <= t + h) {
-                    // Propagate to the impulse time
                     const dt = impulses[impulse_index].time - t;
                     if (dt > 0) {
                         y = self.rk4(y, dt);
@@ -94,8 +93,22 @@ pub const Spacecraft = struct {
                         try self.orbit_predictions.append(StateTime{ .time = t, .state = y });
                     }
 
-                    // Apply the impulse
-                    y = impulse(y, impulses[impulse_index].delta_v);
+                    switch (impulses[impulse_index].mode) {
+                        .Absolute => {
+                            y = impulse(y, impulses[impulse_index].delta_v);
+                        },
+                        .Prograde => {
+                            const velocity_magnitude = math.sqrt(y[3] * y[3] + y[4] * y[4] + y[5] * y[5]);
+                            const delta_v_magnitude = impulses[impulse_index].delta_v[0]; // Use the x-component as magnitude
+                            const delta_v = [3]f64{
+                                y[3] / velocity_magnitude * delta_v_magnitude,
+                                y[4] / velocity_magnitude * delta_v_magnitude,
+                                y[5] / velocity_magnitude * delta_v_magnitude,
+                            };
+                            y = impulse(y, delta_v);
+                        },
+                    }
+
                     try self.orbit_predictions.append(StateTime{ .time = t, .state = y });
 
                     impulse_index += 1;
@@ -121,37 +134,6 @@ pub const Spacecraft = struct {
             }
         }
     }
-
-    // pub fn propagate(self: *Self, t0: f64, tf: f64, h: f64) !void {
-    //     const y0 = self.tle_to_state_vector();
-    //
-    //     var t = t0;
-    //     var y = y0;
-    //     const initial_energy = self.calculate_energy(y);
-    //     std.log.debug("Inital energy established: {d}\n", .{initial_energy});
-    //
-    //     try self.orbit_predictions.append(StateTime{ .time = t, .state = y });
-    //
-    //     var step: usize = 0;
-    //     while (t < tf) : (step += 1) {
-    //         y = self.rk4(y, h);
-    //         t += h;
-    //
-    //         const energy = self.calculate_energy(y);
-    //         const r = math.sqrt(y[0] * y[0] + y[1] * y[1] + y[2] * y[2]);
-    //
-    //         try self.orbit_predictions.append(StateTime{ .time = t, .state = y });
-    //
-    //         if (energy > 0 or std.math.isNan(energy) or r > 100000) {
-    //             std.log.warn("Abnormal orbit detected at step {d}", .{step});
-    //             std.log.warn("Time: {d} seconds", .{t - t0});
-    //             std.log.warn("State vector: {any}", .{y});
-    //             std.log.warn("Radius: {d} km", .{r});
-    //             std.log.warn("Energy: {d}", .{energy});
-    //             break;
-    //         }
-    //     }
-    // }
 
     fn rk4(self: Self, y: StateV, h: f64) StateV {
         const k1 = scalar_multiply(h, self.derivative(y));
@@ -372,9 +354,10 @@ test "prop spacecraft w/ impulse" {
     var test_sc = Spacecraft.create("dummy_sc", test_tle, 300.000, Satellite_Size.Cube, constants.earth, std.testing.allocator);
     defer test_sc.deinit();
 
-    const t = (test_sc.tle.first_line.epoch + 3 * 86400.0) - 20800.0;
     const impulses = [_]Impulse{
-        .{ .time = t, .delta_v = .{ -1.0, -0.18, 0.0 } },
+        .{ .time = 2635014.50, .delta_v = .{ 0.2, 0.0, 0.0 }, .mode = .Prograde },
+        .{ .time = 2638026.50, .delta_v = .{ 0.2, 0.0, 0.0 }, .mode = .Prograde },
+        .{ .time = 2638103.50, .delta_v = .{ 0.2, 0.0, 0.0 }, .mode = .Prograde },
     };
 
     try test_sc.propagate(
