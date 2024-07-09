@@ -3,6 +3,8 @@ const time = @import("time.zig");
 const constants = @import("constants.zig");
 const calculations = @import("calculations.zig");
 
+/// ECS is a commonly used coordinate system in astronomy as it doesnt rely on
+/// the position of the viewer. Allowing you to find what you're looking easily without conversion
 pub const Equatorial_Coordinate_System = struct {
     declination: Declination,
     right_ascension: Right_Ascension,
@@ -17,6 +19,7 @@ pub const Equatorial_Coordinate_System = struct {
     }
 
     // this can 100% be done better
+    /// This will tell you where to find anything at any date after Jan 1 2000 in the ECS format
     pub fn precess(self: Self, date: time.Datetime) Equatorial_Coordinate_System {
         const precess_constants = Precess.precess(date);
         const deltas = self.calculate_ra_dec(precess_constants);
@@ -66,6 +69,7 @@ pub const Equatorial_Coordinate_System = struct {
     }
 };
 
+/// This is the declination portion of ECS
 pub const Declination = struct {
     degrees: u16,
     arcminutes: u16,
@@ -81,6 +85,7 @@ pub const Declination = struct {
         };
     }
 
+    /// to precess, we have to be able to convert to angular degrees
     pub fn convert_to_angular(self: Self) f64 {
         const degrees = @as(f32, @floatFromInt(self.degrees));
         const arcminutes = @as(f32, @floatFromInt(self.arcminutes)) / 60;
@@ -89,6 +94,7 @@ pub const Declination = struct {
     }
 };
 
+/// This is the right ascension portion of ECS
 pub const Right_Ascension = struct {
     hours: u16,
     minutes: u16,
@@ -104,6 +110,7 @@ pub const Right_Ascension = struct {
         };
     }
 
+    /// to precess, we have to be able to convert to angular degrees
     pub fn convert_to_angular(self: Self) f64 {
         const hours = @as(f32, @floatFromInt(self.hours));
         const minutes = @as(f32, @floatFromInt(self.minutes)) / 60.0;

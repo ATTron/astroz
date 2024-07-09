@@ -1,5 +1,6 @@
 const std = @import("std");
 
+/// Custom datetime object for dealing with a variety of datetime formats
 pub const Datetime = struct {
     instant: ?std.time.Instant,
     doy: ?u16,
@@ -13,22 +14,26 @@ pub const Datetime = struct {
 
     const Self = @This();
 
+    /// for dates only
     pub fn new_date(year: u16, month: u8, day: u8) Self {
         var dt = Datetime{ .instant = null, .doy = null, .days_in_year = 365, .year = year, .month = month, .day = day, .hours = null, .minutes = null, .seconds = null };
         dt.calculate_doy();
         return dt;
     }
 
+    /// for times only
     pub fn new_time(hours: u8, minutes: u8, seconds: f16) Self {
         return .{ .instant = null, .doy = null, .days_in_year = 365, .year = null, .month = null, .day = null, .hours = hours, .minutes = minutes, .seconds = seconds };
     }
 
+    /// if you have a full timestamp
     pub fn new_datetime(year: u16, month: u8, day: u8, hours: u8, minutes: u8, seconds: f16) Self {
         var dt = Datetime{ .instant = null, .doy = null, .days_in_year = 365, .year = year, .month = month, .day = day, .hours = hours, .minutes = minutes, .seconds = seconds };
         dt.calculate_doy();
         return dt;
     }
 
+    /// if you want an Instant converted
     pub fn from_instant(instant: std.time.Instant) Self {
         var new_dt = Self{ .instant = instant, .doy = null, .days_in_year = 365, .year = null, .month = null, .day = null, .hours = null, .minutes = null, .seconds = null };
         return new_dt.epoch_to_datetime();
@@ -97,6 +102,7 @@ pub const Datetime = struct {
         return (year % 4 == 0 and year % 100 != 0) or (year % 400 == 0);
     }
 
+    /// this is used by the TLE lib to generate an epoch
     pub fn doy_to_month_day(year: u16, doy: f64) struct { month: u8, day: u8 } {
         var days_in_month = [_]f64{
             31.0,
@@ -129,6 +135,7 @@ pub const Datetime = struct {
         };
     }
 
+    /// Converts your datetime to the J2000 format used in astronomy
     pub fn convert_to_j2000(self: Self) f32 {
         const step_1 = 367.0 * @as(f32, @floatFromInt(self.year.?));
         const step_2 = @as(f32, @floatFromInt(self.year.?)) + @floor((@as(f32, @floatFromInt(self.month.?)) + 9.0) / 12.0);
@@ -141,6 +148,7 @@ pub const Datetime = struct {
         return step_7;
     }
 
+    /// Converts your datetime to the Modified J2000 format used in astronomy
     pub fn convert_to_modified_jd(self: Self) f32 {
         return self.convert_to_j2000() - 2400000.5;
     }

@@ -2,8 +2,11 @@ const std = @import("std");
 const math = std.math;
 const DateTime = @import("time.zig").Datetime;
 
+/// TLE Error types
+/// Only contains a single error, but may be expanded in the future
 pub const TleError = error{BadTLELength};
 
+/// The first line of a TLE which comes from passed in TLE
 pub const First_Line = struct {
     line_number: u8,
     satellite_number: u32,
@@ -78,12 +81,11 @@ pub const First_Line = struct {
 
         const full_epoch = DateTime.new_date(epoch_year, month_day.month, month_day.day).convert_to_j2000();
 
-        // std.log.warn("FULL EPOCH IS: {d}", .{full_epoch});
-
         return full_epoch;
     }
 };
 
+/// Second line that comes from passed in TLE
 pub const Second_Line = struct {
     line_number: u8,
     satellite_number: u32,
@@ -126,6 +128,9 @@ pub const Second_Line = struct {
     }
 };
 
+/// The proper TLE struct
+/// You should only call this when you are parsing a TLE
+/// The First_Line and Second_Line are being built by the parse method
 pub const TLE = struct {
     first_line: First_Line,
     second_line: Second_Line,
@@ -148,6 +153,7 @@ pub const TLE = struct {
         self.allocator.free(self.second_line.clean_line);
     }
 
+    /// Helpful for sanity checking TLE parsing
     pub fn output(self: Self) void {
         // 1st line
         std.debug.print("line_number: {c}\n", .{self.first_line.line_number});

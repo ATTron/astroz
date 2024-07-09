@@ -1,8 +1,9 @@
 const std = @import("std");
 
+/// Vita49 Possible error types
 pub const Vita49Error = error{ MalformedPayloadRange, InsufficentData };
 
-pub const Packet_Type = enum(u4) {
+const Packet_Type = enum(u4) {
     signal_wo_stream_id = 0,
     signal_w_stream_id = 1,
     ext_data_wo_stream_id = 2,
@@ -13,21 +14,21 @@ pub const Packet_Type = enum(u4) {
     ext_cmd_packet = 7,
 };
 
-pub const TSF = enum(u2) {
+const TSF = enum(u2) {
     none = 0,
     sample_count = 1,
     real_time = 2,
     free_running_count = 3,
 };
 
-pub const TSI = enum(u2) {
+const TSI = enum(u2) {
     none = 0,
     utc = 1,
     gps = 2,
     other = 3,
 };
 
-pub const Trailer = packed struct {
+const Trailer = packed struct {
     enables: u12,
     state: u12,
     e: bool,
@@ -100,6 +101,7 @@ pub const Class_ID = packed struct {
     }
 };
 
+/// The Vita49 packet type which will be used by the Parser
 pub const Vita49 = struct {
     header: Header,
     stream_id: ?u32,

@@ -6,17 +6,21 @@ const TLE = @import("tle.zig").TLE;
 const Celistal_Body = constants.Celestial_Body;
 const Datetime = @import("time.zig").Datetime;
 
-const StateV = [6]f64; // State Vector
+/// State Vector - Used for position and velcity knowledge
+const StateV = [6]f64;
+/// Contains time and state vector to be used during propagation
 const StateTime = struct {
     time: f64,
     state: StateV,
 };
 
+/// Satellite details used in calculations
 pub const Satellite_Parameters = struct {
     drag: f64,
     cross_section: f64,
 };
 
+/// The impulse maneuver type
 pub const Impulse = struct {
     time: f64,
     delta_v: [3]f64,
@@ -24,6 +28,7 @@ pub const Impulse = struct {
     phase_change: ?f64 = null,
 };
 
+/// Enum that helps determine the values in the Satellite_Parameters struct
 pub const Satellite_Size = enum {
     Cube,
     Medium,
@@ -47,6 +52,7 @@ pub const Satellite_Size = enum {
     }
 };
 
+/// This spacecraft type is the base class that takes the inputs needed to determine future orbit paths
 pub const Spacecraft = struct {
     name: []const u8,
     tle: TLE,
@@ -74,6 +80,8 @@ pub const Spacecraft = struct {
         self.orbit_predictions.deinit();
     }
 
+    /// This will call the proper propagation methods based on a TLE epoch and recalculation time
+    /// Most of the functions this calls are private and will need code inspection to see
     pub fn propagate(self: *Self, t0: f64, days: f64, h: f64, impulse_list: ?[]const Impulse) !void {
         const y0 = self.tle_to_state_vector();
         var t = t0;
@@ -266,6 +274,7 @@ pub const Spacecraft = struct {
         return corrected_state;
     }
 
+    /// This will calculate and return the position and velocity state vector from the TLE of the spacecraft
     pub fn tle_to_state_vector(self: Self) [6]f64 {
         const inclination = calculations.degrees_to_radians(self.tle.second_line.inclination);
         const raan = calculations.degrees_to_radians(self.tle.second_line.right_ascension);
@@ -322,14 +331,14 @@ pub const Spacecraft = struct {
         return E;
     }
 
-    pub fn impulse(state: StateV, delta_v: [3]f64) StateV {
+    fn impulse(state: StateV, delta_v: [3]f64) StateV {
         return .{
             state[0],              state[1],              state[2],
             state[3] + delta_v[0], state[4] + delta_v[1], state[5] + delta_v[2],
         };
     }
 
-    pub fn calculate_phase_change(self: Self, radius: f64, phase_change: f64, transfer_orbits: f64) f64 {
+    fn calculate_phase_change(self: Self, radius: f64, phase_change: f64, transfer_orbits: f64) f64 {
         const v_circular = @sqrt(self.orbiting_object.mu / radius);
         const period = 2 * math.pi * @sqrt(math.pow(f64, radius, 3) / self.orbiting_object.mu);
         const delta_t = phase_change * period / (2 * math.pi);
