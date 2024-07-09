@@ -440,16 +440,4 @@ test "prop spacecraft w/ phase" {
 
         try std.testing.expect(r > test_sc.orbiting_object.eq_radius.?);
     }
-
-    const file = try std.fs.cwd().createFile("./test/files/orbit_data_with_phase.csv", .{});
-    defer file.close();
-    const writer = file.writer();
-
-    try writer.writeAll("time,x,y,z\n");
-
-    for (test_sc.orbit_predictions.items) |item| {
-        try writer.print("{d},{d},{d},{d}\n", .{ item.time, item.state[0], item.state[1], item.state[2] });
-    }
-
-    std.debug.print("Orbit data written to orbit_data.csv\n", .{});
 }
