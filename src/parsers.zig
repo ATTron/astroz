@@ -3,6 +3,7 @@ const net = std.net;
 const Vita49 = @import("vita49.zig").Vita49;
 const CCSDS = @import("ccsds.zig").CCSDS;
 
+/// This is a semi generic function that takes either Vita49 or CCSDS as the Frame type
 pub fn Parser(comptime Frame: type) type {
     return struct {
         ip_address: []const u8,
@@ -30,6 +31,7 @@ pub fn Parser(comptime Frame: type) type {
             };
         }
 
+        /// If you are using a parser, this will clean up any allocator mess left per packet that is created by the Parser
         pub fn deinit(self: *Self) void {
             for (self.packets.items) |*packet| {
                 packet.deinit();
@@ -37,6 +39,7 @@ pub fn Parser(comptime Frame: type) type {
             self.packets.deinit();
         }
 
+        /// Use this if you have a recording you need to parse
         pub fn parse_from_file(
             self: *Self,
             file_name: []const u8,
@@ -139,6 +142,7 @@ pub fn Parser(comptime Frame: type) type {
             }
         }
 
+        /// This will start the tcp listener and begin parsing as data comes in
         pub fn start(self: *Self, comptime callback: ?fn (Frame) void) !void {
             const addr = try net.Address.parseIp4(self.ip_address, self.port);
 
@@ -159,6 +163,8 @@ pub fn Parser(comptime Frame: type) type {
             }
         }
 
+        /// Kills the tcp connection
+        /// Make sure you clean up
         pub fn stop(self: *Self) void {
             self.should_stop = true;
         }

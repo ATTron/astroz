@@ -1,10 +1,13 @@
 const std = @import("std");
 
-// CCSDS Config Data Structure
+/// CCSDS Config Data Structure
+/// This functionality is still so-so
+/// Probably avoid it for now
 pub const Config = struct {
     secondary_header_length: u8,
 };
 
+/// The primary headers metadata
 pub const Header_Metadata = packed struct { version: u3, packet_type: u1, secondary_header_flag: bool, apid: u11, sequence_flag: u2, packet_sequence_count: u14, packet_size: u16 };
 
 /// CCSDS Data Structure
@@ -66,6 +69,7 @@ pub const CCSDS = struct {
     }
 };
 
+/// If you choose to use the CCSDS config you need to call this function first to get the Config struct
 pub fn parse_config(config_content: []const u8, allocator: std.mem.Allocator) !Config {
     const config_parsed = try std.json.parseFromSlice(Config, allocator, config_content, .{});
     defer config_parsed.deinit();
