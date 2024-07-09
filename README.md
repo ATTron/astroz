@@ -19,7 +19,7 @@
     - [x] RK4
   - [ ] Orbital Maneuvers
     - [x] Impulse Maneuvers
-    - [ ] Phase Maneuvers
+    - [x] Phase Maneuvers
     - [ ] Plane Change Maneuvers
 
 ### Astronomical
