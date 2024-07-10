@@ -24,8 +24,22 @@ pub const Satellite_Parameters = struct {
 pub const Impulse = struct {
     time: f64,
     delta_v: [3]f64,
-    mode: enum { Absolute, Prograde, Phase },
+    mode: enum { Absolute, Prograde, Phase, Plane_Change },
     phase_change: ?f64 = null,
+    plane_change: ?struct {
+        delta_inclination: f64,
+        delta_raan: f64,
+    } = null,
+};
+
+/// this is used for propagation
+pub const Orbital_Elements = struct {
+    a: f64,
+    e: f64,
+    i: f64,
+    raan: f64,
+    arg_periapsis: f64,
+    true_anomaly: f64,
 };
 
 /// Enum that helps determine the values in the Satellite_Parameters struct
@@ -83,12 +97,13 @@ pub const Spacecraft = struct {
     /// This will call the proper propagation methods based on a TLE epoch and recalculation time
     /// Most of the functions this calls are private and will need code inspection to see
     pub fn propagate(self: *Self, t0: f64, days: f64, h: f64, impulse_list: ?[]const Impulse) !void {
-        const y0 = self.tle_to_state_vector();
+        const y0_oe = self.tle_to_orbital_elements();
+        const y0 = orbital_elements_to_state_vector(y0_oe, self.orbiting_object.mu);
         var t = t0;
         const tf = self.tle.first_line.epoch + days * 86400.0;
         var y = y0;
         const initial_energy = self.calculate_energy(y);
-        std.log.debug("Initial energy established: {d}\n", .{initial_energy});
+        std.log.info("Initial energy established: {d}\n", .{initial_energy});
         try self.orbit_predictions.append(StateTime{ .time = t, .state = y });
         var step: usize = 0;
         var impulse_index: usize = 0;
@@ -106,6 +121,7 @@ pub const Spacecraft = struct {
                     switch (impulses[impulse_index].mode) {
                         .Absolute => {
                             y = impulse(y, impulses[impulse_index].delta_v);
+                            std.log.info("Impulse completed at t={d:.2}s", .{t});
                         },
                         .Prograde => {
                             const velocity_magnitude = @sqrt(y[3] * y[3] + y[4] * y[4] + y[5] * y[5]);
@@ -116,6 +132,7 @@ pub const Spacecraft = struct {
                                 y[5] / velocity_magnitude * delta_v_magnitude,
                             };
                             y = impulse(y, delta_v);
+                            std.log.info("Prograde impulse completed at t={d:.2}s", .{t});
                         },
                         .Phase => {
                             const r = @sqrt(y[0] * y[0] + y[1] * y[1] + y[2] * y[2]);
@@ -140,6 +157,12 @@ pub const Spacecraft = struct {
                             try self.orbit_predictions.append(StateTime{ .time = t, .state = y });
                             std.log.info("Phase change completed at t={d:.2}s", .{t});
                         },
+                        .Plane_Change => {
+                            const plane_change = impulses[impulse_index];
+                            y = self.apply_plane_change(y, plane_change);
+                            try self.orbit_predictions.append(StateTime{ .time = t, .state = y });
+                            std.log.info("Plane change completed at t={d:.2}s", .{t});
+                        },
                     }
 
                     try self.orbit_predictions.append(StateTime{ .time = t, .state = y });
@@ -152,9 +175,9 @@ pub const Spacecraft = struct {
             const step_size = @min(h, tf - t);
             y = self.rk4(y, step_size);
             t += step_size;
-
-            const energy = self.calculate_energy(y);
             const r = @sqrt(y[0] * y[0] + y[1] * y[1] + y[2] * y[2]);
+            const energy = self.calculate_energy(y);
+
             try self.orbit_predictions.append(StateTime{ .time = t, .state = y });
 
             if (energy > 0 or std.math.isNan(energy) or r > 100000) {
@@ -191,6 +214,22 @@ pub const Spacecraft = struct {
             result[i] = a[i] + b[i];
         }
         return result;
+    }
+
+    fn cross_product(a: [3]f64, b: [3]f64) [3]f64 {
+        return .{
+            a[1] * b[2] - a[2] * b[1],
+            a[2] * b[0] - a[0] * b[2],
+            a[0] * b[1] - a[1] * b[0],
+        };
+    }
+
+    fn dot_product(a: [3]f64, b: [3]f64) f64 {
+        return a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+    }
+
+    fn magnitude(v: [3]f64) f64 {
+        return math.sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]);
     }
 
     fn scalar_multiply(scalar: f64, vector: StateV) StateV {
@@ -246,36 +285,20 @@ pub const Spacecraft = struct {
         const v_squared = state[3] * state[3] + state[4] * state[4] + state[5] * state[5];
         return 0.5 * v_squared - self.orbiting_object.mu / r;
     }
-    fn correct_energy(self: Self, state: StateV, target_energy: f64) StateV {
-        const current_energy = self.calculate_energy(state);
-        std.log.debug("Current energy: {d}, Target energy: {d}", .{ current_energy, target_energy });
 
-        if (std.math.isNan(current_energy) or std.math.isNan(target_energy)) {
-            std.log.err("NaN energy detected in correct_energy", .{});
-            return state;
-        }
+    fn apply_plane_change(self: *Self, y: [6]f64, plane_change: Impulse) [6]f64 {
+        const mu = self.orbiting_object.mu;
+        const r = [3]f64{ y[0], y[1], y[2] };
+        const v = [3]f64{ y[3], y[4], y[5] };
 
-        if (current_energy >= 0) {
-            std.log.err("Positive energy detected: {d}", .{current_energy});
-            return state;
-        }
+        var elements = state_vector_to_orbital_elements(r, v, mu);
+        elements.i += plane_change.plane_change.?.delta_inclination;
+        elements.raan += plane_change.plane_change.?.delta_raan;
 
-        const energy_ratio = @sqrt(target_energy / current_energy);
-
-        if (std.math.isNan(energy_ratio) or energy_ratio <= 0) {
-            std.log.err("Invalid energy ratio: {d}", .{energy_ratio});
-            return state;
-        }
-
-        var corrected_state = state;
-        corrected_state[3] *= energy_ratio;
-        corrected_state[4] *= energy_ratio;
-        corrected_state[5] *= energy_ratio;
-        return corrected_state;
+        return orbital_elements_to_state_vector(elements, mu);
     }
 
-    /// This will calculate and return the position and velocity state vector from the TLE of the spacecraft
-    pub fn tle_to_state_vector(self: Self) [6]f64 {
+    fn tle_to_orbital_elements(self: Self) Orbital_Elements {
         const inclination = calculations.degrees_to_radians(self.tle.second_line.inclination);
         const raan = calculations.degrees_to_radians(self.tle.second_line.right_ascension);
         const eccentricity = self.tle.second_line.eccentricity;
@@ -288,34 +311,89 @@ pub const Spacecraft = struct {
         const E = solve_kepler_equation(m_anomaly, eccentricity);
         const true_anomaly = 2.0 * math.atan(@sqrt((1 + eccentricity) / (1 - eccentricity)) * @tan(E / 2.0));
 
-        const r = a * (1 - eccentricity * @cos(E));
+        return .{
+            .a = a,
+            .e = eccentricity,
+            .i = inclination,
+            .raan = raan,
+            .arg_periapsis = argument_of_perigee,
+            .true_anomaly = true_anomaly,
+        };
+    }
 
-        const x_orbital = r * @cos(true_anomaly);
-        const y_orbital = r * @sin(true_anomaly);
+    /// convert orbital elements to a usable state vector
+    pub fn orbital_elements_to_state_vector(elements: Orbital_Elements, mu: f64) [6]f64 {
+        const p = elements.a * (1 - elements.e * elements.e);
+        const r = p / (1 + elements.e * @cos(elements.true_anomaly));
 
-        const p = a * (1 - eccentricity * eccentricity);
-        const vx_orbital = -@sqrt(self.orbiting_object.mu / p) * @sin(E);
-        const vy_orbital = @sqrt(self.orbiting_object.mu / p) * (@sqrt(1 - eccentricity * eccentricity) * @cos(E));
+        const r_orbital = [3]f64{
+            r * @cos(elements.true_anomaly),
+            r * @sin(elements.true_anomaly),
+            0,
+        };
+        const v_orbital = [3]f64{
+            -@sqrt(mu / p) * @sin(elements.true_anomaly),
+            @sqrt(mu / p) * (elements.e + @cos(elements.true_anomaly)),
+            0,
+        };
 
-        var position = [3]f64{ 0, 0, 0 };
-        var velocity = [3]f64{ 0, 0, 0 };
+        const cos_raan = @cos(elements.raan);
+        const sin_raan = @sin(elements.raan);
+        const cos_i = @cos(elements.i);
+        const sin_i = @sin(elements.i);
+        const cos_arg = @cos(elements.arg_periapsis);
+        const sin_arg = @sin(elements.arg_periapsis);
 
-        const cos_raan = @cos(raan);
-        const sin_raan = @sin(raan);
-        const cos_argp = @cos(argument_of_perigee);
-        const sin_argp = @sin(argument_of_perigee);
-        const cos_inc = @cos(inclination);
-        const sin_inc = @sin(inclination);
+        const rot = [3][3]f64{
+            .{ cos_raan * cos_arg - sin_raan * sin_arg * cos_i, -cos_raan * sin_arg - sin_raan * cos_arg * cos_i, sin_raan * sin_i },
+            .{ sin_raan * cos_arg + cos_raan * sin_arg * cos_i, -sin_raan * sin_arg + cos_raan * cos_arg * cos_i, -cos_raan * sin_i },
+            .{ sin_arg * sin_i, cos_arg * sin_i, cos_i },
+        };
 
-        position[0] = (cos_raan * cos_argp - sin_raan * sin_argp * cos_inc) * x_orbital + (-cos_raan * sin_argp - sin_raan * cos_argp * cos_inc) * y_orbital;
-        position[1] = (sin_raan * cos_argp + cos_raan * sin_argp * cos_inc) * x_orbital + (-sin_raan * sin_argp + cos_raan * cos_argp * cos_inc) * y_orbital;
-        position[2] = (sin_argp * sin_inc) * x_orbital + (cos_argp * sin_inc) * y_orbital;
+        var r_inertial: [3]f64 = undefined;
+        var v_inertial: [3]f64 = undefined;
 
-        velocity[0] = (cos_raan * cos_argp - sin_raan * sin_argp * cos_inc) * vx_orbital + (-cos_raan * sin_argp - sin_raan * cos_argp * cos_inc) * vy_orbital;
-        velocity[1] = (sin_raan * cos_argp + cos_raan * sin_argp * cos_inc) * vx_orbital + (-sin_raan * sin_argp + cos_raan * cos_argp * cos_inc) * vy_orbital;
-        velocity[2] = (sin_argp * sin_inc) * vx_orbital + (cos_argp * sin_inc) * vy_orbital;
+        r_inertial[0] = rot[0][0] * r_orbital[0] + rot[0][1] * r_orbital[1] + rot[0][2] * r_orbital[2];
+        r_inertial[1] = rot[1][0] * r_orbital[0] + rot[1][1] * r_orbital[1] + rot[1][2] * r_orbital[2];
+        r_inertial[2] = rot[2][0] * r_orbital[0] + rot[2][1] * r_orbital[1] + rot[2][2] * r_orbital[2];
 
-        return .{ position[0], position[1], position[2], velocity[0], velocity[1], velocity[2] };
+        v_inertial[0] = rot[0][0] * v_orbital[0] + rot[0][1] * v_orbital[1] + rot[0][2] * v_orbital[2];
+        v_inertial[1] = rot[1][0] * v_orbital[0] + rot[1][1] * v_orbital[1] + rot[1][2] * v_orbital[2];
+        v_inertial[2] = rot[2][0] * v_orbital[0] + rot[2][1] * v_orbital[1] + rot[2][2] * v_orbital[2];
+
+        return .{ r_inertial[0], r_inertial[1], r_inertial[2], v_inertial[0], v_inertial[1], v_inertial[2] };
+    }
+
+    pub fn state_vector_to_orbital_elements(r: [3]f64, v: [3]f64, mu: f64) Orbital_Elements {
+        const r_mag = magnitude(r);
+        const v_mag = magnitude(v);
+        const h = cross_product(r, v);
+        const h_mag = magnitude(h);
+        const n = cross_product(.{ 0, 0, 1 }, h);
+        const n_mag = magnitude(n);
+
+        const e_vec = .{
+            (v_mag * v_mag - mu / r_mag) * r[0] / mu - dot_product(r, v) * v[0] / mu,
+            (v_mag * v_mag - mu / r_mag) * r[1] / mu - dot_product(r, v) * v[1] / mu,
+            (v_mag * v_mag - mu / r_mag) * r[2] / mu - dot_product(r, v) * v[2] / mu,
+        };
+        const e = magnitude(e_vec);
+
+        const eps = v_mag * v_mag / 2.0 - mu / r_mag;
+        const a = if (@abs(e - 1.0) > 1e-10) -mu / (2.0 * eps) else math.inf(f64);
+        const i = math.acos(h[2] / h_mag);
+        const raan = math.atan2(n[1], n[0]);
+        const arg_periapsis = math.acos(dot_product(n, e_vec) / (n_mag * e));
+        const true_anomaly = math.acos(dot_product(e_vec, r) / (e * r_mag));
+
+        return Orbital_Elements{
+            .a = a,
+            .e = e,
+            .i = i,
+            .raan = raan,
+            .arg_periapsis = if (r[2] >= 0) arg_periapsis else 2 * math.pi - arg_periapsis,
+            .true_anomaly = if (dot_product(r, v) >= 0) true_anomaly else 2 * math.pi - true_anomaly,
+        };
     }
 
     fn solve_kepler_equation(m_anomaly: f64, eccentricity: f64) f64 {
@@ -449,4 +527,65 @@ test "prop spacecraft w/ phase" {
 
         try std.testing.expect(r > test_sc.orbiting_object.eq_radius.?);
     }
+
+    // const file = try std.fs.cwd().createFile("./test/files/orbit_data_with_phase.csv", .{});
+    // defer file.close();
+    // const writer = file.writer();
+    //
+    // try writer.writeAll("time,x,y,z\n");
+    //
+    // for (test_sc.orbit_predictions.items) |item| {
+    //     try writer.print("{d},{d},{d},{d}\n", .{ item.time, item.state[0], item.state[1], item.state[2] });
+    // }
+    //
+    // std.debug.print("Orbit data written to orbit_data.csv\n", .{});
+}
+
+test "prop spacecraft w/ plane change" {
+    const raw_tle =
+        \\1 55909U 23035B   24187.51050877  .00023579  00000+0  16099-2 0  9998
+        \\2 55909  43.9978 311.8012 0011446 278.6226  81.3336 15.05761711 71371
+    ;
+    var test_tle = try TLE.parse(raw_tle, std.testing.allocator);
+    defer test_tle.deinit();
+
+    var test_sc = Spacecraft.create("dummy_sc", test_tle, 300.000, Satellite_Size.Cube, constants.earth, std.testing.allocator);
+    defer test_sc.deinit();
+
+    const plane_change_maneuver = Impulse{
+        .time = 2500000.0,
+        .delta_v = .{ 0.0, 0.0, 0.0 }, // Not used for plane changes
+        .mode = .Plane_Change,
+        .plane_change = .{
+            .delta_inclination = math.pi / 18.0, // 10-degree inclination change
+            .delta_raan = math.pi / 36.0, // 5-degree RAAN change
+        },
+    };
+
+    const impulses = [_]Impulse{plane_change_maneuver};
+
+    try test_sc.propagate(
+        test_sc.tle.first_line.epoch,
+        3, // days to predict
+        1, // steps, i.e. predict every simulated second
+        &impulses,
+    );
+
+    for (test_sc.orbit_predictions.items) |iter| {
+        const r = math.sqrt(iter.state[0] * iter.state[0] + iter.state[1] * iter.state[1] + iter.state[2] * iter.state[2]);
+
+        try std.testing.expect(r > test_sc.orbiting_object.eq_radius.?);
+    }
+
+    // const file = try std.fs.cwd().createFile("./test/files/orbit_data_with_plane_change.csv", .{});
+    // defer file.close();
+    // const writer = file.writer();
+    //
+    // try writer.writeAll("time,x,y,z\n");
+    //
+    // for (test_sc.orbit_predictions.items) |item| {
+    //     try writer.print("{d},{d},{d},{d}\n", .{ item.time, item.state[0], item.state[1], item.state[2] });
+    // }
+    //
+    // std.debug.print("Orbit data written to orbit_data.csv\n", .{});
 }
