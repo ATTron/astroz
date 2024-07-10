@@ -197,7 +197,7 @@ pub fn main() !void {
 
 <img src="https://raw.githubusercontent.com/ATTron/astroz/main/assets/orbit_prop_w_impulse.gif" width="450" height="400" alt="visualization of orbit prop with impulses"/>
 
-#### Orbit Phase Change
+#### Orbit Plane Change
 
 ```zig
 const std = @import("std");
@@ -300,6 +300,7 @@ pub fn main() !void {
         std.debug.print("Next Prediction is: {any}\n", .{r});
     }
 }
+```
 
 #### Setup Vita49 Parser
 
