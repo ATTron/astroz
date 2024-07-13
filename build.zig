@@ -6,7 +6,11 @@ pub fn build(b: *std.Build) void {
     const root_source_file = b.path("src/lib.zig");
 
     // Module
-    _ = b.addModule("astroz", .{ .root_source_file = root_source_file });
+    _ = b.addModule("astroz", .{
+        .target = target,
+        .optimize = optimize,
+        .root_source_file = root_source_file,
+    });
 
     // Library
     const lib_step = b.step("lib", "Install library");
