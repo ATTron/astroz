@@ -1,0 +1,51 @@
+name: Continuous Delivery
+
+on:
+  push:
+    branches: [main]
+    paths: ["**.zig"]
+
+  pull_request:
+    branches: [main]
+    paths: ["**.zig"]
+
+  workflow_dispatch:
+
+jobs:
+  emit:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Zig
+        uses: mlugg/setup-zig@v1
+        with:
+          version: 0.13.0
+
+      - name: Run `doc`
+        run: zig build doc
+
+      - name: Upload artifact for GitHub Pages
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: zig-out/doc/
+
+  deploy:
+    needs: emit
+
+    runs-on: ubuntu-latest
+
+    permissions:
+      pages: write
+      id-token: write
+
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+      - name: Deploy artifact to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

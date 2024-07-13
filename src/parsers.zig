@@ -1,9 +1,8 @@
 const std = @import("std");
-const net = std.net;
-const Vita49 = @import("vita49.zig").Vita49;
 const CCSDS = @import("ccsds.zig").CCSDS;
+const Vita49 = @import("vita49.zig").Vita49;
 
-/// This is a semi generic function that takes either Vita49 or CCSDS as the Frame type
+/// Semi-generic function that takes either Vita49 or CCSDS as the Frame type.
 pub fn Parser(comptime Frame: type) type {
     return struct {
         ip_address: []const u8,
@@ -16,7 +15,7 @@ pub fn Parser(comptime Frame: type) type {
 
         const Self = @This();
 
-        pub fn new(
+        pub fn init(
             ip_address: ?[]const u8,
             port: ?u16,
             buffer_size: u64,
@@ -40,7 +39,7 @@ pub fn Parser(comptime Frame: type) type {
         }
 
         /// Use this if you have a recording you need to parse
-        pub fn parse_from_file(
+        pub fn parseFromFile(
             self: *Self,
             file_name: []const u8,
             sync_pattern: ?[]const u8,
@@ -62,7 +61,7 @@ pub fn Parser(comptime Frame: type) type {
                     var i: usize = 0;
                     while (file_content.len > 4) : (i += 1) {
                         if (std.mem.eql(u8, file_content[i .. i + sp.len], sp)) {
-                            const new_frame = try Frame.new(file_content[i..], self.allocator, null);
+                            const new_frame = try Frame.init(file_content[i..], self.allocator, null);
                             try self.packets.append(new_frame);
                             if (callback) |cb| {
                                 cb(new_frame);
@@ -85,7 +84,7 @@ pub fn Parser(comptime Frame: type) type {
                         }
                     }
                 } else {
-                    const new_frame = try Frame.new(file_content, self.allocator, null);
+                    const new_frame = try Frame.init(file_content, self.allocator, null);
                     try self.packets.append(new_frame);
                     if (callback) |cb| {
                         cb(new_frame);
@@ -103,7 +102,7 @@ pub fn Parser(comptime Frame: type) type {
                     var i: usize = 0;
                     while (file_content.len > 4) : (i += 1) {
                         if (std.mem.eql(u8, file_content[i .. i + sp.len], sp)) {
-                            const new_frame = try Frame.new(file_content[i..], self.allocator, null);
+                            const new_frame = try Frame.init(file_content[i..], self.allocator, null);
                             try self.packets.append(new_frame);
                             if (callback) |cb| {
                                 cb(new_frame);
@@ -126,7 +125,7 @@ pub fn Parser(comptime Frame: type) type {
                         }
                     }
                 } else {
-                    const new_frame = try Frame.new(file_content, self.allocator, null);
+                    const new_frame = try Frame.init(file_content, self.allocator, null);
                     try self.packets.append(new_frame);
                     if (callback) |cb| {
                         cb(new_frame);
@@ -144,9 +143,9 @@ pub fn Parser(comptime Frame: type) type {
 
         /// This will start the tcp listener and begin parsing as data comes in
         pub fn start(self: *Self, comptime callback: ?fn (Frame) void) !void {
-            const addr = try net.Address.parseIp4(self.ip_address, self.port);
+            const addr = try std.net.Address.parseIp4(self.ip_address, self.port);
 
-            const stream = try net.tcpConnectToAddress(addr);
+            const stream = try std.net.tcpConnectToAddress(addr);
             defer stream.close();
 
             std.log.info("connected to socket successful", .{});
@@ -154,7 +153,7 @@ pub fn Parser(comptime Frame: type) type {
             var incoming_buffer = std.mem.zeroes([1024]u8);
             while (!self.should_stop) {
                 _ = try stream.read(&incoming_buffer);
-                const new_frame = try Frame.new(&incoming_buffer, self.allocator, null);
+                const new_frame = try Frame.init(&incoming_buffer, self.allocator, null);
                 std.log.debug("message recieved: {any}", .{new_frame});
                 _ = try self.packets.append(new_frame);
                 if (callback != null) {
@@ -173,8 +172,8 @@ pub fn Parser(comptime Frame: type) type {
 
 /// this is for running the tests ONLY
 fn _run_test_server(parse_type: []const u8) !void {
-    const ip_addr = try net.Ip4Address.parse("127.0.0.1", 65432);
-    const test_host = net.Address{ .in = ip_addr };
+    const ip_addr = try std.net.Ip4Address.parse("127.0.0.1", 65432);
+    const test_host = std.net.Address{ .in = ip_addr };
     var server = try test_host.listen(.{
         .reuse_port = true,
     });
@@ -216,57 +215,57 @@ fn _test_callback(packet: Vita49) void {
 }
 
 test "Vita49 Parse From File w/ sync" {
-    const file_name = "./test/files/vita49.bin".*;
+    const file_name = "./test/vita49.bin".*;
     //3a02 0a00 3412 0000 0056
     const sync_pattern = .{ 0x3A, 0x02, 0x0a, 0x00, 0x34, 0x12, 0x00, 0x00, 0x00, 0x56 };
     const P = Parser(Vita49);
-    var parser = try P.new(null, null, 1024, std.testing.allocator);
+    var parser = try P.init(null, null, 1024, std.testing.allocator);
     defer parser.deinit();
 
-    _ = try parser.parse_from_file(&file_name, &sync_pattern, null);
+    _ = try parser.parseFromFile(&file_name, &sync_pattern, null);
     for (parser.packets.items) |packet| {
         try std.testing.expectEqualStrings("Hello, VITA 49!", packet.payload);
     }
 }
 
 test "Vita49 Parse From File w/o sync" {
-    const file_name = "./test/files/vita49.bin".*;
+    const file_name = "./test/vita49.bin".*;
     //3a02 0a00 3412 0000 0056
     const P = Parser(Vita49);
-    var parser = try P.new(null, null, 1024, std.testing.allocator);
+    var parser = try P.init(null, null, 1024, std.testing.allocator);
     defer parser.deinit();
 
-    _ = try parser.parse_from_file(&file_name, null, null);
+    _ = try parser.parseFromFile(&file_name, null, null);
     for (parser.packets.items) |packet| {
         try std.testing.expectEqualStrings("Hello, VITA 49!", packet.payload);
     }
 }
 
 test "CCSDS Parse From File w/o sync" {
-    const file_name = "./test/files/ccsds.bin".*;
+    const file_name = "./test/ccsds.bin".*;
     const P = Parser(CCSDS);
-    var parser = try P.new(null, null, 1024, std.testing.allocator);
+    var parser = try P.init(null, null, 1024, std.testing.allocator);
     defer parser.deinit();
 
     const packets = .{ 5, 6, 7, 8, 9, 10 };
 
-    _ = try parser.parse_from_file(&file_name, null, null);
+    _ = try parser.parseFromFile(&file_name, null, null);
     for (parser.packets.items) |packet| {
         try std.testing.expectEqualSlices(u8, &packets, packet.packets);
     }
 }
 
 test "CCSDS Parse From File w/ sync" {
-    const file_name = "./test/files/ccsds.bin".*;
+    const file_name = "./test/ccsds.bin".*;
     // 7897 c000 000a 0102
     const sync_pattern = .{ 0x78, 0x97, 0xC0, 0x00, 0x00, 0x0A, 0x01, 0x02 };
     const P = Parser(CCSDS);
-    var parser = try P.new(null, null, 1024, std.testing.allocator);
+    var parser = try P.init(null, null, 1024, std.testing.allocator);
     defer parser.deinit();
 
     const packets = .{ 5, 6, 7, 8, 9, 10 };
 
-    _ = try parser.parse_from_file(&file_name, &sync_pattern, null);
+    _ = try parser.parseFromFile(&file_name, &sync_pattern, null);
     for (parser.packets.items) |packet| {
         try std.testing.expectEqualSlices(u8, &packets, packet.packets);
     }
@@ -276,7 +275,7 @@ test "Vita49 Parser Test" {
     const ip = "127.0.0.1".*;
     const port: u16 = 65432;
     const parser = Parser(Vita49);
-    var par_test = try parser.new(&ip, port, 1024, std.testing.allocator);
+    var par_test = try parser.init(&ip, port, 1024, std.testing.allocator);
     defer par_test.deinit();
 
     {
@@ -308,7 +307,7 @@ test "Vita49 Parser Test w/ Callback" {
     const ip = "127.0.0.1".*;
     const port: u16 = 65432;
     const parser = Parser(Vita49);
-    var par_test = try parser.new(&ip, port, 1024, std.testing.allocator);
+    var par_test = try parser.init(&ip, port, 1024, std.testing.allocator);
     defer par_test.deinit();
 
     {
@@ -340,7 +339,7 @@ test "CCSDS Parser Test" {
     const ip = "127.0.0.1".*;
     const port: u16 = 65432;
     const parser = Parser(CCSDS);
-    var par_test = try parser.new(&ip, port, 1024, std.testing.allocator);
+    var par_test = try parser.init(&ip, port, 1024, std.testing.allocator);
     defer par_test.deinit();
 
     {
