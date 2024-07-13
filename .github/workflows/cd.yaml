@@ -3,11 +3,9 @@ name: Continuous Delivery
 on:
   push:
     branches: [main]
-    paths: ["**.zig"]
 
   pull_request:
     branches: [main]
-    paths: ["**.zig"]
 
   workflow_dispatch:
 
