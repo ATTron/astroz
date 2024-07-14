@@ -39,6 +39,10 @@
 - [x] Celestial Bodies
 - [ ] Orbital Mechanics
   - [ ] Interplanetary Maneuvers
+- [ ] FITS File Parsing
+  - [ ] Image Generation
+    - [ ] Multi Image Parsing/Generation
+  - [ ] Table Parsing
 
 ### Feature not listed ?
 
