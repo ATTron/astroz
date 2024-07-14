@@ -1,14 +1,16 @@
-# ASTROZ  
+# ASTROZ
 
-![Testing](https://github.com/ATTron/astroz/actions/workflows/test_zig.yml/badge.svg) 
+[![CI][ci-shd]][ci-url]
+[![CD][cd-shd]][cd-url]
+[![DC][dc-shd]][dc-url]
 
-<img src="https://repository-images.githubusercontent.com/819657891/291c28ef-4c03-4d0e-bb0c-41d4662867c3" width="100" height="100"/> 
+<img src="https://repository-images.githubusercontent.com/819657891/291c28ef-4c03-4d0e-bb0c-41d4662867c3" width="100" height="100"/>
 
-### Astronomical and Spacecraft Toolkit Written in Zig for Zig!  
+## Astronomical and Spacecraft Toolkit Written in Zig for Zig!
 
-## Features / Plans
+### Features / Plans
 
-### Spacecraft
+#### Spacecraft
 
 - [x] CCSDS Packets
   - [x] CCSDS Stream Parser
@@ -22,7 +24,7 @@
     - [x] Phase Maneuvers
     - [x] Plane Change Maneuvers
 
-### Astronomical
+#### Astronomical
 
 - [x] Astronomical References
   - [x] J2000 and JD
@@ -41,39 +43,26 @@
 ### Feature not listed ?
 
 To request a feature, please create an issue for this project and I will try my
-best to be responsive.  
+best to be responsive.
 
-## Install
+### Usage
 
-**Please use the master branch of the zig repository as that is what I'm developing against**
+- Add `astroz` as a dependency in your `build.zig.zon`.
 
-The easiest way I've found to get started with dependencies in zig is the following.  
-
-- in your `main.zig` import the dependency.  
-
-```zig
-const astroz = @import("astroz");
-
+```sh
+zig fetch --save https://github.com/ATTron/astroz/archive/<git_tag_or_commit_hash>.tar.gz
 ```
 
-- run `zig fetch --save git+https://github.com/ATTron/astroz/#HEAD`  
-- inside `build.zig`  
+- Use `astroz` as a module in your `build.zig`.
 
 ```zig
-const package = b.dependency("astroz", .{
+const astroz_dep = b.dependency("astroz", .{
     .target = target,
     .optimize = optimize,
 });
-
-const module = package.module("astroz");
-
-exe.root_module.addImport("astroz", module);
-
-b.installArtifact(exe);
-
+const astroz_mod = astroz.module("astroz");
+exe.root_module.addImport("astroz", astroz_mod);
 ```
-
-## Usage
 
 ### Examples
 
@@ -127,7 +116,7 @@ pub fn main() !void {
     var tle = try TLE.parse(test_tle, allocator);
     defer tle.deinit();
 
-    var test_sc = Spacecraft.create("dummy_sc", tle, 300.000, spacecraft.Satellite_Size.Cube, constants.earth, allocator);
+    var test_sc = Spacecraft.init("dummy_sc", tle, 300.000, spacecraft.SatelliteSize.Cube, constants.earth, allocator);
     defer test_sc.deinit();
 
     try test_sc.propagate(
@@ -171,7 +160,7 @@ pub fn main() !void {
     var tle = try TLE.parse(test_tle, allocator);
     defer tle.deinit();
 
-    var test_sc = Spacecraft.create("dummy_sc", tle, 300.000, spacecraft.Satellite_Size.Cube, constants.earth, allocator);
+    var test_sc = Spacecraft.init("dummy_sc", tle, 300.000, spacecraft.SatelliteSize.Cube, constants.earth, allocator);
     defer test_sc.deinit();
 
     const impulses = [_]spacecraft.Impulse{
@@ -221,7 +210,7 @@ pub fn main() !void {
     var tle = try TLE.parse(test_tle, allocator);
     defer tle.deinit();
 
-    var test_sc = Spacecraft.create("dummy_sc", tle, 300.000, spacecraft.Satellite_Size.Cube, constants.earth, allocator);
+    var test_sc = Spacecraft.init("dummy_sc", tle, 300.000, spacecraft.SatelliteSize.Cube, constants.earth, allocator);
     defer test_sc.deinit();
 
     const plane_change_maneuver = Impulse{
@@ -275,7 +264,7 @@ pub fn main() !void {
     var tle = try TLE.parse(test_tle, allocator);
     defer tle.deinit();
 
-    var test_sc = Spacecraft.create("dummy_sc", tle, 300.000, spacecraft.Satellite_Size.Cube, constants.earth, allocator);
+    var test_sc = Spacecraft.init("dummy_sc", tle, 300.000, spacecraft.SatelliteSize.Cube, constants.earth, allocator);
     defer test_sc.deinit();
 
     const phase_maneuver = Impulse{
@@ -320,7 +309,7 @@ pub fn main() !void {
     const P = Parser(Vita49);
     const ip = "127.0.0.1".*;
     const port: u16 = 65432;
-    var parser = try P.new(&ip, port, 1024, allocator);
+    var parser = try P.init(&ip, port, 1024, allocator);
     defer parser.deinit();
     _ = try parser.start(callback);
 }
@@ -346,7 +335,7 @@ pub fn main() !void {
     const P = Parser(Vita49);
     const ip = "127.0.0.1".*;
     const port: u16 = 65432;
-    var parser = try P.new(&ip, port, 1024, allocator);
+    var parser = try P.init(&ip, port, 1024, allocator);
     defer parser.deinit();
     _ = try parser.start(null);
 }
@@ -366,13 +355,13 @@ pub fn main() !void {
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
 
-    const file_name = "./test/files/ccsds.bin".*;
+    const file_name = "./test/ccsds.bin".*;
 
     const P = Parser(CCSDS);
-    var parser = try P.new(null, null, 1024, allocator);
+    var parser = try P.init(null, null, 1024, allocator);
     defer parser.deinit();
 
-    _ = try parser.parse_from_file(&file_name, null, null);
+    _ = try parser.parseFromFile(&file_name, null, null);
 
     for (parser.packets.items) |packet| {
         std.log.info("Packets from files: 0x{x}", .{packet.packets});
@@ -393,14 +382,14 @@ pub fn main() !void {
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
 
-    const file_name = "./test/files/ccsds.bin".*;
+    const file_name = "./test/ccsds.bin".*;
     const sync_pattern = .{ 0x78, 0x97, 0xC0, 0x00, 0x00, 0x0A, 0x01, 0x02 };
 
     const P = Parser(CCSDS);
-    var parser = try P.new(null, null, 1024, allocator);
+    var parser = try P.init(null, null, 1024, allocator);
     defer parser.deinit();
 
-    _ = try parser.parse_from_file(&file_name, &sync_pattern, null);
+    _ = try parser.parseFromFile(&file_name, &sync_pattern, null);
 
     for (parser.packets.items) |packet| {
         std.log.info("Packets from files: 0x{x}", .{packet.packets});
@@ -423,7 +412,7 @@ pub fn main() !void {
     const allocator = gpa.allocator();
 
     const raw_test_packet: [16]u8 = .{ 0x78, 0x97, 0xC0, 0x00, 0x00, 0x0A, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A };
-    var converted_test_packet = try CCSDS.new(&raw_test_packet, allocator, null);
+    var converted_test_packet = try CCSDS.init(&raw_test_packet, allocator, null);
     defer converted_test_packet.deinit();
 
     std.debug.print("CCSDS Packet Created:\n{any}", .{converted_test_packet});
@@ -455,10 +444,10 @@ pub fn main() !void {
     const config_file = try std.fs.cwd().readFileAlloc(allocator, "config.json", 512);
     defer allocator.free(config_file);
 
-    const config = try ccsds.parse_config(config_file, allocator);
+    const config = try ccsds.parseConfig(config_file, allocator);
 
     const raw_test_packet: [16]u8 = .{ 0x78, 0x97, 0xC0, 0x00, 0x00, 0x0A, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A };
-    var converted_test_packet = try CCSDS.new(&raw_test_packet, allocator, config);
+    var converted_test_packet = try CCSDS.init(&raw_test_packet, allocator, config);
     defer converted_test_packet.deinit();
 
     std.debug.print("\nCCSDS Packet Created:\n{any}", .{converted_test_packet});
@@ -475,13 +464,20 @@ const coordinates = astroz.coordinates;
 const Datetime = astroz.time.Datetime;
 
 pub fn main() !void {
-    const declination = coordinates.Declination.new(40, 10, 10);
-    const ra = coordinates.Right_Ascension.new(19, 52, 2);
-    const j2000 = coordinates.Equatorial_Coordinate_System.new(declination, ra);
+    const declination = coordinates.Declination.init(40, 10, 10);
+    const ra = coordinates.RightAscension.init(19, 52, 2);
+    const j2000 = coordinates.EquatorialCoordinateSystem.init(declination, ra);
 
-    std.debug.print("Precessed to July 30, 2005:\n{any}", .{j2000.precess(Datetime.new_date(2005, 7, 30))});
+    std.debug.print("Precessed to July 30, 2005:\n{any}", .{j2000.precess(Datetime.initDate(2005, 7, 30))});
 }
 
 ```
 
+<!-- MARKDOWN LINKS -->
 
+[ci-shd]: https://img.shields.io/github/actions/workflow/status/ATTron/astroz/ci.yaml?branch=main&style=for-the-badge&logo=github&label=CI&labelColor=black
+[ci-url]: https://github.com/ATTron/astroz/blob/main/.github/workflows/ci.yaml
+[cd-shd]: https://img.shields.io/github/actions/workflow/status/ATTron/astroz/cd.yaml?branch=main&style=for-the-badge&logo=github&label=CD&labelColor=black
+[cd-url]: https://github.com/ATTron/astroz/blob/main/.github/workflows/cd.yaml
+[dc-shd]: https://img.shields.io/badge/click-F6A516?style=for-the-badge&logo=zig&logoColor=F6A516&label=doc&labelColor=black
+[dc-url]: https://attron.github.io/astroz
