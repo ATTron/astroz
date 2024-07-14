@@ -67,8 +67,8 @@ pub fn Parser(comptime Frame: type) type {
                                 cb(new_frame);
                             }
 
-                            const skip_lengh = new_frame.header.packet_size * 4;
-                            if (skip_lengh > file_content.len - i) {
+                            const skip_length = new_frame.header.packet_size * 4;
+                            if (skip_length > file_content.len - i) {
                                 break;
                             }
 
@@ -90,9 +90,9 @@ pub fn Parser(comptime Frame: type) type {
                         cb(new_frame);
                     }
 
-                    const skip_lengh = new_frame.header.packet_size * 4;
+                    const skip_length = new_frame.header.packet_size * 4;
 
-                    std.mem.copyForwards(u8, file_content[0..], file_content[skip_lengh - 1 ..]);
+                    std.mem.copyForwards(u8, file_content[0..], file_content[skip_length - 1 ..]);
 
                     const new_alloc_size = file_content.len - 1;
                     file_content = try self.allocator.realloc(file_content, new_alloc_size);
@@ -108,8 +108,8 @@ pub fn Parser(comptime Frame: type) type {
                                 cb(new_frame);
                             }
 
-                            const skip_lengh = new_frame.header.packet_size + 6;
-                            if (skip_lengh > file_content.len - i) {
+                            const skip_length = new_frame.header.packet_size + 6;
+                            if (skip_length > file_content.len - i) {
                                 break;
                             }
 
@@ -131,9 +131,9 @@ pub fn Parser(comptime Frame: type) type {
                         cb(new_frame);
                     }
 
-                    const skip_lengh = new_frame.header.packet_size + 6;
+                    const skip_length = new_frame.header.packet_size + 6;
 
-                    std.mem.copyForwards(u8, file_content[0..], file_content[skip_lengh - 1 ..]);
+                    std.mem.copyForwards(u8, file_content[0..], file_content[skip_length - 1 ..]);
 
                     const new_alloc_size = file_content.len - 1;
                     file_content = try self.allocator.realloc(file_content, new_alloc_size);
@@ -154,7 +154,7 @@ pub fn Parser(comptime Frame: type) type {
             while (!self.should_stop) {
                 _ = try stream.read(&incoming_buffer);
                 const new_frame = try Frame.init(&incoming_buffer, self.allocator, null);
-                std.log.debug("message recieved: {any}", .{new_frame});
+                std.log.debug("message received: {any}", .{new_frame});
                 _ = try self.packets.append(new_frame);
                 if (callback != null) {
                     callback.?(new_frame);

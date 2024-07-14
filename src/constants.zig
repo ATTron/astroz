@@ -6,7 +6,7 @@ pub const G = 6.6743e-11;
 pub const c = 299792458;
 /// Planck constant
 pub const h = 6.62607015e-34;
-/// Astronmical unit
+/// Astronomical unit
 pub const au = 1.49597871e+11;
 /// Year 2000
 pub const j2k = 2000.0;
@@ -26,11 +26,11 @@ pub const CelestialBody = struct {
     eccentricity: f64,
     inclination: f64, // degrees
     oblateness: ?f64,
-    j2_pertrubation: f64,
+    j2_perturbation: f64,
     sea_level_density: f64,
     scale_height: f64,
 
-    fn init(mass: f64, mu: f64, m_fraction_solar_system: f64, m_radius: ?f64, eq_radius: ?f64, p_radius: ?f64, semi_major_axis: ?f64, perihelion: ?f64, aphelion: ?f64, period: ?f64, velocity: ?f64, eccentricity: ?f64, inclination: ?f64, oblateness: ?f64, j2_pertrubation: f64, sea_level_density: f64, scale_height: f64) CelestialBody {
+    fn init(mass: f64, mu: f64, m_fraction_solar_system: f64, m_radius: ?f64, eq_radius: ?f64, p_radius: ?f64, semi_major_axis: ?f64, perihelion: ?f64, aphelion: ?f64, period: ?f64, velocity: ?f64, eccentricity: ?f64, inclination: ?f64, oblateness: ?f64, j2_perturbation: f64, sea_level_density: f64, scale_height: f64) CelestialBody {
         return .{
             .mass = mass,
             .mu = mu,
@@ -46,7 +46,7 @@ pub const CelestialBody = struct {
             .eccentricity = eccentricity orelse 0.0,
             .inclination = inclination orelse 0.0,
             .oblateness = oblateness,
-            .j2_pertrubation = j2_pertrubation,
+            .j2_perturbation = j2_perturbation,
             .sea_level_density = sea_level_density,
             .scale_height = scale_height,
         };

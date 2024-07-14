@@ -2,10 +2,10 @@ const std = @import("std");
 const constants = @import("constants.zig");
 const calculations = @import("calculations.zig");
 const TLE = @import("tle.zig").TLE;
-const CelistalBody = constants.CelestialBody;
+const CelestialBody = constants.CelestialBody;
 const Datetime = @import("time.zig").Datetime;
 
-/// State Vector - Used for position and velcity knowledge
+/// State Vector - Used for position and velocity knowledge
 const StateV = [6]f64;
 
 /// Contains time and state vector to be used during propagation
@@ -72,11 +72,11 @@ pub const Spacecraft = struct {
     tle: TLE,
     mass: f64,
     size: SatelliteParameters,
-    orbiting_object: CelistalBody = constants.earth,
+    orbiting_object: CelestialBody = constants.earth,
     orbit_predictions: std.ArrayList(StateTime),
     allocator: std.mem.Allocator,
 
-    pub fn init(name: []const u8, tle: TLE, mass: f64, size: SatelliteSize, orbiting_object: ?CelistalBody, allocator: std.mem.Allocator) Spacecraft {
+    pub fn init(name: []const u8, tle: TLE, mass: f64, size: SatelliteSize, orbiting_object: ?CelestialBody, allocator: std.mem.Allocator) Spacecraft {
         return .{
             .name = name,
             .tle = tle,
@@ -254,7 +254,7 @@ pub const Spacecraft = struct {
         var ay = -self.orbiting_object.mu * y / r3;
         var az = -self.orbiting_object.mu * z / r3;
 
-        const j2_factor = -1.5 * self.orbiting_object.j2_pertrubation * self.orbiting_object.mu * self.orbiting_object.eq_radius.? * self.orbiting_object.eq_radius.? / r5;
+        const j2_factor = -1.5 * self.orbiting_object.j2_perturbation * self.orbiting_object.mu * self.orbiting_object.eq_radius.? * self.orbiting_object.eq_radius.? / r5;
         ax += j2_factor * x * (5 * z * z / r2 - 1);
         ay += j2_factor * y * (5 * z * z / r2 - 1);
         az += j2_factor * z * (5 * z * z / r2 - 3);
