@@ -6,7 +6,7 @@ pub fn build(b: *std.Build) void {
     const root_source_file = b.path("src/lib.zig");
 
     // Module
-    _ = b.addModule("astroz", .{
+    const astroz_mod = b.addModule("astroz", .{
         .target = target,
         .optimize = optimize,
         .root_source_file = root_source_file,
@@ -37,6 +37,24 @@ pub fn build(b: *std.Build) void {
     doc_step.dependOn(&doc_install.step);
     b.default_step.dependOn(doc_step);
 
+    // Example suite
+    const examples_step = b.step("example", "Run example suite");
+
+    inline for (EXAMPLE_NAMES) |EXAMPLE_NAME| {
+        const example = b.addExecutable(.{
+            .name = EXAMPLE_NAME,
+            .target = target,
+            .optimize = optimize,
+            .root_source_file = b.path("examples/" ++ EXAMPLE_NAME ++ ".zig"),
+        });
+        example.root_module.addImport("astroz", astroz_mod);
+
+        const example_run = b.addRunArtifact(example);
+        examples_step.dependOn(&example_run.step);
+    }
+
+    b.default_step.dependOn(examples_step);
+
     // Test suite
     const tests_step = b.step("test", "Run test suite");
 
@@ -62,3 +80,18 @@ pub fn build(b: *std.Build) void {
     fmt_step.dependOn(&fmt.step);
     b.default_step.dependOn(fmt_step);
 }
+
+const EXAMPLE_NAMES = &.{
+    "create_ccsds_packet_config",
+    "create_ccsds_packet",
+    "orbit_phase_change",
+    "orbit_plane_change",
+    "orbit_prop_impulse",
+    "orbit_prop",
+    "parse_ccsds_file_sync",
+    "parse_ccsds",
+    "parse_tle",
+    "parse_vita49_callback",
+    "parse_vita49",
+    "precess_star",
+};

@@ -1,0 +1,50 @@
+const std = @import("std");
+const math = std.math;
+const astroz = @import("astroz");
+const TLE = astroz.tle.TLE;
+const constants = astroz.constants;
+const Impulse = spacecraft.Impulse;
+const spacecraft = astroz.spacecraft;
+const Spacecraft = spacecraft.Spacecraft;
+
+pub fn main() !void {
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    defer _ = gpa.deinit();
+    const allocator = gpa.allocator();
+
+    const test_tle =
+        \\1 55909U 23035B   24187.51050877  .00023579  00000+0  16099-2 0  9998
+        \\2 55909  43.9978 311.8012 0011446 278.6226  81.3336 15.05761711 71371
+    ;
+
+    var tle = try TLE.parse(test_tle, allocator);
+    defer tle.deinit();
+
+    var test_sc = Spacecraft.init("dummy_sc", tle, 300.000, spacecraft.SatelliteSize.Cube, constants.earth, allocator);
+    defer test_sc.deinit();
+
+    const plane_change_maneuver = Impulse{
+        .time = 2500000.0,
+        .delta_v = .{ 0.0, 0.0, 0.0 }, // Not used for plane changes
+        .mode = .Plane_Change,
+        .plane_change = .{
+            .delta_inclination = math.pi / 18.0, // 10-degree inclination change
+            .delta_raan = math.pi / 36.0, // 5-degree RAAN change
+        },
+    };
+
+    const impulses = [_]Impulse{plane_change_maneuver};
+
+    try test_sc.propagate(
+        test_sc.tle.first_line.epoch,
+        3, // 3 days worth of orbit predictions
+        1, // steps, i.e. repredict every simulated second
+        &impulses,
+    );
+
+    for (test_sc.orbit_predictions.items) |iter| {
+        const r = math.sqrt(iter.state[0] * iter.state[0] + iter.state[1] * iter.state[1] + iter.state[2] * iter.state[2]);
+
+        std.debug.print("Next Prediction is: {any}\n", .{r});
+    }
+}
