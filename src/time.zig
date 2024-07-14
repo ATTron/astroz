@@ -12,34 +12,32 @@ pub const Datetime = struct {
     minutes: ?u8,
     seconds: ?f16,
 
-    const Self = @This();
-
     /// for dates only
-    pub fn new_date(year: u16, month: u8, day: u8) Self {
+    pub fn initDate(year: u16, month: u8, day: u8) Datetime {
         var dt = Datetime{ .instant = null, .doy = null, .days_in_year = 365, .year = year, .month = month, .day = day, .hours = null, .minutes = null, .seconds = null };
-        dt.calculate_doy();
+        dt.calculateDoy();
         return dt;
     }
 
     /// for times only
-    pub fn new_time(hours: u8, minutes: u8, seconds: f16) Self {
+    pub fn initTime(hours: u8, minutes: u8, seconds: f16) Datetime {
         return .{ .instant = null, .doy = null, .days_in_year = 365, .year = null, .month = null, .day = null, .hours = hours, .minutes = minutes, .seconds = seconds };
     }
 
     /// if you have a full timestamp
-    pub fn new_datetime(year: u16, month: u8, day: u8, hours: u8, minutes: u8, seconds: f16) Self {
+    pub fn initDatetime(year: u16, month: u8, day: u8, hours: u8, minutes: u8, seconds: f16) Datetime {
         var dt = Datetime{ .instant = null, .doy = null, .days_in_year = 365, .year = year, .month = month, .day = day, .hours = hours, .minutes = minutes, .seconds = seconds };
-        dt.calculate_doy();
+        dt.calculateDoy();
         return dt;
     }
 
     /// if you want an Instant converted
-    pub fn from_instant(instant: std.time.Instant) Self {
-        var new_dt = Self{ .instant = instant, .doy = null, .days_in_year = 365, .year = null, .month = null, .day = null, .hours = null, .minutes = null, .seconds = null };
-        return new_dt.epoch_to_datetime();
+    pub fn fromInstant(instant: std.time.Instant) Datetime {
+        var new_dt = Datetime{ .instant = instant, .doy = null, .days_in_year = 365, .year = null, .month = null, .day = null, .hours = null, .minutes = null, .seconds = null };
+        return new_dt.epochToDatetime();
     }
 
-    fn calculate_doy(self: *Self) void {
+    fn calculateDoy(self: *Datetime) void {
         var days_in_month = [_]u8{ 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31 };
         if (isLeapYear(self.year.?)) {
             days_in_month[1] = 29;
@@ -56,7 +54,7 @@ pub const Datetime = struct {
         self.doy = doy;
     }
 
-    fn epoch_to_datetime(comptime timestamp: i64) Self {
+    fn epochToDatetime(comptime timestamp: i64) Datetime {
         const days_per_year = 365;
 
         var remaining_seconds: i64 = timestamp;
@@ -95,7 +93,7 @@ pub const Datetime = struct {
         const minutes = @as(u8, @intCast(@divFloor(remaining_seconds, std.time.s_per_min)));
         const seconds = @mod(remaining_seconds, std.time.s_per_min);
 
-        return Datetime.new_datetime(year, month, day, hours, minutes, @as(f16, @floatFromInt(seconds)));
+        return Datetime.initDatetime(year, month, day, hours, minutes, @as(f16, @floatFromInt(seconds)));
     }
 
     fn isLeapYear(year: u16) bool {
@@ -103,7 +101,7 @@ pub const Datetime = struct {
     }
 
     /// this is used by the TLE lib to generate an epoch
-    pub fn doy_to_month_day(year: u16, doy: f64) struct { month: u8, day: u8 } {
+    pub fn doyToMonthDay(year: u16, doy: f64) struct { month: u8, day: u8 } {
         var days_in_month = [_]f64{
             31.0,
             28.0,
@@ -136,7 +134,7 @@ pub const Datetime = struct {
     }
 
     /// Converts your datetime to the J2000 format used in astronomy
-    pub fn convert_to_j2000(self: Self) f32 {
+    pub fn convertToJ2000(self: Datetime) f32 {
         const step_1 = 367.0 * @as(f32, @floatFromInt(self.year.?));
         const step_2 = @as(f32, @floatFromInt(self.year.?)) + @floor((@as(f32, @floatFromInt(self.month.?)) + 9.0) / 12.0);
         const step_3 = @as(f32, @floatFromInt(self.month.?)) * step_2;
@@ -149,13 +147,13 @@ pub const Datetime = struct {
     }
 
     /// Converts your datetime to the Modified J2000 format used in astronomy
-    pub fn convert_to_modified_jd(self: Self) f32 {
-        return self.convert_to_j2000() - 2400000.5;
+    pub fn convertToModifiedJd(self: Datetime) f32 {
+        return self.convertToJ2000() - 2400000.5;
     }
 };
 
 test "Test Date" {
-    const dt = Datetime.new_date(2024, 6, 24);
+    const dt = Datetime.initDate(2024, 6, 24);
 
     try std.testing.expectEqual(2024, dt.year);
     try std.testing.expectEqual(6, dt.month);
@@ -166,7 +164,7 @@ test "Test Date" {
 }
 
 test "Test Time" {
-    const ts = Datetime.new_time(16, 6, 24);
+    const ts = Datetime.initTime(16, 6, 24);
 
     try std.testing.expectEqual(null, ts.year);
     try std.testing.expectEqual(null, ts.month);
@@ -177,7 +175,7 @@ test "Test Time" {
 }
 
 test "Test Datetime" {
-    const dt = Datetime.new_datetime(2005, 6, 30, 16, 7, 45);
+    const dt = Datetime.initDatetime(2005, 6, 30, 16, 7, 45);
 
     try std.testing.expectEqual(2005, dt.year);
     try std.testing.expectEqual(6, dt.month);
@@ -189,7 +187,7 @@ test "Test Datetime" {
 }
 
 test "Test Datetime Functions" {
-    const dt = Datetime.epoch_to_datetime(800077635);
+    const dt = Datetime.epochToDatetime(800077635);
 
     try std.testing.expectEqual(1995, dt.year);
     try std.testing.expectEqual(5, dt.month);
@@ -200,8 +198,8 @@ test "Test Datetime Functions" {
 }
 
 test "Test J2000" {
-    const j2000 = Datetime.new_date(2005, 7, 30);
+    const j2000 = Datetime.initDate(2005, 7, 30);
 
-    try std.testing.expectEqual(2453581.5, j2000.convert_to_j2000());
-    try std.testing.expectEqual(53581.0, j2000.convert_to_modified_jd());
+    try std.testing.expectEqual(2453581.5, j2000.convertToJ2000());
+    try std.testing.expectEqual(53581.0, j2000.convertToModifiedJd());
 }

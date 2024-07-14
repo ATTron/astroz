@@ -1,13 +1,12 @@
 const std = @import("std");
-const math = std.math;
 const DateTime = @import("time.zig").Datetime;
 
 /// TLE Error types
 /// Only contains a single error, but may be expanded in the future
-pub const TleError = error{BadTLELength};
+pub const TleError = error{BadTleLength};
 
 /// The first line of a TLE which comes from passed in TLE
-pub const First_Line = struct {
+pub const FirstLine = struct {
     line_number: u8,
     satellite_number: u32,
     classification: u8,
@@ -22,11 +21,9 @@ pub const First_Line = struct {
     elem_number: u32,
     checksum: u8,
 
-    const Self = @This();
-
-    pub fn new(line: []const u8, allocator: std.mem.Allocator) !Self {
+    pub fn init(line: []const u8, allocator: std.mem.Allocator) !FirstLine {
         if (line.len < 69) {
-            return TleError.BadTLELength;
+            return TleError.BadTleLength;
         }
 
         const intl_year = try std.fmt.parseInt(u16, line[9..11], 10);
@@ -56,7 +53,7 @@ pub const First_Line = struct {
         bstar_drag = @abs(-result / drag);
         const epoch_year = try std.fmt.parseInt(u16, line[18..20], 10);
         const epoch_day = try std.fmt.parseFloat(f32, line[20..32]);
-        const epoch = tle_epoch_to_epoch(epoch_year, epoch_day);
+        const epoch = tleEpochToEpoch(epoch_year, epoch_day);
 
         return .{
             .line_number = line[0],
@@ -75,18 +72,18 @@ pub const First_Line = struct {
         };
     }
 
-    fn tle_epoch_to_epoch(year: u16, doy: f64) f32 {
+    fn tleEpochToEpoch(year: u16, doy: f64) f32 {
         const epoch_year = 2000 + year;
-        const month_day = DateTime.doy_to_month_day(epoch_year, doy);
+        const month_day = DateTime.doyToMonthDay(epoch_year, doy);
 
-        const full_epoch = DateTime.new_date(epoch_year, month_day.month, month_day.day).convert_to_j2000();
+        const full_epoch = DateTime.initDate(epoch_year, month_day.month, month_day.day).convertToJ2000();
 
         return full_epoch;
     }
 };
 
 /// Second line that comes from passed in TLE
-pub const Second_Line = struct {
+pub const SecondLine = struct {
     line_number: u8,
     satellite_number: u32,
     inclination: f32,
@@ -99,11 +96,9 @@ pub const Second_Line = struct {
     checksum: u8,
     clean_line: []const u8,
 
-    const Self = @This();
-
-    pub fn new(line: []const u8, allocator: std.mem.Allocator) !Self {
+    pub fn init(line: []const u8, allocator: std.mem.Allocator) !SecondLine {
         if (line.len < 69) {
-            return TleError.BadTLELength;
+            return TleError.BadTleLength;
         }
 
         const clean_line = try std.mem.replaceOwned(u8, allocator, line, " ", "");
@@ -130,31 +125,29 @@ pub const Second_Line = struct {
 
 /// The proper TLE struct
 /// You should only call this when you are parsing a TLE
-/// The First_Line and Second_Line are being built by the parse method
+/// The FirstLine and SecondLine are being built by the parse method
 pub const TLE = struct {
-    first_line: First_Line,
-    second_line: Second_Line,
+    first_line: FirstLine,
+    second_line: SecondLine,
     allocator: std.mem.Allocator,
 
-    const Self = @This();
-
-    pub fn parse(tle: []const u8, allocator: std.mem.Allocator) !Self {
+    pub fn parse(tle: []const u8, allocator: std.mem.Allocator) !TLE {
         const delimiter: [1]u8 = .{'\n'};
         var lines = std.mem.splitAny(u8, tle, &delimiter);
         const fl = lines.first();
         const sl = lines.next().?;
-        const first_line = try First_Line.new(fl, allocator);
-        const second_line = try Second_Line.new(sl, allocator);
+        const first_line = try FirstLine.init(fl, allocator);
+        const second_line = try SecondLine.init(sl, allocator);
         return .{ .first_line = first_line, .second_line = second_line, .allocator = allocator };
     }
 
-    pub fn deinit(self: *Self) void {
+    pub fn deinit(self: *TLE) void {
         self.allocator.free(self.first_line.intl_designator);
         self.allocator.free(self.second_line.clean_line);
     }
 
     /// Helpful for sanity checking TLE parsing
-    pub fn output(self: Self) void {
+    pub fn output(self: TLE) void {
         // 1st line
         std.debug.print("line_number: {c}\n", .{self.first_line.line_number});
         std.debug.print("satellite_number: {d}\n", .{self.first_line.satellite_number});

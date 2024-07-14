@@ -1,3 +1,5 @@
+const std = @import("std");
+
 pub const ccsds = @import("ccsds.zig");
 pub const constants = @import("constants.zig");
 pub const time = @import("time.zig");
@@ -7,3 +9,7 @@ pub const vita49 = @import("vita49.zig");
 pub const parsers = @import("parsers.zig");
 pub const tle = @import("tle.zig");
 pub const spacecraft = @import("spacecraft.zig");
+
+test {
+    std.testing.refAllDecls(@This());
+}
