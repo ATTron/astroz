@@ -76,7 +76,7 @@ exe.root_module.addImport("astroz", astroz_mod);
 
 <img src="assets/orbit_prop.gif" width="450" height="400" alt="visualization of orbit prop"/>
 
-- #### [Orbit Prop for Next 3 Days with Impulse Manuevers](examples/orbit_prop_impulse_manuevers.zig)
+- #### [Orbit Prop for Next 3 Days with Impulse Maneuvers](examples/orbit_prop_impulse_manuevers.zig)
 
 <img src="assets/orbit_prop_impulse.gif" width="450" height="400" alt="visualization of orbit prop with impulse"/>
 

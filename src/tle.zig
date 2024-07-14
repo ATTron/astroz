@@ -15,7 +15,7 @@ pub const FirstLine = struct {
     epoch_day: f32,
     epoch: f64,
     first_der_m_motion: f32,
-    secnd_der_m_motion: [7]u8,
+    second_der_m_motion: [7]u8,
     bstar_drag: f32,
     ephem_type: u8,
     elem_number: u32,
@@ -64,7 +64,7 @@ pub const FirstLine = struct {
             .epoch_day = epoch_day,
             .epoch = epoch,
             .first_der_m_motion = try std.fmt.parseFloat(f32, line[34..43]),
-            .secnd_der_m_motion = line[45..52].*,
+            .second_der_m_motion = line[45..52].*,
             .bstar_drag = bstar_drag,
             .ephem_type = line[62],
             .elem_number = try std.fmt.parseInt(u32, line[65..68], 10),
@@ -157,7 +157,7 @@ pub const TLE = struct {
         std.debug.print("epoch_day: {d}\n", .{self.first_line.epoch_day});
         std.debug.print("epoch: {d}\n", .{self.first_line.epoch});
         std.debug.print("first_der_m_motion: {d}\n", .{self.first_line.first_der_m_motion});
-        std.debug.print("second_der_m_motion: {s}\n", .{self.first_line.secnd_der_m_motion});
+        std.debug.print("second_der_m_motion: {s}\n", .{self.first_line.second_der_m_motion});
         std.debug.print("bstar_drag: {d}\n", .{self.first_line.bstar_drag});
         std.debug.print("ephem_type: {c}\n", .{self.first_line.ephem_type});
         std.debug.print("elem_number: {d}\n", .{self.first_line.elem_number});
