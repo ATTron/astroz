@@ -1,7 +1,7 @@
 const std = @import("std");
 
 /// Vita49 Possible error types
-pub const Vita49Error = error{ MalformedPayloadRange, InsufficentData };
+pub const Vita49Error = error{ MalformedPayloadRange, InsufficientData };
 
 const PacketType = enum(u4) {
     signal_wo_stream_id = 0,
@@ -113,10 +113,10 @@ pub const Vita49 = struct {
     pub fn init(pl: []const u8, allocator: std.mem.Allocator, config: ?[]const u8) !Vita49 {
         var stream = try allocator.dupe(u8, pl); // dupe the data so we dont ever lose it
         if (config != null) {
-            std.log.debug("Config found for Vita49 but this hasnt been implemeneted yet", .{});
+            std.log.debug("Config found for Vita49 but this hasn't been implemented yet", .{});
         }
         if (stream.len < 4) {
-            return Vita49Error.InsufficentData;
+            return Vita49Error.InsufficientData;
         }
         const header = try Header.init(stream[0..4].*);
         var stream_id: ?u32 = undefined;
