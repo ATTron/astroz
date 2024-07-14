@@ -60,7 +60,7 @@ const astroz_dep = b.dependency("astroz", .{
     .target = target,
     .optimize = optimize,
 });
-const astroz_mod = astroz.module("astroz");
+const astroz_mod = astroz_dep.module("astroz");
 exe.root_module.addImport("astroz", astroz_mod);
 ```
 
