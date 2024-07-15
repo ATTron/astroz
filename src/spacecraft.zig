@@ -14,10 +14,20 @@ const StateTime = struct {
     state: StateV,
 };
 
+// an easy win would be to combine this with StateTime to form a *spacecraftState* struct to deal with all of this
+/// Responsible for spacecraft orientation
+const AttitudeState = struct {
+    quaternion: [4]f64,
+    angular_velocity: [3]f64,
+};
+
 /// Satellite details used in calculations
 pub const SatelliteParameters = struct {
     drag: f64,
     cross_section: f64,
+    width: f64,
+    height: f64,
+    depth: f64,
 };
 
 /// The impulse maneuver type
@@ -53,14 +63,23 @@ pub const SatelliteSize = enum {
             .Cube => .{
                 .drag = 2.2,
                 .cross_section = 0.05,
+                .width = 0.1,
+                .height = 0.1,
+                .depth = 0.3,
             },
             .Medium => .{
                 .drag = 2.2,
                 .cross_section = 5.0,
+                .width = 1.4,
+                .height = 1.4,
+                .depth = 1.6,
             },
             .Large => .{
                 .drag = 2.2,
                 .cross_section = 50.0,
+                .width = 3.2,
+                .height = 3.2,
+                .depth = 4.0,
             },
         };
     }
@@ -72,6 +91,11 @@ pub const Spacecraft = struct {
     tle: TLE,
     mass: f64,
     size: SatelliteParameters,
+    quaternion: [4]f64,
+    angular_velocity: [3]f64,
+    inertia_tensor: [3][3]f64,
+    body_vectors: [2][3]f64,
+    reference_vectors: [2][3]f64,
     orbiting_object: CelestialBody = constants.earth,
     orbit_predictions: std.ArrayList(StateTime),
     allocator: std.mem.Allocator,
@@ -82,6 +106,21 @@ pub const Spacecraft = struct {
             .tle = tle,
             .mass = mass,
             .size = size.getDragAndCrossSectional(),
+            .quaternion = .{ 1.0, 0.0, 0.0, 0.0 },
+            .angular_velocity = .{ 0.0, 0.0, 0.0 },
+            .inertia_tensor = .{
+                .{ 1.0, 0.0, 0.0 },
+                .{ 0.0, 1.0, 0.0 },
+                .{ 0.0, 0.0, 1.0 },
+            },
+            .body_vectors = .{
+                .{ 1.0, 0.0, 0.0 },
+                .{ 0.0, 1.0, 0.0 },
+            },
+            .reference_vectors = .{
+                .{ 1.0, 0.0, 0.0 },
+                .{ 0.0, 1.0, 0.0 },
+            },
             .orbiting_object = orbiting_object.?,
             .orbit_predictions = std.ArrayList(StateTime).init(allocator),
             .allocator = allocator,
@@ -90,6 +129,18 @@ pub const Spacecraft = struct {
 
     pub fn deinit(self: *Spacecraft) void {
         self.orbit_predictions.deinit();
+    }
+
+    pub fn updateAttitude(self: *Spacecraft) void {
+        const attitude_matrix = triad(self.body_vectors[0], self.body_vectors[1], self.reference_vectors[0], self.reference_vectors[1]);
+        self.quaternion = matrixToQuaternion(attitude_matrix);
+    }
+
+    pub fn propagateAttitude(self: *Spacecraft, dt: f64) void {
+        const state = AttitudeState{ .quaternion = self.quaternion, .angular_velocity = self.angular_velocity };
+        const new_state = rk4Attitude(self, state, dt);
+        self.quaternion = new_state.quaternion;
+        self.angular_velocity = new_state.angular_velocity;
     }
 
     /// This will call the proper propagation methods based on a TLE epoch and recalculation time
@@ -204,6 +255,168 @@ pub const Spacecraft = struct {
                 ),
             ),
         );
+    }
+
+    fn triad(v1_body: [3]f64, v2_body: [3]f64, v1_ref: [3]f64, v2_ref: [3]f64) [3][3]f64 {
+        const t1_body = normalize(v1_body);
+        const t2_body = normalize(cross(v1_body, v2_body));
+        const t3_body = cross(t1_body, t2_body);
+
+        const t1_ref = normalize(v1_ref);
+        const t2_ref = normalize(cross(v1_ref, v2_ref));
+        const t3_ref = cross(t1_ref, t2_ref);
+
+        const body_matrix = [3][3]f64{
+            .{ t1_body[0], t2_body[0], t3_body[0] },
+            .{ t1_body[1], t2_body[1], t3_body[1] },
+            .{ t1_body[2], t2_body[2], t3_body[2] },
+        };
+
+        const ref_matrix = [3][3]f64{
+            .{ t1_ref[0], t2_ref[0], t3_ref[0] },
+            .{ t1_ref[1], t2_ref[1], t3_ref[1] },
+            .{ t1_ref[2], t2_ref[2], t3_ref[2] },
+        };
+
+        return multiplyMatrices(body_matrix, transposeMatrix(ref_matrix));
+    }
+
+    fn normalize(v: [3]f64) [3]f64 {
+        const magni = @sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]);
+        return .{ v[0] / magni, v[1] / magni, v[2] / magni };
+    }
+
+    fn cross(a: [3]f64, b: [3]f64) [3]f64 {
+        return .{
+            a[1] * b[2] - a[2] * b[1],
+            a[2] * b[0] - a[0] * b[2],
+            a[0] * b[1] - a[1] * b[0],
+        };
+    }
+
+    fn multiplyMatrices(a: [3][3]f64, b: [3][3]f64) [3][3]f64 {
+        var result: [3][3]f64 = undefined;
+        for (0..3) |i| {
+            for (0..3) |j| {
+                result[i][j] = 0;
+                for (0..3) |k| {
+                    result[i][j] += a[i][k] * b[k][j];
+                }
+            }
+        }
+        return result;
+    }
+
+    fn transposeMatrix(m: [3][3]f64) [3][3]f64 {
+        return .{
+            .{ m[0][0], m[1][0], m[2][0] },
+            .{ m[0][1], m[1][1], m[2][1] },
+            .{ m[0][2], m[1][2], m[2][2] },
+        };
+    }
+
+    fn matrixToQuaternion(m: [3][3]f64) [4]f64 {
+        var q: [4]f64 = undefined;
+        const trace = m[0][0] + m[1][1] + m[2][2];
+
+        if (trace > 0) {
+            const s = 0.5 / @sqrt(trace + 1.0);
+            q[0] = 0.25 / s;
+            q[1] = (m[2][1] - m[1][2]) * s;
+            q[2] = (m[0][2] - m[2][0]) * s;
+            q[3] = (m[1][0] - m[0][1]) * s;
+        } else {
+            if (m[0][0] > m[1][1] and m[0][0] > m[2][2]) {
+                const s = 2.0 * @sqrt(1.0 + m[0][0] - m[1][1] - m[2][2]);
+                q[0] = (m[2][1] - m[1][2]) / s;
+                q[1] = 0.25 * s;
+                q[2] = (m[0][1] + m[1][0]) / s;
+                q[3] = (m[0][2] + m[2][0]) / s;
+            } else if (m[1][1] > m[2][2]) {
+                const s = 2.0 * @sqrt(1.0 + m[1][1] - m[0][0] - m[2][2]);
+                q[0] = (m[0][2] - m[2][0]) / s;
+                q[1] = (m[0][1] + m[1][0]) / s;
+                q[2] = 0.25 * s;
+                q[3] = (m[1][2] + m[2][1]) / s;
+            } else {
+                const s = 2.0 * @sqrt(1.0 + m[2][2] - m[0][0] - m[1][1]);
+                q[0] = (m[1][0] - m[0][1]) / s;
+                q[1] = (m[0][2] + m[2][0]) / s;
+                q[2] = (m[1][2] + m[2][1]) / s;
+                q[3] = 0.25 * s;
+            }
+        }
+
+        return q;
+    }
+
+    fn rk4Attitude(spacecraft: *Spacecraft, state: AttitudeState, dt: f64) AttitudeState {
+        const k1 = attitudeDerivative(spacecraft, state);
+        const k2 = attitudeDerivative(spacecraft, addScaledAttitudeState(state, k1, 0.5 * dt));
+        const k3 = attitudeDerivative(spacecraft, addScaledAttitudeState(state, k2, 0.5 * dt));
+        const k4 = attitudeDerivative(spacecraft, addScaledAttitudeState(state, k3, dt));
+
+        return addScaledAttitudeState(state, addAttitudeStates(addAttitudeStates(k1, scaleAttitudeState(k2, 2)), addAttitudeStates(scaleAttitudeState(k3, 2), k4)), dt / 6.0);
+    }
+
+    fn attitudeDerivative(spacecraft: *Spacecraft, state: AttitudeState) AttitudeState {
+        const q = state.quaternion;
+        const w = state.angular_velocity;
+
+        const q_dot = [4]f64{
+            0.5 * (-q[1] * w[0] - q[2] * w[1] - q[3] * w[2]),
+            0.5 * (q[0] * w[0] + q[2] * w[2] - q[3] * w[1]),
+            0.5 * (q[0] * w[1] - q[1] * w[2] + q[3] * w[0]),
+            0.5 * (q[0] * w[2] + q[1] * w[1] - q[2] * w[0]),
+        };
+
+        const I = spacecraft.inertia_tensor;
+        const w_dot = [3]f64{
+            (I[1][1] - I[2][2]) / I[0][0] * w[1] * w[2],
+            (I[2][2] - I[0][0]) / I[1][1] * w[2] * w[0],
+            (I[0][0] - I[1][1]) / I[2][2] * w[0] * w[1],
+        };
+
+        return AttitudeState{
+            .quaternion = q_dot,
+            .angular_velocity = w_dot,
+        };
+    }
+
+    fn addAttitudeStates(a: AttitudeState, b: AttitudeState) AttitudeState {
+        return AttitudeState{
+            .quaternion = .{
+                a.quaternion[0] + b.quaternion[0],
+                a.quaternion[1] + b.quaternion[1],
+                a.quaternion[2] + b.quaternion[2],
+                a.quaternion[3] + b.quaternion[3],
+            },
+            .angular_velocity = .{
+                a.angular_velocity[0] + b.angular_velocity[0],
+                a.angular_velocity[1] + b.angular_velocity[1],
+                a.angular_velocity[2] + b.angular_velocity[2],
+            },
+        };
+    }
+
+    fn scaleAttitudeState(state: AttitudeState, scalar: f64) AttitudeState {
+        return AttitudeState{
+            .quaternion = .{
+                state.quaternion[0] * scalar,
+                state.quaternion[1] * scalar,
+                state.quaternion[2] * scalar,
+                state.quaternion[3] * scalar,
+            },
+            .angular_velocity = .{
+                state.angular_velocity[0] * scalar,
+                state.angular_velocity[1] * scalar,
+                state.angular_velocity[2] * scalar,
+            },
+        };
+    }
+
+    fn addScaledAttitudeState(state: AttitudeState, delta: AttitudeState, scalar: f64) AttitudeState {
+        return addAttitudeStates(state, scaleAttitudeState(delta, scalar));
     }
 
     fn vectorAdd(a: StateV, b: StateV) StateV {
@@ -586,4 +799,58 @@ test "prop spacecraft w/ plane change" {
     // }
     //
     // std.debug.print("Orbit data written to orbit_data.csv\n", .{});
+}
+
+test "orientation determination testing" {
+    const raw_tle =
+        \\1 55909U 23035B   24187.51050877  .00023579  00000+0  16099-2 0  9998
+        \\2 55909  43.9978 311.8012 0011446 278.6226  81.3336 15.05761711 71371
+    ;
+    var test_tle = try TLE.parse(raw_tle, std.testing.allocator);
+    defer test_tle.deinit();
+    var spacecraft = Spacecraft.init("dummy_sc", test_tle, 300.000, SatelliteSize.Cube, constants.earth, std.testing.allocator);
+
+    spacecraft.angular_velocity = .{ 0.1, 0.05, 0.02 };
+
+    // const file = try std.fs.cwd().createFile("test/attitude_data.csv", .{});
+    // defer file.close();
+    // const writer = file.writer();
+    //
+    // try writer.writeAll("Time,qw,qx,qy,qz,wx,wy,wz\n");
+
+    const dt = 60.0; // 1 minute time step
+    const simulation_time = 3 * 24 * 60 * 60.0; // 3 days in seconds
+    const orbital_period = 90 * 60.0; // 90 minutes orbital period
+    var t: f64 = 0;
+    while (t < simulation_time) : (t += dt) {
+        const angle = 0.5 * @sin(2 * std.math.pi * t / orbital_period);
+
+        spacecraft.body_vectors[0] = .{ @cos(angle), 0, @sin(angle) };
+        spacecraft.body_vectors[1] = .{ 0, 1, 0 };
+
+        spacecraft.updateAttitude();
+        spacecraft.propagateAttitude(dt);
+
+        // Simulate simple circular orbit
+        const orbit_radius = 7000.0;
+        // const x = orbit_radius * @cos(2 * std.math.pi * t / orbital_period);
+        // const y = orbit_radius * @sin(2 * std.math.pi * t / orbital_period);
+        // const z = 0.0;
+
+        try std.testing.expect(orbit_radius > spacecraft.orbiting_object.m_radius.?);
+
+        // try writer.print("{d},{d},{d},{d},{d},{d},{d},{d},{d},{d},{d}\n", .{
+        //     t,
+        //     spacecraft.quaternion[0],
+        //     spacecraft.quaternion[1],
+        //     spacecraft.quaternion[2],
+        //     spacecraft.quaternion[3],
+        //     spacecraft.angular_velocity[0],
+        //     spacecraft.angular_velocity[1],
+        //     spacecraft.angular_velocity[2],
+        //     x,
+        //     y,
+        //     z,
+        // });
+    }
 }

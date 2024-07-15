@@ -23,6 +23,7 @@
     - [x] Impulse Maneuvers
     - [x] Phase Maneuvers
     - [x] Plane Change Maneuvers
+- [x] Orientation Determination
 
 #### Astronomical
 
