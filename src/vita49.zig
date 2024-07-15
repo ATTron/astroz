@@ -1,7 +1,133 @@
+//! The Vita49 packet type which will be used by the Parser
+
 const std = @import("std");
 
+const Vita49 = @This();
+
+header: Header,
+stream_id: ?u32,
+class_id: ?ClassId,
+i_timestamp: ?u32,
+f_timestamp: ?u64,
+payload: []const u8,
+trailer: ?Trailer,
+allocator: std.mem.Allocator,
+end: usize,
+
+// private
+raw_data: []const u8,
+
+pub fn init(pl: []const u8, allocator: std.mem.Allocator, config: ?[]const u8) !Vita49 {
+    var stream = try allocator.dupe(u8, pl); // dupe the data so we dont ever lose it
+    if (config != null) {
+        std.log.debug("Config found for Vita49 but this hasn't been implemented yet", .{});
+    }
+    if (stream.len < 4) {
+        return Error.InsufficientData;
+    }
+    const header = try Header.init(stream[0..4].*);
+    var stream_id: ?u32 = undefined;
+    var class_id: ?ClassId = undefined;
+    var payload: []const u8 = undefined;
+    var trailer: ?Trailer = undefined;
+    var i_start: usize = 4;
+    var f_start: usize = 4;
+    var i_timestamp: ?u32 = undefined;
+    var f_timestamp: ?u64 = undefined;
+    var payload_range = try getPayloadRange(header, true);
+
+    switch (header.packet_type) {
+        .signal_w_stream_id,
+        .ext_data_w_stream_id,
+        .ext_cmd_packet,
+        .cmd_packet,
+        .ctx_packet,
+        .ext_ctx_packet,
+        => {
+            stream_id = std.mem.readInt(u32, stream[4..8], .little);
+            i_start += 4;
+            f_start += 4;
+        },
+        .signal_wo_stream_id,
+        .ext_data_wo_stream_id,
+        => {
+            payload_range = try getPayloadRange(header, false);
+        },
+    }
+    if (header.class_id) {
+        class_id = ClassId.init(stream[8..16].*);
+        i_start += 8;
+        f_start += 8;
+    } else {
+        class_id = null;
+    }
+    if (header.trailer) {
+        trailer = Trailer.init(stream[payload_range.end..]);
+        payload = stream[payload_range.start..payload_range.end];
+    } else {
+        payload = stream[payload_range.start..payload_range.end];
+    }
+    if (header.tsi != Tsi.none) {
+        var tmp_array: [4]u8 = undefined;
+        @memcpy(&tmp_array, stream[i_start .. i_start + 4]);
+        i_timestamp = std.mem.readInt(u32, &tmp_array, .little);
+        f_start += 4;
+    } else {
+        i_timestamp = null;
+    }
+    if (header.tsf != Tsf.none) {
+        var tmp_array: [8]u8 = undefined;
+        @memcpy(&tmp_array, stream[f_start .. f_start + 8]);
+        f_timestamp = std.mem.readInt(u64, &tmp_array, .little);
+    } else {
+        f_timestamp = null;
+    }
+    const end_of_data = if (header.trailer) payload_range.end + 4 else payload_range.end;
+    stream = try allocator.realloc(stream, end_of_data);
+    return .{
+        .header = header,
+        .stream_id = stream_id,
+        .class_id = class_id,
+        .i_timestamp = i_timestamp,
+        .f_timestamp = f_timestamp,
+        .payload = payload,
+        .trailer = trailer,
+        .allocator = allocator,
+        .end = payload_range.end,
+        .raw_data = stream,
+    };
+}
+
+pub fn deinit(self: *Vita49) void {
+    self.allocator.free(self.raw_data);
+}
+
+fn getPayloadRange(header: Header, has_stream_id: bool) !struct { start: usize, end: usize } {
+    var start: usize = 4;
+    var end: usize = @as(usize, (header.packet_size * 4)) - 1;
+    if (has_stream_id) {
+        start += 4;
+    }
+    if (header.class_id) {
+        start += 8;
+    }
+    if (header.tsi != Tsi.none) {
+        start += 4;
+    }
+    if (header.tsf != Tsf.none) {
+        start += 8;
+    }
+    if (header.trailer) {
+        end -= 4;
+    }
+    if (start > end) {
+        return Error.MalformedPayloadRange;
+    }
+    return .{ .start = start, .end = end };
+}
+
 /// Vita49 Possible error types
-pub const Vita49Error = error{ MalformedPayloadRange, InsufficientData };
+pub const Error = error{ MalformedPayloadRange, InsufficientData };
 
 const PacketType = enum(u4) {
     signal_wo_stream_id = 0,
@@ -92,131 +218,6 @@ pub const ClassId = packed struct {
             .info_class_code = @bitCast(stream[4..6].*),
             .packet_class_code = @bitCast(stream[6..8].*),
         };
-    }
-};
-
-/// The Vita49 packet type which will be used by the Parser
-pub const Vita49 = struct {
-    header: Header,
-    stream_id: ?u32,
-    class_id: ?ClassId,
-    i_timestamp: ?u32,
-    f_timestamp: ?u64,
-    payload: []const u8,
-    trailer: ?Trailer,
-    allocator: std.mem.Allocator,
-    end: usize,
-
-    // private
-    raw_data: []const u8,
-
-    pub fn init(pl: []const u8, allocator: std.mem.Allocator, config: ?[]const u8) !Vita49 {
-        var stream = try allocator.dupe(u8, pl); // dupe the data so we dont ever lose it
-        if (config != null) {
-            std.log.debug("Config found for Vita49 but this hasn't been implemented yet", .{});
-        }
-        if (stream.len < 4) {
-            return Vita49Error.InsufficientData;
-        }
-        const header = try Header.init(stream[0..4].*);
-        var stream_id: ?u32 = undefined;
-        var class_id: ?ClassId = undefined;
-        var payload: []const u8 = undefined;
-        var trailer: ?Trailer = undefined;
-        var i_start: usize = 4;
-        var f_start: usize = 4;
-        var i_timestamp: ?u32 = undefined;
-        var f_timestamp: ?u64 = undefined;
-        var payload_range = try getPayloadRange(header, true);
-
-        switch (header.packet_type) {
-            .signal_w_stream_id,
-            .ext_data_w_stream_id,
-            .ext_cmd_packet,
-            .cmd_packet,
-            .ctx_packet,
-            .ext_ctx_packet,
-            => {
-                stream_id = std.mem.readInt(u32, stream[4..8], .little);
-                i_start += 4;
-                f_start += 4;
-            },
-            .signal_wo_stream_id,
-            .ext_data_wo_stream_id,
-            => {
-                payload_range = try getPayloadRange(header, false);
-            },
-        }
-        if (header.class_id) {
-            class_id = ClassId.init(stream[8..16].*);
-            i_start += 8;
-            f_start += 8;
-        } else {
-            class_id = null;
-        }
-        if (header.trailer) {
-            trailer = Trailer.init(stream[payload_range.end..]);
-            payload = stream[payload_range.start..payload_range.end];
-        } else {
-            payload = stream[payload_range.start..payload_range.end];
-        }
-        if (header.tsi != Tsi.none) {
-            var tmp_array: [4]u8 = undefined;
-            @memcpy(&tmp_array, stream[i_start .. i_start + 4]);
-            i_timestamp = std.mem.readInt(u32, &tmp_array, .little);
-            f_start += 4;
-        } else {
-            i_timestamp = null;
-        }
-        if (header.tsf != Tsf.none) {
-            var tmp_array: [8]u8 = undefined;
-            @memcpy(&tmp_array, stream[f_start .. f_start + 8]);
-            f_timestamp = std.mem.readInt(u64, &tmp_array, .little);
-        } else {
-            f_timestamp = null;
-        }
-        const end_of_data = if (header.trailer) payload_range.end + 4 else payload_range.end;
-        stream = try allocator.realloc(stream, end_of_data);
-        return .{
-            .header = header,
-            .stream_id = stream_id,
-            .class_id = class_id,
-            .i_timestamp = i_timestamp,
-            .f_timestamp = f_timestamp,
-            .payload = payload,
-            .trailer = trailer,
-            .allocator = allocator,
-            .end = payload_range.end,
-            .raw_data = stream,
-        };
-    }
-
-    pub fn deinit(self: *Vita49) void {
-        self.allocator.free(self.raw_data);
-    }
-
-    fn getPayloadRange(header: Header, has_stream_id: bool) !struct { start: usize, end: usize } {
-        var start: usize = 4;
-        var end: usize = @as(usize, (header.packet_size * 4)) - 1;
-        if (has_stream_id) {
-            start += 4;
-        }
-        if (header.class_id) {
-            start += 8;
-        }
-        if (header.tsi != Tsi.none) {
-            start += 4;
-        }
-        if (header.tsf != Tsf.none) {
-            start += 8;
-        }
-        if (header.trailer) {
-            end -= 4;
-        }
-        if (start > end) {
-            return Vita49Error.MalformedPayloadRange;
-        }
-        return .{ .start = start, .end = end };
     }
 };
 
