@@ -59,7 +59,7 @@ pub fn output(self: Tle) void {
 
 /// TLE Error types
 /// Only contains a single error, but may be expanded in the future
-pub const TleError = error{BadTleLength};
+pub const Error = error{BadTleLength};
 
 /// The first line of a TLE which comes from passed in TLE
 pub const FirstLine = struct {
@@ -79,7 +79,7 @@ pub const FirstLine = struct {
 
     pub fn init(line: []const u8, allocator: std.mem.Allocator) !FirstLine {
         if (line.len < 69) {
-            return TleError.BadTleLength;
+            return Error.BadTleLength;
         }
 
         const intl_year = try std.fmt.parseInt(u16, line[9..11], 10);
@@ -154,7 +154,7 @@ pub const SecondLine = struct {
 
     pub fn init(line: []const u8, allocator: std.mem.Allocator) !SecondLine {
         if (line.len < 69) {
-            return TleError.BadTleLength;
+            return Error.BadTleLength;
         }
 
         const clean_line = try std.mem.replaceOwned(u8, allocator, line, " ", "");
