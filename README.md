@@ -81,6 +81,8 @@ exe.root_module.addImport("astroz", astroz_mod);
 
 - #### [Orbit Phase Change](examples/orbit_phase_change.zig)
 
+- #### [Orbit Orientation Determination](examples/simple_spacecraft_orientation.zig)
+
 - #### [Parse Vita49](examples/parse_vita49.zig)
 
 - #### [Parse Vita49 with Callback](examples/parse_vita49_callback.zig)
