@@ -91,8 +91,8 @@ const EXAMPLE_NAMES = &.{
     "parse_ccsds_file_sync",
     "parse_ccsds",
     "parse_tle",
-    // "parse_vita49_callback",
-    // "parse_vita49",
+    "parse_vita49_callback",
+    "parse_vita49",
     "precess_star",
     "simple_spacecraft_orientation",
 };
