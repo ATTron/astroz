@@ -6,12 +6,12 @@ const Datetime = @import("Datetime.zig");
 const constants = @import("constants.zig");
 const calculations = @import("calculations.zig");
 
-const Ecs = @This();
+const EquatorialCoordinateSystem = @This();
 
 declination: Declination,
 right_ascension: RightAscension,
 
-pub fn init(declination: Declination, right_ascension: RightAscension) Ecs {
+pub fn init(declination: Declination, right_ascension: RightAscension) EquatorialCoordinateSystem {
     return .{
         .declination = declination,
         .right_ascension = right_ascension,
@@ -20,7 +20,7 @@ pub fn init(declination: Declination, right_ascension: RightAscension) Ecs {
 
 // TODO: this can 100% be done better
 /// Find anything at any date after Jan 1 2000 in the ECS format
-pub fn precess(self: Ecs, date: Datetime) Ecs {
+pub fn precess(self: EquatorialCoordinateSystem, date: Datetime) EquatorialCoordinateSystem {
     const precess_constants = Precess.init(date);
     const deltas = self.calculateRaDec(precess_constants);
 
@@ -54,7 +54,7 @@ pub fn precess(self: Ecs, date: Datetime) Ecs {
     };
 }
 
-fn calculateRaDec(self: Ecs, precess_constants: Precess) struct { ra: f64, dec: f64 } {
+fn calculateRaDec(self: EquatorialCoordinateSystem, precess_constants: Precess) struct { ra: f64, dec: f64 } {
     const ra_sin = @sin(calculations.degreesToRadians(self.right_ascension.convertToAngular()));
     const dec_tan = @tan(calculations.degreesToRadians(self.declination.convertToAngular()));
     const ra_cos = @cos(calculations.degreesToRadians(self.right_ascension.convertToAngular()));
@@ -144,14 +144,14 @@ const Precess = struct {
 test "Equatorial Coordinates" {
     const test_ra = RightAscension.init(19, 50, 47.0);
     const test_dec = Declination.init(8, 52, 6.0);
-    const test_coord = Ecs.init(
+    const test_coord = EquatorialCoordinateSystem.init(
         test_dec,
         test_ra,
     );
     const angular_ra = test_ra.convertToAngular();
     const angular_dec = test_dec.convertToAngular();
     const precessed_output = test_coord.precess(Datetime.initDate(2005, 7, 30));
-    const expected_precessed = Ecs.init(
+    const expected_precessed = EquatorialCoordinateSystem.init(
         Declination.init(8, 52, 57.962516014965246),
         RightAscension.init(19, 51, 3.122949149012854),
     );
