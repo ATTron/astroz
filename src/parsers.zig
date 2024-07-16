@@ -1,6 +1,6 @@
 const std = @import("std");
-const CCSDS = @import("ccsds.zig").CCSDS;
-const Vita49 = @import("vita49.zig").Vita49;
+const Ccsds = @import("Ccsds.zig");
+const Vita49 = @import("Vita49.zig");
 
 /// Semi-generic function that takes either Vita49 or CCSDS as the Frame type.
 pub fn Parser(comptime Frame: type) type {
@@ -30,7 +30,7 @@ pub fn Parser(comptime Frame: type) type {
             };
         }
 
-        /// If you are using a parser, this will clean up any allocator mess left per packet that is created by the Parser
+        /// Clean up any allocator mess left per packet that is created by the Parser
         pub fn deinit(self: *Self) void {
             for (self.packets.items) |*packet| {
                 packet.deinit();
@@ -56,7 +56,7 @@ pub fn Parser(comptime Frame: type) type {
             defer self.allocator.free(file_content);
 
             std.log.debug("type of Frame is: {s}", .{@typeName(Frame)});
-            if (std.mem.eql(u8, @typeName(Frame), "vita49.Vita49")) {
+            if (std.mem.eql(u8, @typeName(Frame), "Vita49")) {
                 if (sync_pattern) |sp| {
                     var i: usize = 0;
                     while (file_content.len > 4) : (i += 1) {
@@ -97,7 +97,7 @@ pub fn Parser(comptime Frame: type) type {
                     const new_alloc_size = file_content.len - 1;
                     file_content = try self.allocator.realloc(file_content, new_alloc_size);
                 }
-            } else if (std.mem.eql(u8, @typeName(Frame), "ccsds.CCSDS")) {
+            } else if (std.mem.eql(u8, @typeName(Frame), "Ccsds")) {
                 if (sync_pattern) |sp| {
                     var i: usize = 0;
                     while (file_content.len > 4) : (i += 1) {
@@ -170,8 +170,7 @@ pub fn Parser(comptime Frame: type) type {
     };
 }
 
-/// this is for running the tests ONLY
-fn _run_test_server(parse_type: []const u8) !void {
+fn testRunServer(parse_type: []const u8) !void {
     const ip_addr = try std.net.Ip4Address.parse("127.0.0.1", 65432);
     const test_host = std.net.Address{ .in = ip_addr };
     var server = try test_host.listen(.{
@@ -209,8 +208,7 @@ fn _run_test_server(parse_type: []const u8) !void {
     }
 }
 
-/// this is for running tests ONLY
-fn _test_callback(packet: Vita49) void {
+fn testCallback(packet: Vita49) void {
     std.log.debug("CALLBACK CALLED: {any}", .{packet});
 }
 
@@ -243,7 +241,7 @@ test "Vita49 Parse From File w/o sync" {
 
 test "CCSDS Parse From File w/o sync" {
     const file_name = "./test/ccsds.bin".*;
-    const P = Parser(CCSDS);
+    const P = Parser(Ccsds);
     var parser = try P.init(null, null, 1024, std.testing.allocator);
     defer parser.deinit();
 
@@ -259,7 +257,7 @@ test "CCSDS Parse From File w/ sync" {
     const file_name = "./test/ccsds.bin".*;
     // 7897 c000 000a 0102
     const sync_pattern = .{ 0x78, 0x97, 0xC0, 0x00, 0x00, 0x0A, 0x01, 0x02 };
-    const P = Parser(CCSDS);
+    const P = Parser(Ccsds);
     var parser = try P.init(null, null, 1024, std.testing.allocator);
     defer parser.deinit();
 
@@ -279,7 +277,7 @@ test "Vita49 Parser Test" {
     defer par_test.deinit();
 
     {
-        const t1 = try std.Thread.spawn(.{}, _run_test_server, .{"vita49"});
+        const t1 = try std.Thread.spawn(.{}, testRunServer, .{"vita49"});
         defer t1.join();
 
         std.time.sleep(2 * std.time.ns_per_s);
@@ -311,14 +309,14 @@ test "Vita49 Parser Test w/ Callback" {
     defer par_test.deinit();
 
     {
-        const t1 = try std.Thread.spawn(.{}, _run_test_server, .{"vita49"});
+        const t1 = try std.Thread.spawn(.{}, testRunServer, .{"vita49"});
         defer t1.join();
 
         std.time.sleep(2 * std.time.ns_per_s);
 
         const t2 = try std.Thread.spawn(.{}, struct {
             fn run(pt: *parser) !void {
-                try pt.start(_test_callback);
+                try pt.start(testCallback);
             }
         }.run, .{&par_test});
         defer t2.join();
@@ -338,12 +336,12 @@ test "Vita49 Parser Test w/ Callback" {
 test "CCSDS Parser Test" {
     const ip = "127.0.0.1".*;
     const port: u16 = 65432;
-    const parser = Parser(CCSDS);
+    const parser = Parser(Ccsds);
     var par_test = try parser.init(&ip, port, 1024, std.testing.allocator);
     defer par_test.deinit();
 
     {
-        const t1 = try std.Thread.spawn(.{}, _run_test_server, .{"ccsds"});
+        const t1 = try std.Thread.spawn(.{}, testRunServer, .{"ccsds"});
         defer t1.join();
 
         std.time.sleep(2 * std.time.ns_per_s);

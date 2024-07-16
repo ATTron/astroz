@@ -1,9 +1,65 @@
+//! The proper TLE struct
+//! You should only call this when you are parsing a TLE
+//! The FirstLine and SecondLine are being built by the parse method
+
 const std = @import("std");
-const DateTime = @import("time.zig").Datetime;
+const DateTime = @import("Datetime.zig");
+
+const Tle = @This();
+
+first_line: FirstLine,
+second_line: SecondLine,
+allocator: std.mem.Allocator,
+
+pub fn parse(tle: []const u8, allocator: std.mem.Allocator) !Tle {
+    const delimiter: [1]u8 = .{'\n'};
+    var lines = std.mem.splitAny(u8, tle, &delimiter);
+    const fl = lines.first();
+    const sl = lines.next().?;
+    const first_line = try FirstLine.init(fl, allocator);
+    const second_line = try SecondLine.init(sl, allocator);
+    return .{ .first_line = first_line, .second_line = second_line, .allocator = allocator };
+}
+
+pub fn deinit(self: *Tle) void {
+    self.allocator.free(self.first_line.intl_designator);
+    self.allocator.free(self.second_line.clean_line);
+}
+
+/// Helpful for sanity checking TLE parsing
+pub fn output(self: Tle) void {
+    // 1st line
+    std.debug.print("line_number: {c}\n", .{self.first_line.line_number});
+    std.debug.print("satellite_number: {d}\n", .{self.first_line.satellite_number});
+    std.debug.print("classification: {c}\n", .{self.first_line.classification});
+    std.debug.print("intl_designator: {s}\n", .{self.first_line.intl_designator});
+    std.debug.print("epoch_year: {d}\n", .{self.first_line.epoch_year});
+    std.debug.print("epoch_day: {d}\n", .{self.first_line.epoch_day});
+    std.debug.print("epoch: {d}\n", .{self.first_line.epoch});
+    std.debug.print("first_der_m_motion: {d}\n", .{self.first_line.first_der_m_motion});
+    std.debug.print("second_der_m_motion: {s}\n", .{self.first_line.second_der_m_motion});
+    std.debug.print("bstar_drag: {d}\n", .{self.first_line.bstar_drag});
+    std.debug.print("ephem_type: {c}\n", .{self.first_line.ephem_type});
+    std.debug.print("elem_number: {d}\n", .{self.first_line.elem_number});
+    std.debug.print("checksum: {c}\n", .{self.first_line.checksum});
+
+    // 2nd line
+    std.debug.print("\n\n", .{});
+    std.debug.print("line_number: {c}\n", .{self.second_line.line_number});
+    std.debug.print("satellite_number: {d}\n", .{self.second_line.satellite_number});
+    std.debug.print("inclination: {d}\n", .{self.second_line.inclination});
+    std.debug.print("right_ascension: {d}\n", .{self.second_line.right_ascension});
+    std.debug.print("eccentricity: {d}\n", .{self.second_line.eccentricity});
+    std.debug.print("perigee: {d}\n", .{self.second_line.perigee});
+    std.debug.print("m_anomaly: {d}\n", .{self.second_line.m_anomaly});
+    std.debug.print("m_motion: {d}\n", .{self.second_line.m_motion});
+    std.debug.print("rev_num: {d}\n", .{self.second_line.rev_num});
+    std.debug.print("checksum: {c}\n", .{self.second_line.checksum});
+}
 
 /// TLE Error types
 /// Only contains a single error, but may be expanded in the future
-pub const TleError = error{BadTleLength};
+pub const Error = error{BadTleLength};
 
 /// The first line of a TLE which comes from passed in TLE
 pub const FirstLine = struct {
@@ -23,7 +79,7 @@ pub const FirstLine = struct {
 
     pub fn init(line: []const u8, allocator: std.mem.Allocator) !FirstLine {
         if (line.len < 69) {
-            return TleError.BadTleLength;
+            return Error.BadTleLength;
         }
 
         const intl_year = try std.fmt.parseInt(u16, line[9..11], 10);
@@ -98,7 +154,7 @@ pub const SecondLine = struct {
 
     pub fn init(line: []const u8, allocator: std.mem.Allocator) !SecondLine {
         if (line.len < 69) {
-            return TleError.BadTleLength;
+            return Error.BadTleLength;
         }
 
         const clean_line = try std.mem.replaceOwned(u8, allocator, line, " ", "");
@@ -123,68 +179,13 @@ pub const SecondLine = struct {
     }
 };
 
-/// The proper TLE struct
-/// You should only call this when you are parsing a TLE
-/// The FirstLine and SecondLine are being built by the parse method
-pub const TLE = struct {
-    first_line: FirstLine,
-    second_line: SecondLine,
-    allocator: std.mem.Allocator,
-
-    pub fn parse(tle: []const u8, allocator: std.mem.Allocator) !TLE {
-        const delimiter: [1]u8 = .{'\n'};
-        var lines = std.mem.splitAny(u8, tle, &delimiter);
-        const fl = lines.first();
-        const sl = lines.next().?;
-        const first_line = try FirstLine.init(fl, allocator);
-        const second_line = try SecondLine.init(sl, allocator);
-        return .{ .first_line = first_line, .second_line = second_line, .allocator = allocator };
-    }
-
-    pub fn deinit(self: *TLE) void {
-        self.allocator.free(self.first_line.intl_designator);
-        self.allocator.free(self.second_line.clean_line);
-    }
-
-    /// Helpful for sanity checking TLE parsing
-    pub fn output(self: TLE) void {
-        // 1st line
-        std.debug.print("line_number: {c}\n", .{self.first_line.line_number});
-        std.debug.print("satellite_number: {d}\n", .{self.first_line.satellite_number});
-        std.debug.print("classification: {c}\n", .{self.first_line.classification});
-        std.debug.print("intl_designator: {s}\n", .{self.first_line.intl_designator});
-        std.debug.print("epoch_year: {d}\n", .{self.first_line.epoch_year});
-        std.debug.print("epoch_day: {d}\n", .{self.first_line.epoch_day});
-        std.debug.print("epoch: {d}\n", .{self.first_line.epoch});
-        std.debug.print("first_der_m_motion: {d}\n", .{self.first_line.first_der_m_motion});
-        std.debug.print("second_der_m_motion: {s}\n", .{self.first_line.second_der_m_motion});
-        std.debug.print("bstar_drag: {d}\n", .{self.first_line.bstar_drag});
-        std.debug.print("ephem_type: {c}\n", .{self.first_line.ephem_type});
-        std.debug.print("elem_number: {d}\n", .{self.first_line.elem_number});
-        std.debug.print("checksum: {c}\n", .{self.first_line.checksum});
-
-        // 2nd line
-        std.debug.print("\n\n", .{});
-        std.debug.print("line_number: {c}\n", .{self.second_line.line_number});
-        std.debug.print("satellite_number: {d}\n", .{self.second_line.satellite_number});
-        std.debug.print("inclination: {d}\n", .{self.second_line.inclination});
-        std.debug.print("right_ascension: {d}\n", .{self.second_line.right_ascension});
-        std.debug.print("eccentricity: {d}\n", .{self.second_line.eccentricity});
-        std.debug.print("perigee: {d}\n", .{self.second_line.perigee});
-        std.debug.print("m_anomaly: {d}\n", .{self.second_line.m_anomaly});
-        std.debug.print("m_motion: {d}\n", .{self.second_line.m_motion});
-        std.debug.print("rev_num: {d}\n", .{self.second_line.rev_num});
-        std.debug.print("checksum: {c}\n", .{self.second_line.checksum});
-    }
-};
-
 test "test tle parsing" {
     const test_tle =
         \\1 55909U 23035B   24187.51050877  .00023579  00000+0  16099-2 0  9998
         \\2 55909  43.9978 311.8012 0011446 278.6226  81.3336 15.05761711 71371
     ;
 
-    var tle = try TLE.parse(test_tle, std.testing.allocator);
+    var tle = try Tle.parse(test_tle, std.testing.allocator);
     defer tle.deinit();
 
     try std.testing.expectEqual(55909, tle.first_line.satellite_number);

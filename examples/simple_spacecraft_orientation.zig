@@ -1,9 +1,8 @@
 const std = @import("std");
 const astroz = @import("astroz");
+const Tle = astroz.Tle;
 const constants = astroz.constants;
-const TLE = astroz.tle.TLE;
-const spacecraft = astroz.spacecraft;
-const Spacecraft = spacecraft.Spacecraft;
+const Spacecraft = astroz.Spacecraft;
 
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
@@ -14,9 +13,9 @@ pub fn main() !void {
         \\1 55909U 23035B   24187.51050877  .00023579  00000+0  16099-2 0  9998
         \\2 55909  43.9978 311.8012 0011446 278.6226  81.3336 15.05761711 71371
     ;
-    var test_tle = try TLE.parse(raw_tle, allocator);
+    var test_tle = try Tle.parse(raw_tle, allocator);
     defer test_tle.deinit();
-    var sc = Spacecraft.init("dummy_sc", test_tle, 300.000, spacecraft.SatelliteSize.Cube, constants.earth, allocator);
+    var sc = Spacecraft.init("dummy_sc", test_tle, 300.000, Spacecraft.SatelliteSize.Cube, constants.earth, allocator);
     defer sc.deinit();
 
     sc.angular_velocity = .{ 0.0, 0.0, 0.0 };
@@ -62,4 +61,3 @@ pub fn main() !void {
         });
     }
 }
-

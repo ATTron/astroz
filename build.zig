@@ -94,4 +94,5 @@ const EXAMPLE_NAMES = &.{
     "parse_vita49_callback",
     "parse_vita49",
     "precess_star",
+    "simple_spacecraft_orientation",
 };
