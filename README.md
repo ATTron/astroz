@@ -23,6 +23,7 @@
     - [x] Impulse Maneuvers
     - [x] Phase Maneuvers
     - [x] Plane Change Maneuvers
+- [x] Orientation Determination
 
 #### Astronomical
 
@@ -83,6 +84,8 @@ exe.root_module.addImport("astroz", astroz_mod);
 - #### [Orbit Plane Change](examples/orbit_plane_change.zig)
 
 - #### [Orbit Phase Change](examples/orbit_phase_change.zig)
+
+- #### [Orbit Orientation Determination](examples/simple_spacecraft_orientation.zig)
 
 - #### [Parse Vita49](examples/parse_vita49.zig)
 

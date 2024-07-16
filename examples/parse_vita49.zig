@@ -1,7 +1,7 @@
 const std = @import("std");
 const astroz = @import("astroz");
-const Vita49 = astroz.vita49.Vita49;
-const Parser = astroz.parsers.Parser;
+const Vita49 = astroz.Vita49;
+const Parser = astroz.Parser;
 
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
