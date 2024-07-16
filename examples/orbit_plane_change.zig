@@ -1,11 +1,10 @@
 const std = @import("std");
 const math = std.math;
 const astroz = @import("astroz");
-const TLE = astroz.tle.TLE;
+const Tle = astroz.Tle;
 const constants = astroz.constants;
-const Impulse = spacecraft.Impulse;
-const spacecraft = astroz.spacecraft;
-const Spacecraft = spacecraft.Spacecraft;
+const Impulse = Spacecraft.Impulse;
+const Spacecraft = astroz.Spacecraft;
 
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
@@ -17,10 +16,10 @@ pub fn main() !void {
         \\2 55909  43.9978 311.8012 0011446 278.6226  81.3336 15.05761711 71371
     ;
 
-    var tle = try TLE.parse(test_tle, allocator);
+    var tle = try Tle.parse(test_tle, allocator);
     defer tle.deinit();
 
-    var test_sc = Spacecraft.init("dummy_sc", tle, 300.000, spacecraft.SatelliteSize.Cube, constants.earth, allocator);
+    var test_sc = Spacecraft.init("dummy_sc", tle, 300.000, Spacecraft.SatelliteSize.Cube, constants.earth, allocator);
     defer test_sc.deinit();
 
     const plane_change_maneuver = Impulse{
