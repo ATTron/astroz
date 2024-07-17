@@ -21,6 +21,19 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
         .root_source_file = root_source_file,
     });
+    const zigimg_dependency = b.dependency("zigimg", .{
+        .target = target,
+        .optimize = optimize,
+    });
+
+    lib.root_module.addImport("zigimg", zigimg_dependency.module("zigimg"));
+
+    const cfitsio_dep = b.dependency("cfitsio", .{
+        .target = target,
+        .optimize = optimize,
+    });
+
+    lib.root_module.addImport("cfitsio", cfitsio_dep.module("cfitsio"));
 
     const lib_install = b.addInstallArtifact(lib, .{});
     lib_step.dependOn(&lib_install.step);
@@ -62,6 +75,9 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .root_source_file = root_source_file,
     });
+
+    tests.root_module.addImport("zigimg", zigimg_dependency.module("zigimg"));
+    tests.root_module.addImport("cfitsio", cfitsio_dep.module("cfitsio"));
 
     const tests_run = b.addRunArtifact(tests);
     tests_step.dependOn(&tests_run.step);

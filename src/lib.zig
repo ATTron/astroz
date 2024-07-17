@@ -9,6 +9,7 @@ pub const Parser = @import("parsers.zig").Parser;
 pub const Spacecraft = @import("Spacecraft.zig");
 pub const calculations = @import("calculations.zig");
 pub const EquatorialCoordinateSystem = @import("EquatorialCoordinateSystem.zig");
+pub const Fits = @import("Fits.zig");
 
 test {
     std.testing.refAllDecls(@This());
