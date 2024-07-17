@@ -44,7 +44,7 @@ pub fn toImage(self: *Fits, input_path: []const u8, output_path: []const u8, opt
     try self.applyStretch(pixels, width, height, output_path, options);
 }
 
-fn applyStretch(self: *Fits, pixels: []f32, width: usize, height: usize, output_path: []const u8, options: StretchOptions) !void {
+inline fn applyStretch(self: *Fits, pixels: []f32, width: usize, height: usize, output_path: []const u8, options: StretchOptions) !void {
     const sorted_pixels = try self.allocator.dupe(f32, pixels);
     defer self.allocator.free(sorted_pixels);
     std.sort.heap(f32, sorted_pixels, {}, std.sort.asc(f32));
@@ -72,13 +72,13 @@ fn applyStretch(self: *Fits, pixels: []f32, width: usize, height: usize, output_
     try image.writeToFilePath(output_path, .{ .png = .{} });
 }
 
-fn sineStretch(x: f32, options: StretchOptions) f32 {
+inline fn sineStretch(x: f32, options: StretchOptions) f32 {
     const stretch: f32 = options.stretch;
     const bend: f32 = options.bend;
     return std.math.asinh((x - bend) / stretch) / std.math.asinh((1 - bend) / stretch) * 0.5 + 0.5;
 }
 
-fn applyColorMap(value: f32) [3]f32 {
+inline fn applyColorMap(value: f32) [3]f32 {
     return .{ value, value, value };
 }
 
@@ -94,5 +94,15 @@ pub const FitsError = error{
 
 test Fits {
     var fits_png = Fits.init(std.testing.allocator);
+    var fits_png1 = Fits.init(std.testing.allocator);
+    var fits_png2 = Fits.init(std.testing.allocator);
+    var fits_png3 = Fits.init(std.testing.allocator);
+    var fits_png4 = Fits.init(std.testing.allocator);
+    var fits_png5 = Fits.init(std.testing.allocator);
     try fits_png.toImage("test/sample_fits.fits", "test/test.png", .{});
+    try fits_png1.toImage("test/sample_fits.fits", "test/test.png", .{});
+    try fits_png2.toImage("test/sample_fits.fits", "test/test.png", .{});
+    try fits_png3.toImage("test/sample_fits.fits", "test/test.png", .{});
+    try fits_png4.toImage("test/sample_fits.fits", "test/test.png", .{});
+    try fits_png5.toImage("test/sample_fits.fits", "test/test.png", .{});
 }
