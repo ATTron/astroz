@@ -27,6 +27,7 @@ pub fn build(b: *std.Build) void {
     });
 
     lib.root_module.addImport("zigimg", zigimg_dependency.module("zigimg"));
+    astroz_mod.addImport("zigimg", zigimg_dependency.module("zigimg"));
 
     const cfitsio_dep = b.dependency("cfitsio", .{
         .target = target,
@@ -34,6 +35,7 @@ pub fn build(b: *std.Build) void {
     });
 
     lib.root_module.addImport("cfitsio", cfitsio_dep.module("cfitsio"));
+    astroz_mod.addImport("cfitsio", cfitsio_dep.module("cfitsio"));
 
     const lib_install = b.addInstallArtifact(lib, .{});
     lib_step.dependOn(&lib_install.step);
