@@ -41,7 +41,7 @@
 - [ ] Orbital Mechanics
   - [ ] Interplanetary Maneuvers
 - [ ] FITS File Parsing
-  - [ ] Image Generation
+  - [x] Image Generation
     - [ ] Multi Image Parsing/Generation
   - [ ] Table Parsing
 
@@ -98,6 +98,10 @@ exe.root_module.addImport("astroz", astroz_mod);
 - #### [Create CCSDS Packet](examples/create_ccsds_packet.zig)
 
 - #### [Create CCSDS Packet with Config](examples/create_ccsds_packet_config.zig)
+
+- #### [Generate Image from FITS File](examples/parse_fits_image.zig)
+
+<img src="test/test.png" width="450" height="400" alt="sample fits image as png"/>
 
 - #### [Precess star to July 30, 2005](examples/precess_star.zig)
 
