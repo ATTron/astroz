@@ -60,7 +60,7 @@ pub fn Parser(comptime Frame: type) type {
                 if (sync_pattern) |sp| {
                     var i: usize = 0;
                     while (file_content.len > 4) : (i += 1) {
-                        if (std.mem.eql(u8, file_content[i .. i + sp.len], sp)) {
+                        if (std.mem.startsWith(u8, file_content[i..], sp)) {
                             const new_frame = try Frame.init(file_content[i..], self.allocator, null);
                             try self.packets.append(new_frame);
                             if (callback) |cb| {
@@ -101,7 +101,7 @@ pub fn Parser(comptime Frame: type) type {
                 if (sync_pattern) |sp| {
                     var i: usize = 0;
                     while (file_content.len > 4) : (i += 1) {
-                        if (std.mem.eql(u8, file_content[i .. i + sp.len], sp)) {
+                        if (std.mem.startsWith(u8, file_content[i..], sp)) {
                             const new_frame = try Frame.init(file_content[i..], self.allocator, null);
                             try self.packets.append(new_frame);
                             if (callback) |cb| {
