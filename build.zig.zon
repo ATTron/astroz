@@ -6,6 +6,10 @@
             .url = "git+https://github.com/zigimg/zigimg/?ref=HEAD#d9dbbe22b5f7b5f1f4772169ed93ffeed8e8124d",
             .hash = "122013646f7038ecc71ddf8a0d7de346d29a6ec40140af57f838b0a975c69af512b0",
         },
+        .cfitsio = .{
+            .url = "git+https://github.com/tensorush/cfitsio/?ref=HEAD#f91b8e06eea9f4483f411df594a3c7630d4cd618",
+            .hash = "12207ac83c83459f57ed1807e7bfb1fe49a04d96486cc8a0d219fae87db5d43b4ad6",
+        },
     },
     .minimum_zig_version = "0.13.0",
     .paths = .{
