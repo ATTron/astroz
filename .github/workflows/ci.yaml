@@ -25,6 +25,7 @@ jobs:
       - name: Download FITS file
         run: |
           curl -o test/table.fits http://data.astropy.org/tutorials/FITS-tables/chandra_events.fits
+          zig build test --summary all
         working-directory: ${{ github.workspace }}
 
       - name: Debug file location
