@@ -22,9 +22,6 @@ jobs:
         with:
           version: master 
 
-      - name: Create test directory
-        run: mkdir -p test
-
       - name: Download FITS file
         run: |
           curl -o test/table.fits http://data.astropy.org/tutorials/FITS-tables/chandra_events.fits
