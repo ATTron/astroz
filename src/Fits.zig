@@ -5,22 +5,96 @@ const cfitsio = @import("cfitsio").c;
 const Fits = @This();
 
 allocator: std.mem.Allocator,
+fptr: ?*cfitsio.fitsfile,
 
-pub fn init(allocator: std.mem.Allocator) Fits {
-    return .{
+pub fn open(file_path: []const u8, allocator: std.mem.Allocator) !Fits {
+    std.log.debug("{s}", .{file_path});
+    var status: c_int = 0;
+    var fptr: ?*cfitsio.fitsfile = null;
+    _ = cfitsio.fits_open_file(&fptr, file_path.ptr, cfitsio.READONLY, &status);
+    if (status != 0) return FitsError.OpenError;
+
+    return Fits{
         .allocator = allocator,
+        .fptr = fptr,
     };
 }
 
-pub fn toImage(self: *Fits, input_path: []const u8, output_path: []const u8, options: StretchOptions) !void {
-    var fptr: ?*cfitsio.fitsfile = null;
-    var status: c_int = 0;
-    _ = cfitsio.fits_open_file(&fptr, input_path.ptr, cfitsio.READONLY, &status);
-    defer _ = cfitsio.fits_close_file(fptr, &status);
-
-    if (status != 0) {
-        return error.FITSOpenError;
+pub fn close(self: *Fits) void {
+    if (self.fptr) |fptr| {
+        var status: c_int = 0;
+        _ = cfitsio.fits_close_file(fptr, &status);
+        self.fptr = null;
     }
+}
+
+pub fn readTable(self: *Fits, hdu: c_int) !void {
+    var status: c_int = 0;
+    var hdu_type: c_int = undefined;
+
+    _ = cfitsio.fits_movabs_hdu(self.fptr, hdu, &hdu_type, &status);
+    if (status != 0) {
+        try self.reportError(status);
+        return FitsError.ReadError;
+    }
+
+    if (hdu_type != cfitsio.BINARY_TBL) {
+        std.debug.print("HDU {d} is not a binary table. Type: {d}\n", .{ hdu, hdu_type });
+        return FitsError.NotATableError;
+    }
+
+    var rows: c_long = undefined;
+    var cols: c_int = undefined;
+    _ = cfitsio.fits_get_num_rows(self.fptr, &rows, &status);
+    _ = cfitsio.fits_get_num_cols(self.fptr, &cols, &status);
+    if (status != 0) {
+        try self.reportError(status);
+        return FitsError.ReadError;
+    }
+
+    std.debug.print("Table has {d} rows and {d} columns\n", .{ rows, cols });
+
+    var i: c_int = 1;
+    while (i <= cols) : (i += 1) {
+        var ttype: [cfitsio.FLEN_VALUE]u8 = undefined;
+        var tunit: [cfitsio.FLEN_VALUE]u8 = undefined;
+        var typechar: [cfitsio.FLEN_VALUE]u8 = undefined;
+        var repeat: c_long = undefined;
+        var scale: f64 = undefined;
+        var zero: f64 = undefined;
+        var nulval: c_long = undefined;
+        var tdisp: [cfitsio.FLEN_VALUE]u8 = undefined;
+
+        status = 0;
+        _ = cfitsio.fits_get_bcolparms(self.fptr, i, &ttype, &tunit, &typechar, &repeat, &scale, &zero, &nulval, &tdisp, &status);
+        if (status != 0) {
+            try self.reportError(status);
+            return FitsError.ReadError;
+        }
+
+        const col_name = std.mem.sliceTo(&ttype, 0);
+        const type_str = std.mem.sliceTo(&typechar, 0);
+        std.debug.print("Column {d}: name = {s}, type = {s}, repeat = {d}\n", .{ i, col_name, type_str, repeat });
+    }
+    std.debug.print("Finished processing all columns.\n", .{});
+}
+
+fn reportError(self: *Fits, status: c_int) !void {
+    _ = self;
+    var error_text: [128]u8 = undefined;
+    _ = cfitsio.fits_get_errstatus(status, &error_text);
+    std.debug.print("CFITSIO Error: {s}\n", .{std.mem.sliceTo(&error_text, 0)});
+}
+
+pub fn readImage(self: *Fits, output_path: []const u8, options: StretchOptions) !void {
+    const fptr = self.fptr;
+    var status: c_int = 0;
+    // _ = cfitsio.fits_open_file(&fptr, input_path.ptr, cfitsio.READONLY, &status);
+    // defer _ = cfitsio.fits_close_file(fptr, &status);
+
+    // if (status != 0) {
+    //     return error.FITSOpenError;
+    // }
 
     var naxis: c_int = 0;
     var naxes: [2]c_long = undefined;
@@ -44,7 +118,7 @@ pub fn toImage(self: *Fits, input_path: []const u8, output_path: []const u8, opt
     try self.applyStretch(pixels, width, height, output_path, options);
 }
 
-inline fn applyStretch(self: *Fits, pixels: []f32, width: usize, height: usize, output_path: []const u8, options: StretchOptions) !void {
+fn applyStretch(self: *Fits, pixels: []f32, width: usize, height: usize, output_path: []const u8, options: StretchOptions) !void {
     const sorted_pixels = try self.allocator.dupe(f32, pixels);
     defer self.allocator.free(sorted_pixels);
     std.sort.heap(f32, sorted_pixels, {}, std.sort.asc(f32));
@@ -88,21 +162,38 @@ pub const StretchOptions = struct {
 };
 
 pub const FitsError = error{
-    InvalidHeader,
-    UnsupportedBitpix,
+    OpenError,
+    ReadError,
+    MemoryError,
+    UnknownError,
+    NotATableError,
+};
+
+pub const FitsTableInfo = struct {
+    rows: f32,
+    columns: f32,
 };
 
 test Fits {
-    var fits_png = Fits.init(std.testing.allocator);
-    var fits_png1 = Fits.init(std.testing.allocator);
-    var fits_png2 = Fits.init(std.testing.allocator);
-    var fits_png3 = Fits.init(std.testing.allocator);
-    var fits_png4 = Fits.init(std.testing.allocator);
-    var fits_png5 = Fits.init(std.testing.allocator);
-    try fits_png.toImage("test/sample_fits.fits", "test/test.png", .{});
-    try fits_png1.toImage("test/sample_fits.fits", "test/test.png", .{});
-    try fits_png2.toImage("test/sample_fits.fits", "test/test.png", .{});
-    try fits_png3.toImage("test/sample_fits.fits", "test/test.png", .{});
-    try fits_png4.toImage("test/sample_fits.fits", "test/test.png", .{});
-    try fits_png5.toImage("test/sample_fits.fits", "test/test.png", .{});
+    var fits_png = try Fits.open("test/sample_fits.fits", std.testing.allocator);
+    defer fits_png.close();
+    try fits_png.readImage("test/test.png", .{});
+}
+
+test "Read FITS table" {
+    std.debug.print("\n--- Starting FITS table test ---\n", .{});
+
+    var fits_file = try Fits.open("test/table.fits", std.testing.allocator);
+    defer fits_file.close();
+
+    std.debug.print("Successfully opened FITS file\n", .{});
+
+    // Try to read the first HDU
+    fits_file.readTable(1) catch |err| {
+        std.debug.print("Expected error reading HDU 1: {}\n", .{err});
+    };
+
+    std.debug.print("Attempting to read HDU 2...\n", .{});
+    try fits_file.readTable(2);
+    std.debug.print("Successfully read HDU 2\n", .{});
 }
