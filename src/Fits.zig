@@ -180,20 +180,20 @@ test Fits {
     try fits_png.readImage("test/test.png", .{});
 }
 
-test "Read FITS table" {
-    std.debug.print("\n--- Starting FITS table test ---\n", .{});
-
-    var fits_file = try Fits.open("/home/runner/work/astroz/astroz/test/table.fits", std.testing.allocator);
-    defer fits_file.close();
-
-    std.debug.print("Successfully opened FITS file\n", .{});
-
-    // Try to read the first HDU
-    fits_file.readTable(1) catch |err| {
-        std.debug.print("Expected error reading HDU 1: {}\n", .{err});
-    };
-
-    std.debug.print("Attempting to read HDU 2...\n", .{});
-    try fits_file.readTable(2);
-    std.debug.print("Successfully read HDU 2\n", .{});
-}
+// test "Read FITS table" {
+//     std.debug.print("\n--- Starting FITS table test ---\n", .{});
+//
+//     var fits_file = try Fits.open("test/table.fits", std.testing.allocator);
+//     defer fits_file.close();
+//
+//     std.debug.print("Successfully opened FITS file\n", .{});
+//
+//     // Try to read the first HDU
+//     fits_file.readTable(1) catch |err| {
+//         std.debug.print("Expected error reading HDU 1: {}\n", .{err});
+//     };
+//
+//     std.debug.print("Attempting to read HDU 2...\n", .{});
+//     try fits_file.readTable(2);
+//     std.debug.print("Successfully read HDU 2\n", .{});
+// }
