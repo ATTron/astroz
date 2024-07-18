@@ -24,22 +24,12 @@ jobs:
 
       - name: Download FITS file
         run: |
-          curl -o test/table.fits http://data.astropy.org/tutorials/FITS-tables/chandra_events.fits
-          zig build test --summary all
+          curl -o $GITHUB_WORKSPACE/test/table.fits http://data.astropy.org/tutorials/FITS-tables/chandra_events.fits
         working-directory: ${{ github.workspace }}
-
-      - name: Debug file location
-        run: |
-          pwd
-          ls -R
-          echo "FITS_TEST_FILE=${{ github.workspace }}/test/table.fits"
 
 
       - name: Run `test`
         run: zig build test --summary all
-        working-directory: ${{ github.workspace }}
-        env:
-          FITS_TEST_FILE: ${{ github.workspace }}/test/table.fits
 
   fmt:
     runs-on: ubuntu-latest
