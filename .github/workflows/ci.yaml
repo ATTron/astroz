@@ -28,8 +28,22 @@ jobs:
         working-directory: ${{ github.workspace }}
 
 
+      - name: Upload FITS file as artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: fits-file
+          path: test/table.fits
+
+      - name: Download FITS file artifact
+        uses: actions/download-artifact@v3
+        with:
+          name: fits-file
+          path: test
+
+
       - name: Run `test`
         run: zig build test --summary all
+        working-directory: ${{ github.workspace }}
 
   fmt:
     runs-on: ubuntu-latest
