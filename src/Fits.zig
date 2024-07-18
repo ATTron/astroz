@@ -183,7 +183,7 @@ test Fits {
 test "Read FITS table" {
     std.debug.print("\n--- Starting FITS table test ---\n", .{});
 
-    var fits_file = try Fits.open("./test/table.fits", std.testing.allocator);
+    var fits_file = try Fits.open("/home/runner/work/astroz/astroz/test/table.fits", std.testing.allocator);
     defer fits_file.close();
 
     std.debug.print("Successfully opened FITS file\n", .{});
