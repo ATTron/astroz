@@ -24,7 +24,7 @@ jobs:
 
       - name: Download FITS file
         run: |
-          curl -o $GITHUB_WORKSPACE/test/table.fits http://data.astropy.org/tutorials/FITS-tables/chandra_events.fits
+          curl -o ${{ github.workspace }}/test/table.fits http://data.astropy.org/tutorials/FITS-tables/chandra_events.fits
         working-directory: ${{ github.workspace }}
 
 
