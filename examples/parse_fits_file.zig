@@ -7,10 +7,6 @@ pub fn main() !void {
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
 
-    var fits_png = Fits.init(allocator);
-    try fits_png.toImage(
-        "test/sample_fits.fits",
-        "test/test.png",
-        .{},
-    );
+    var fits_png = try Fits.open_and_parse(allocator);
+    defer fits_png.close();
 }
