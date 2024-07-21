@@ -43,7 +43,7 @@
 - [ ] FITS File Parsing
   - [x] Image Generation
     - [ ] Multi Image Parsing/Generation
-  - [ ] Table Parsing
+  - [x] Table Parsing
 
 ### Feature not listed ?
 
