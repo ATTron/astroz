@@ -99,7 +99,7 @@ exe.root_module.addImport("astroz", astroz_mod);
 
 - #### [Create CCSDS Packet with Config](examples/create_ccsds_packet_config.zig)
 
-- #### [Generate Image from FITS File](examples/parse_fits_image.zig)
+- #### [Generate Image from FITS File](examples/parse_fits_file.zig)
 
 <img src="test/test.png" width="450" height="400" alt="sample fits image as png"/>
 
