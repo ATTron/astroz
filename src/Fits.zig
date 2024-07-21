@@ -51,15 +51,30 @@ pub fn open(file_path: []const u8, allocator: std.mem.Allocator) !Fits {
 
 pub fn open_and_parse(file_path: []const u8, allocator: std.mem.Allocator) !Fits {
     var fits_file = try Fits.open(file_path, allocator);
+    var image_count: usize = 0;
+    var ascii_table_count: usize = 0;
+    var binary_table_count: usize = 0;
+
+    var output_path_buffer: [std.fs.max_path_bytes]u8 = undefined;
     for (fits_file.hdus) |hdu| {
         std.log.debug("\nShowing HDU info: {any}\n", .{hdu});
         switch (hdu.content_type) {
             .Image => {
-                try fits_file.readImage(hdu.number, null, .{});
+                image_count += 1;
+                const filename = try std.fmt.bufPrint(&output_path_buffer, "image_{d}", .{image_count});
+                try fits_file.readImage(hdu.number, filename, .{});
             },
-            .AsciiTable, .BinaryTable => {
-                std.log.debug("Starting to read table...\n", .{});
-                try fits_file.readTable(hdu.number, null);
+            .AsciiTable => {
+                ascii_table_count += 1;
+                const filename = try std.fmt.bufPrint(&output_path_buffer, "ascii_table_{d}", .{image_count});
+                std.log.debug("Starting to read ASCII table...\n", .{});
+                try fits_file.readTable(hdu.number, filename);
+            },
+            .BinaryTable => {
+                binary_table_count += 1;
+                const filename = try std.fmt.bufPrint(&output_path_buffer, "binary_table_{d}", .{image_count});
+                std.log.debug("Starting to read binary table...\n", .{});
+                try fits_file.readTable(hdu.number, filename);
             },
             .Unknown => {
                 std.log.warn("Unknown Fits HDU found . . . skipping", .{});
@@ -111,10 +126,11 @@ pub fn readTable(self: *Fits, hdu_number: c_int, output_path: ?[]const u8) !void
         std.log.warn("Failed to create directory: {s}. Error: {}", .{ file_name, err });
     };
 
+    var output_path_buffer: [std.fs.max_path_bytes]u8 = undefined;
     if (output_path) |op| {
-        file = try std.fs.cwd().createFile(op, .{});
+        const output = try std.fmt.bufPrint(&output_path_buffer, "{s}/{s}.csv", .{ file_name, op });
+        file = try std.fs.cwd().createFile(output, .{});
     } else {
-        var output_path_buffer: [std.fs.max_path_bytes]u8 = undefined;
         const output = try std.fmt.bufPrint(&output_path_buffer, "{s}/{s}.csv", .{ file_name, file_name });
         file = try std.fs.cwd().createFile(output, .{});
     }
@@ -222,7 +238,7 @@ pub fn readImage(self: *Fits, hdu_number: c_int, output_path: ?[]const u8, optio
     if (naxes[0] > 0 or naxes[1] > 0) {
         const width: usize = @intCast(naxes[0]);
         const height: usize = @intCast(naxes[1]);
-        const pixels = try self.allocator.alloc(f32, width * height);
+        const pixels: []f32 = try self.allocator.alloc(f32, width * height);
         defer self.allocator.free(pixels);
 
         const fpixel: c_long = 1;
@@ -271,10 +287,12 @@ fn applyStretch(self: *Fits, pixels: []f32, width: usize, height: usize, output_
         std.log.warn("Failed to create directory: {s}. Error: {}", .{ file_name, err });
     };
 
+    var output_path_buffer: [std.fs.max_path_bytes]u8 = undefined;
     if (output_path) |op| {
-        try image.writeToFilePath(op, .{ .png = .{} });
+        std.log.warn("\nOUTPUT PATH DEFINED! {s}\n", .{op});
+        const output = try std.fmt.bufPrint(&output_path_buffer, "{s}/{s}.png", .{ file_name, op });
+        try image.writeToFilePath(output, .{ .png = .{} });
     } else {
-        var output_path_buffer: [std.fs.max_path_bytes]u8 = undefined;
         const output = try std.fmt.bufPrint(&output_path_buffer, "{s}/{s}.png", .{ file_name, file_name });
         try image.writeToFilePath(output, .{ .png = .{} });
     }
@@ -341,8 +359,8 @@ pub const FitsTableInfo = struct {
 };
 
 test Fits {
-    const test_file_png = "sample_fits/sample_fits.png";
-    const test_file_table = "sample_fits/sample_fits.csv";
+    const test_file_png = "sample_fits/image_1.png";
+    const test_file_table = "sample_fits/ascii_table_1.csv";
     var fits_png = try Fits.open_and_parse("test/sample_fits.fits", std.testing.allocator);
     defer fits_png.close();
 
@@ -359,7 +377,7 @@ test Fits {
 }
 
 test "Read FITS table" {
-    const test_file_table = "small/small.csv";
+    const test_file_table = "small/binary_table_1.csv";
     var fits_file = try Fits.open_and_parse("test/small.fits", std.testing.allocator);
     defer fits_file.close();
 
