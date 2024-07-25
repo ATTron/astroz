@@ -17,7 +17,6 @@ z: f64,
 
 /// Currently this function assumes a fully parsed TLE already
 pub fn fromTle(tle: Tle, t0: f64, celestial_object: constants.CelestialBody) WorldCoordinateSystem {
-
     std.log.info("TLE PARSING, {}", .{tle});
     const orbital_elements = calculations.tleToOrbitalElements(tle);
 
@@ -77,7 +76,7 @@ test WorldCoordinateSystem {
 
     var test_tle = try Tle.parse(raw_tle, std.testing.allocator);
     defer test_tle.deinit();
-    const wcs = WorldCoordinateSystem.fromTle(test_tle, 0.0);
+    const wcs = WorldCoordinateSystem.fromTle(test_tle, 0.0, constants.earth);
 
     try std.testing.expectEqualDeep(expected_ecs, wcs);
 }
