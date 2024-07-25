@@ -17,6 +17,7 @@ z: f64,
 
 /// Currently this function assumes a fully parsed TLE already
 pub fn fromTle(tle: Tle, t0: f64, celestial_object: constants.CelestialBody) WorldCoordinateSystem {
+
     std.log.info("TLE PARSING, {}", .{tle});
     const orbital_elements = calculations.tleToOrbitalElements(tle);
 
