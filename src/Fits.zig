@@ -61,6 +61,7 @@ pub fn open_and_parse(file_path: []const u8, allocator: std.mem.Allocator) !Fits
         switch (hdu.content_type) {
             .Image => {
                 image_count += 1;
+                std.log.debug("IMAGE FOUND NOW AT COUNT: {d}", .{image_count});
                 const filename = try std.fmt.bufPrint(&output_path_buffer, "image_{d}", .{image_count});
                 try fits_file.readImage(hdu.number, filename, .{});
             },
@@ -289,7 +290,6 @@ fn applyStretch(self: *Fits, pixels: []f32, width: usize, height: usize, output_
 
     var output_path_buffer: [std.fs.max_path_bytes]u8 = undefined;
     if (output_path) |op| {
-        std.log.warn("\nOUTPUT PATH DEFINED! {s}\n", .{op});
         const output = try std.fmt.bufPrint(&output_path_buffer, "{s}/{s}.png", .{ file_name, op });
         try image.writeToFilePath(output, .{ .png = .{} });
     } else {
