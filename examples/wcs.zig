@@ -15,7 +15,7 @@ pub fn main() !void {
 
     var tle = try Tle.parse(test_tle, allocator);
     defer tle.deinit();
-    const wcs = WorldCoordinateSystem.fromTle(test_tle, 0.0);
+    const wcs = WorldCoordinateSystem.fromTle(test_tle, 0.0, astroz.constants.earth);
 
     std.log.debug("WCS OUTPUT: {any}", wcs);
 
