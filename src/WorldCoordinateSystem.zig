@@ -16,12 +16,12 @@ y: f64,
 z: f64,
 
 /// Currently this function assumes a fully parsed TLE already
-pub fn fromTle(tle: Tle, t0: f64) WorldCoordinateSystem {
+pub fn fromTle(tle: Tle, t0: f64, celestial_object: constants.CelestialBody) WorldCoordinateSystem {
     std.log.info("TLE PARSING, {}", .{tle});
     const orbital_elements = calculations.tleToOrbitalElements(tle);
 
     const eci = orbitalElementsToECI(orbital_elements);
-    const ecef = eciToECEF(eci, t0);
+    const ecef = eciToECEF(eci, t0, celestial_object);
 
     return .{ .x = ecef[0], .y = ecef[1], .z = ecef[2] };
 }
@@ -58,8 +58,8 @@ fn orbitalElementsToECI(elements: Spacecraft.OrbitalElements) Vector3 {
     };
 }
 
-fn eciToECEF(eci: Vector3, time_since_epoch: f64) Vector3 {
-    const m = constants.earth.rotation_rate * time_since_epoch;
+fn eciToECEF(eci: Vector3, time_since_epoch: f64, celestial_object: constants.CelestialBody) Vector3 {
+    const m = celestial_object.rotation_rate * time_since_epoch;
     return .{
         eci[0] * @cos(m) + eci[1] * @sin(m),
         -eci[0] * @sin(m) + eci[1] * @cos(m),
@@ -76,7 +76,7 @@ test WorldCoordinateSystem {
 
     var test_tle = try Tle.parse(raw_tle, std.testing.allocator);
     defer test_tle.deinit();
-    const wcs = WorldCoordinateSystem.fromTle(test_tle, 0.0);
+    const wcs = WorldCoordinateSystem.fromTle(test_tle, 0.0, constants.earth);
 
     try std.testing.expectEqualDeep(expected_ecs, wcs);
 }
