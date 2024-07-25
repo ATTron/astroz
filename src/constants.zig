@@ -11,6 +11,8 @@ pub const au = 1.49597871e+11;
 /// Year 2000
 pub const j2k = 2000.0;
 
+pub const w_Earth: f64 = 7.2921150e-5; // Earth's rotation rate (rad/s)
+
 pub const CelestialBody = struct {
     mass: f64, // kg
     mu: f64, // km^3/s^2

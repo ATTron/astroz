@@ -35,6 +35,7 @@
     - [x] Orbital Details
 - [x] Astronomical Coordinates
   - [x] Equatorial Coordinate System
+  - [x] World Coordinate System
 - [x] Astronomical Computation
   - [x] Precession
 - [x] Celestial Bodies
@@ -104,6 +105,8 @@ exe.root_module.addImport("astroz", astroz_mod);
 <img src="test/test.png" width="450" height="400" alt="sample fits image as png"/>
 
 - #### [Precess star to July 30, 2005](examples/precess_star.zig)
+
+- #### [Calculate WCS values from a TLE](examples/wcs.zig)
 
 <!-- MARKDOWN LINKS -->
 
