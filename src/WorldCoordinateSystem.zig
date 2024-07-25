@@ -59,7 +59,7 @@ fn orbitalElementsToECI(elements: Spacecraft.OrbitalElements) Vector3 {
 }
 
 fn eciToECEF(eci: Vector3, time_since_epoch: f64) Vector3 {
-    const m = constants.w_Earth * time_since_epoch;
+    const m = constants.earth.rotation_rate * time_since_epoch;
     return .{
         eci[0] * @cos(m) + eci[1] * @sin(m),
         -eci[0] * @sin(m) + eci[1] * @cos(m),
