@@ -41,7 +41,7 @@
 - [x] Celestial Bodies
 - [ ] Orbital Mechanics
   - [ ] Interplanetary Maneuvers
-- [ ] FITS File Parsing
+- [ ] FITS File Parsing - BROKEN DUE TO ZIGIMG DEPENDENCY BREAKING ON MAIN
   - [x] Image Generation
     - [ ] Multi Image Parsing/Generation
   - [x] Table Parsing
@@ -99,6 +99,8 @@ exe.root_module.addImport("astroz", astroz_mod);
 - #### [Create CCSDS Packet](examples/create_ccsds_packet.zig)
 
 - #### [Create CCSDS Packet with Config](examples/create_ccsds_packet_config.zig)
+
+**NOTE THIS IS CURRENTLY BROKEN DUE TO ZIGIMG DEPENDENCY BREAKING ON THE MAIN BRANCH**
 
 - #### [Generate Image from FITS File](examples/parse_fits_file.zig)
 
