@@ -21,21 +21,23 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
         .root_source_file = root_source_file,
     });
-    const zigimg_dependency = b.dependency("zigimg", .{
-        .target = target,
-        .optimize = optimize,
-    });
 
-    lib.root_module.addImport("zigimg", zigimg_dependency.module("zigimg"));
-    astroz_mod.addImport("zigimg", zigimg_dependency.module("zigimg"));
+    // Currently not using cfitsio or zigimg due to breaking on the master branch
+    // const zigimg_dependency = b.dependency("zigimg", .{
+    //     .target = target,
+    //     .optimize = optimize,
+    // });
+    //
+    // lib.root_module.addImport("zigimg", zigimg_dependency.module("zigimg"));
+    // astroz_mod.addImport("zigimg", zigimg_dependency.module("zigimg"));
 
-    const cfitsio_dep = b.dependency("cfitsio", .{
-        .target = target,
-        .optimize = optimize,
-    });
-
-    lib.root_module.addImport("cfitsio", cfitsio_dep.module("cfitsio"));
-    astroz_mod.addImport("cfitsio", cfitsio_dep.module("cfitsio"));
+    // const cfitsio_dep = b.dependency("cfitsio", .{
+    //     .target = target,
+    //     .optimize = optimize,
+    // });
+    //
+    // lib.root_module.addImport("cfitsio", cfitsio_dep.module("cfitsio"));
+    // astroz_mod.addImport("cfitsio", cfitsio_dep.module("cfitsio"));
 
     const lib_install = b.addInstallArtifact(lib, .{});
     lib_step.dependOn(&lib_install.step);
@@ -78,8 +80,8 @@ pub fn build(b: *std.Build) void {
         .root_source_file = root_source_file,
     });
 
-    tests.root_module.addImport("zigimg", zigimg_dependency.module("zigimg"));
-    tests.root_module.addImport("cfitsio", cfitsio_dep.module("cfitsio"));
+    // tests.root_module.addImport("zigimg", zigimg_dependency.module("zigimg"));
+    // tests.root_module.addImport("cfitsio", cfitsio_dep.module("cfitsio"));
 
     const tests_run = b.addRunArtifact(tests);
     tests_step.dependOn(&tests_run.step);
