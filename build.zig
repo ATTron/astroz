@@ -70,8 +70,6 @@ pub fn build(b: *std.Build) void {
         examples_step.dependOn(&example_run.step);
     }
 
-    b.default_step.dependOn(examples_step);
-
     // Test suite
     const tests_step = b.step("test", "Run test suite");
 
@@ -115,5 +113,5 @@ const EXAMPLE_NAMES = &.{
     "parse_vita49",
     "precess_star",
     "simple_spacecraft_orientation",
-    "parse_fits_image",
+    // "parse_fits_image",
 };

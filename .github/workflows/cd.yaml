@@ -18,6 +18,7 @@ jobs:
         uses: mlugg/setup-zig@v1
         with:
           version: master
+          use-cache: false
 
       - name: Run `doc`
         run: zig build doc

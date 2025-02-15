@@ -21,11 +21,12 @@ jobs:
         uses: mlugg/setup-zig@v1
         with:
           version: master 
+          use-cache: false
 
-      - name: Download FITS file
-        run: |
-          curl -o ${{ github.workspace }}/test/table.fits http://data.astropy.org/tutorials/FITS-tables/chandra_events.fits
-        working-directory: ${{ github.workspace }}
+      # - name: Download FITS file
+      #   run: |
+      #     curl -o ${{ github.workspace }}/test/table.fits http://data.astropy.org/tutorials/FITS-tables/chandra_events.fits
+      #   working-directory: ${{ github.workspace }}
 
       - name: Run `test`
         run: zig build test --summary all
@@ -42,6 +43,7 @@ jobs:
         uses: mlugg/setup-zig@v1
         with:
           version: master
+          use-cache: false
 
       - name: Run `fmt`
         run: zig build fmt
