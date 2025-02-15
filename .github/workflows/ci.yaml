@@ -19,9 +19,9 @@ jobs:
 
       - name: Set up Zig
         uses: mlugg/setup-zig@v1
+        use-cache: false
         with:
           version: master 
-          use-cache: false
 
       # - name: Download FITS file
       #   run: |
@@ -41,9 +41,9 @@ jobs:
 
       - name: Set up Zig
         uses: mlugg/setup-zig@v1
+        use-cache: false
         with:
           version: master
-          use-cache: false
 
       - name: Run `fmt`
         run: zig build fmt
