@@ -20,7 +20,7 @@ jobs:
       - name: Set up Zig
         uses: mlugg/setup-zig@v1
         with:
-          use-cache: true
+          use-cache: false
           version: master 
 
       # - name: Download FITS file
@@ -30,6 +30,7 @@ jobs:
 
       - name: Run `test`
         run: zig build test --summary all
+        use-cache: false
         working-directory: ${{ github.workspace }}
 
   fmt:
@@ -42,8 +43,9 @@ jobs:
       - name: Set up Zig
         uses: mlugg/setup-zig@v1
         with:
-          use-cache: true
+          use-cache: false
           version: master
 
       - name: Run `fmt`
+        use-cache: false
         run: zig build fmt
