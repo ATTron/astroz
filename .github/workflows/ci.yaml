@@ -12,7 +12,6 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
-    use-cache: false
 
     steps:
       - name: Check out repository
@@ -21,8 +20,8 @@ jobs:
       - name: Set up Zig
         uses: mlugg/setup-zig@v1
         with:
-          use-cache: false
           version: master 
+          use-cache: false
 
       # - name: Download FITS file
       #   run: |
@@ -35,7 +34,6 @@ jobs:
 
   fmt:
     runs-on: ubuntu-latest
-    use-cache: false
 
     steps:
       - name: Check out repository
@@ -44,8 +42,8 @@ jobs:
       - name: Set up Zig
         uses: mlugg/setup-zig@v1
         with:
-          use-cache: false
           version: master
+          use-cache: false
 
       - name: Run `fmt`
         run: zig build fmt
