@@ -43,6 +43,7 @@ jobs:
         uses: mlugg/setup-zig@v1
         with:
           version: master
+          use-cache: false
 
       - name: Run `fmt`
         run: zig build fmt
