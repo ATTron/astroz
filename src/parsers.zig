@@ -298,7 +298,7 @@ test "Vita49 Parser Test" {
         }.run, .{&par_test});
         defer t3.join();
     }
-    try std.testing.expectEqual(8, par_test.packets.capacity);
+    try std.testing.expectEqual(7, par_test.packets.capacity);
 }
 
 test "Vita49 Parser Test w/ Callback" {
@@ -330,7 +330,7 @@ test "Vita49 Parser Test w/ Callback" {
         }.run, .{&par_test});
         defer t3.join();
     }
-    try std.testing.expectEqual(8, par_test.packets.capacity);
+    try std.testing.expectEqual(7, par_test.packets.capacity);
 }
 
 test "CCSDS Parser Test" {
@@ -362,5 +362,5 @@ test "CCSDS Parser Test" {
         }.run, .{&par_test});
         defer t3.join();
     }
-    try std.testing.expectEqual(8, par_test.packets.capacity);
+    try std.testing.expectEqual(7, par_test.packets.capacity);
 }

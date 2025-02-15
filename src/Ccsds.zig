@@ -49,7 +49,7 @@ pub fn init(pl: []const u8, allocator: std.mem.Allocator, config: ?Config) !Ccsd
     const end = 5 + header.packet_size; // num of header bytes + packet_size
     const packets = raw_packets[start..end];
 
-    raw_packets = try allocator.realloc(raw_packets, end);
+    _ = allocator.resize(raw_packets, end);
 
     return .{ .header = header, .primary_header = primary_header, .secondary_header = secondary_header, .packets = packets, .raw_data = raw_packets, .allocator = allocator };
 }
