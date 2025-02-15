@@ -21,6 +21,7 @@ jobs:
         uses: mlugg/setup-zig@v1
         with:
           use-cache: false
+          cache: false
           version: master 
 
       # - name: Download FITS file
@@ -43,6 +44,7 @@ jobs:
         uses: mlugg/setup-zig@v1
         with:
           use-cache: false
+          cache: false
           version: master
 
       - name: Run `fmt`
