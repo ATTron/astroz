@@ -83,7 +83,8 @@ pub fn init(pl: []const u8, allocator: std.mem.Allocator, config: ?[]const u8) !
         f_timestamp = null;
     }
     const end_of_data = if (header.trailer) payload_range.end + 4 else payload_range.end;
-    stream = try allocator.realloc(stream, end_of_data);
+
+    _ = allocator.resize(stream, end_of_data);
     return .{
         .header = header,
         .stream_id = stream_id,
@@ -196,7 +197,7 @@ pub const Header = packed struct {
     pub fn output(self: Header) void {
         std.log.info("Vita49 Packet Header:\n", .{});
         std.log.info("Packet type: {}\n", .{self.packet_type});
-        std.log.info.print("Class ID: {}\n", .{self.class_id});
+        std.log.info("Class ID: {}\n", .{self.class_id});
         std.log.info("Trailer Present: {}\n", .{self.trailer});
         std.log.info("TSI: {}\n", .{self.tsi});
         std.log.info("TSF: {}\n", .{self.tsf});
