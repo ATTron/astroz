@@ -12,6 +12,7 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    use-cache: false
 
     steps:
       - name: Check out repository
@@ -30,11 +31,11 @@ jobs:
 
       - name: Run `test`
         run: zig build test --summary all
-        use-cache: false
         working-directory: ${{ github.workspace }}
 
   fmt:
     runs-on: ubuntu-latest
+    use-cache: false
 
     steps:
       - name: Check out repository
@@ -47,5 +48,4 @@ jobs:
           version: master
 
       - name: Run `fmt`
-        use-cache: false
         run: zig build fmt
