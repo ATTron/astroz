@@ -83,7 +83,7 @@ pub fn build(b: *std.Build) void {
 
     const tests_run = b.addRunArtifact(tests);
     tests_step.dependOn(&tests_run.step);
-    b.default_step.dependOn(tests_step);
+    // b.default_step.dependOn(tests_step);
 
     // Formatting checks
     const fmt_step = b.step("fmt", "Run formatting checks");
