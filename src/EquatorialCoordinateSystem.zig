@@ -9,63 +9,63 @@ const calculations = @import("calculations.zig");
 const EquatorialCoordinateSystem = @This();
 
 declination: Declination,
-right_ascension: RightAscension,
+rightAscension: RightAscension,
 
-pub fn init(declination: Declination, right_ascension: RightAscension) EquatorialCoordinateSystem {
+pub fn init(declination: Declination, rightAscension: RightAscension) EquatorialCoordinateSystem {
     return .{
         .declination = declination,
-        .right_ascension = right_ascension,
+        .rightAscension = rightAscension,
     };
 }
 
 // TODO: this can 100% be done better
 /// Find anything at any date after Jan 1 2000 in the ECS format
 pub fn precess(self: EquatorialCoordinateSystem, date: Datetime) EquatorialCoordinateSystem {
-    const precess_constants = Precess.init(date);
-    const deltas = self.calculateRaDec(precess_constants);
+    const precessConstants = Precess.init(date);
+    const deltas = self.calculateRaDec(precessConstants);
 
-    const total_seconds = self.right_ascension.seconds + deltas.ra;
-    const new_seconds = @mod(total_seconds, 60.0);
-    const total_minutes = self.right_ascension.minutes + @as(u16, @intFromFloat(total_seconds)) / 60;
-    const new_minutes = @mod(total_minutes, 60);
-    const new_hours = self.right_ascension.hours + total_minutes / 60;
+    const totalSeconds = self.rightAscension.seconds + deltas.ra;
+    const newSeconds = @mod(totalSeconds, 60.0);
+    const totalMinutes = self.rightAscension.minutes + @as(u16, @intFromFloat(totalSeconds)) / 60;
+    const newMinutes = @mod(totalMinutes, 60);
+    const newHours = self.rightAscension.hours + totalMinutes / 60;
 
-    const precessed_right_ascension = RightAscension.init(
-        new_hours,
-        new_minutes,
-        new_seconds,
+    const precessedRightAscension = RightAscension.init(
+        newHours,
+        newMinutes,
+        newSeconds,
     );
 
-    const total_arcseconds = self.declination.arcseconds + deltas.dec;
-    const new_arcseconds = @mod(total_arcseconds, 60.0);
-    const total_arcminutes = self.declination.arcminutes + @as(u16, @intFromFloat(total_arcseconds)) / 60;
-    const new_arcminutes = @mod(total_arcminutes, 60);
-    const new_degrees = self.declination.degrees + total_arcminutes / 60;
+    const totalArcseconds = self.declination.arcseconds + deltas.dec;
+    const newArcseconds = @mod(totalArcseconds, 60.0);
+    const totalArcminutes = self.declination.arcminutes + @as(u16, @intFromFloat(totalArcseconds)) / 60;
+    const newArcminutes = @mod(totalArcminutes, 60);
+    const newDegrees = self.declination.degrees + totalArcminutes / 60;
 
-    const precessed_declination = Declination.init(
-        new_degrees,
-        new_arcminutes,
-        new_arcseconds,
+    const precessedDeclination = Declination.init(
+        newDegrees,
+        newArcminutes,
+        newArcseconds,
     );
 
     return .{
-        .declination = precessed_declination,
-        .right_ascension = precessed_right_ascension,
+        .declination = precessedDeclination,
+        .rightAscension = precessedRightAscension,
     };
 }
 
-fn calculateRaDec(self: EquatorialCoordinateSystem, precess_constants: Precess) struct { ra: f64, dec: f64 } {
-    const ra_sin = @sin(calculations.degreesToRadians(self.right_ascension.convertToAngular()));
-    const dec_tan = @tan(calculations.degreesToRadians(self.declination.convertToAngular()));
-    const ra_cos = @cos(calculations.degreesToRadians(self.right_ascension.convertToAngular()));
+fn calculateRaDec(self: EquatorialCoordinateSystem, precessConstants: Precess) struct { ra: f64, dec: f64 } {
+    const raSin = @sin(calculations.degreesToRadians(self.rightAscension.convertToAngular()));
+    const decTan = @tan(calculations.degreesToRadians(self.declination.convertToAngular()));
+    const raCos = @cos(calculations.degreesToRadians(self.rightAscension.convertToAngular()));
 
-    const delta_ra = precess_constants.M + (precess_constants.N * ra_sin * dec_tan);
-    const delta_dec = precess_constants.N * ra_cos;
+    const deltaRa = precessConstants.M + (precessConstants.N * raSin * decTan);
+    const deltaDec = precessConstants.N * raCos;
 
-    const return_ra = (delta_ra * 3600) / 15;
-    const return_dec = delta_dec * 3600;
+    const returnRa = (deltaRa * 3600) / 15;
+    const returnDec = deltaDec * 3600;
 
-    return .{ .ra = return_ra, .dec = return_dec };
+    return .{ .ra = returnRa, .dec = returnDec };
 }
 
 /// Declination portion of ECS.
@@ -137,7 +137,7 @@ const Precess = struct {
     }
 
     fn calculateDoyPercentage(datetime: Datetime) f64 {
-        return @as(f64, @floatFromInt(datetime.doy.?)) / @as(f64, @floatFromInt(datetime.days_in_year));
+        return @as(f64, @floatFromInt(datetime.doy.?)) / @as(f64, @floatFromInt(datetime.daysInYear));
     }
 };
 
@@ -156,7 +156,7 @@ test "Equatorial Coordinates" {
         RightAscension.init(19, 51, 3.122949149012854),
     );
 
-    try std.testing.expectEqual(test_coord.right_ascension, test_ra);
+    try std.testing.expectEqual(test_coord.rightAscension, test_ra);
     try std.testing.expectEqual(test_coord.declination, test_dec);
     try std.testing.expectEqual(297.6958428700765, angular_ra);
     try std.testing.expectEqual(8.86833346048991, angular_dec);

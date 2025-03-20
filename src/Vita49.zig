@@ -5,17 +5,17 @@ const std = @import("std");
 const Vita49 = @This();
 
 header: Header,
-stream_id: ?u32,
-class_id: ?ClassId,
-i_timestamp: ?u32,
-f_timestamp: ?u64,
+streamId: ?u32,
+classId: ?ClassId,
+iTimestamp: ?u32,
+fTimestamp: ?u64,
 payload: []const u8,
 trailer: ?Trailer,
 allocator: std.mem.Allocator,
 end: usize,
 
 // private
-raw_data: []const u8,
+rawData: []const u8,
 
 pub fn init(pl: []const u8, allocator: std.mem.Allocator, config: ?[]const u8) !Vita49 {
     var stream = try allocator.dupe(u8, pl); // dupe the data so we dont ever lose it
@@ -26,17 +26,17 @@ pub fn init(pl: []const u8, allocator: std.mem.Allocator, config: ?[]const u8) !
         return Error.InsufficientData;
     }
     const header = try Header.init(stream[0..4].*);
-    var stream_id: ?u32 = undefined;
-    var class_id: ?ClassId = undefined;
+    var streamId: ?u32 = undefined;
+    var classId: ?ClassId = undefined;
     var payload: []const u8 = undefined;
     var trailer: ?Trailer = undefined;
-    var i_start: usize = 4;
-    var f_start: usize = 4;
-    var i_timestamp: ?u32 = undefined;
-    var f_timestamp: ?u64 = undefined;
-    var payload_range = try getPayloadRange(header, true);
+    var iStart: usize = 4;
+    var fStart: usize = 4;
+    var iTimestamp: ?u32 = undefined;
+    var fTimestamp: ?u64 = undefined;
+    var payloadRange = try getPayloadRange(header, true);
 
-    switch (header.packet_type) {
+    switch (header.packetType) {
         .signal_w_stream_id,
         .ext_data_w_stream_id,
         .ext_cmd_packet,
@@ -44,72 +44,72 @@ pub fn init(pl: []const u8, allocator: std.mem.Allocator, config: ?[]const u8) !
         .ctx_packet,
         .ext_ctx_packet,
         => {
-            stream_id = std.mem.readInt(u32, stream[4..8], .little);
-            i_start += 4;
-            f_start += 4;
+            streamId = std.mem.readInt(u32, stream[4..8], .little);
+            iStart += 4;
+            fStart += 4;
         },
         .signal_wo_stream_id,
         .ext_data_wo_stream_id,
         => {
-            payload_range = try getPayloadRange(header, false);
+            payloadRange = try getPayloadRange(header, false);
         },
     }
-    if (header.class_id) {
-        class_id = ClassId.init(stream[8..16].*);
-        i_start += 8;
-        f_start += 8;
+    if (header.classId) {
+        classId = ClassId.init(stream[8..16].*);
+        iStart += 8;
+        fStart += 8;
     } else {
-        class_id = null;
+        classId = null;
     }
     if (header.trailer) {
-        trailer = Trailer.init(stream[payload_range.end..]);
-        payload = stream[payload_range.start..payload_range.end];
+        trailer = Trailer.init(stream[payloadRange.end..]);
+        payload = stream[payloadRange.start..payloadRange.end];
     } else {
-        payload = stream[payload_range.start..payload_range.end];
+        payload = stream[payloadRange.start..payloadRange.end];
     }
     if (header.tsi != Tsi.none) {
-        var tmp_array: [4]u8 = undefined;
-        @memcpy(&tmp_array, stream[i_start .. i_start + 4]);
-        i_timestamp = std.mem.readInt(u32, &tmp_array, .little);
-        f_start += 4;
+        var tmpArray: [4]u8 = undefined;
+        @memcpy(&tmpArray, stream[iStart .. iStart + 4]);
+        iTimestamp = std.mem.readInt(u32, &tmpArray, .little);
+        fStart += 4;
     } else {
-        i_timestamp = null;
+        iTimestamp = null;
     }
     if (header.tsf != Tsf.none) {
-        var tmp_array: [8]u8 = undefined;
-        @memcpy(&tmp_array, stream[f_start .. f_start + 8]);
-        f_timestamp = std.mem.readInt(u64, &tmp_array, .little);
+        var tmpArray: [8]u8 = undefined;
+        @memcpy(&tmpArray, stream[fStart .. fStart + 8]);
+        fTimestamp = std.mem.readInt(u64, &tmpArray, .little);
     } else {
-        f_timestamp = null;
+        fTimestamp = null;
     }
-    const end_of_data = if (header.trailer) payload_range.end + 4 else payload_range.end;
+    const endOfData = if (header.trailer) payloadRange.end + 4 else payloadRange.end;
 
-    _ = allocator.resize(stream, end_of_data);
+    _ = allocator.resize(stream, endOfData);
     return .{
         .header = header,
-        .stream_id = stream_id,
-        .class_id = class_id,
-        .i_timestamp = i_timestamp,
-        .f_timestamp = f_timestamp,
+        .streamId = streamId,
+        .classId = classId,
+        .iTimestamp = iTimestamp,
+        .fTimestamp = fTimestamp,
         .payload = payload,
         .trailer = trailer,
         .allocator = allocator,
-        .end = payload_range.end,
-        .raw_data = stream,
+        .end = payloadRange.end,
+        .rawData = stream,
     };
 }
 
 pub fn deinit(self: *Vita49) void {
-    self.allocator.free(self.raw_data);
+    self.allocator.free(self.rawData);
 }
 
-fn getPayloadRange(header: Header, has_stream_id: bool) !struct { start: usize, end: usize } {
+fn getPayloadRange(header: Header, hasStreamId: bool) !struct { start: usize, end: usize } {
     var start: usize = 4;
-    var end: usize = @as(usize, (header.packet_size * 4)) - 1;
-    if (has_stream_id) {
+    var end: usize = @as(usize, (header.packetSize * 4)) - 1;
+    if (hasStreamId) {
         start += 4;
     }
-    if (header.class_id) {
+    if (header.classId) {
         start += 8;
     }
     if (header.tsi != Tsi.none) {
@@ -162,62 +162,62 @@ const Trailer = packed struct {
     ctx: u7,
 
     pub fn init(trailer: []const u8) Trailer {
-        var tmp_array: [4]u8 = undefined;
-        @memcpy(&tmp_array, trailer);
-        return @bitCast(tmp_array);
+        var tmpArray: [4]u8 = undefined;
+        @memcpy(&tmpArray, trailer);
+        return @bitCast(tmpArray);
     }
 };
 
 pub const Header = packed struct {
-    packet_type: PacketType,
-    class_id: bool,
+    packetType: PacketType,
+    classId: bool,
     trailer: bool,
     tsi: Tsi,
     tsf: Tsf,
-    packet_count: u4,
-    packet_size: u16,
+    packetCount: u4,
+    packetSize: u16,
 
     pub fn init(stream: [4]u8) !Header {
-        const little_endian_stream = std.mem.readInt(u32, &stream, .little);
-        const packet_as_uint = @as(u4, @truncate((little_endian_stream >> 4) & 0xF));
-        const tsi = @as(u2, @truncate((little_endian_stream >> 10) & 0x3));
-        const tsf = @as(u2, @truncate((little_endian_stream >> 8) & 0x3));
+        const littleEndianStream = std.mem.readInt(u32, &stream, .little);
+        const packetAsUint = @as(u4, @truncate((littleEndianStream >> 4) & 0xF));
+        const tsi = @as(u2, @truncate((littleEndianStream >> 10) & 0x3));
+        const tsf = @as(u2, @truncate((littleEndianStream >> 8) & 0x3));
 
         return .{
-            .packet_type = @enumFromInt(packet_as_uint),
-            .class_id = ((little_endian_stream >> 5) & 1) == 1,
-            .trailer = ((little_endian_stream >> 6) & 1) == 1,
+            .packetType = @enumFromInt(packetAsUint),
+            .classId = ((littleEndianStream >> 5) & 1) == 1,
+            .trailer = ((littleEndianStream >> 6) & 1) == 1,
             .tsi = @enumFromInt(tsi),
             .tsf = @enumFromInt(tsf),
-            .packet_count = @as(u4, @truncate((little_endian_stream >> 16) & 0xF)),
-            .packet_size = @truncate((little_endian_stream >> 16) & 0xFFFF),
+            .packetCount = @as(u4, @truncate((littleEndianStream >> 16) & 0xF)),
+            .packetSize = @truncate((littleEndianStream >> 16) & 0xFFFF),
         };
     }
 
     pub fn output(self: Header) void {
         std.log.info("Vita49 Packet Header:\n", .{});
-        std.log.info("Packet type: {}\n", .{self.packet_type});
-        std.log.info("Class ID: {}\n", .{self.class_id});
+        std.log.info("Packet type: {}\n", .{self.packetType});
+        std.log.info("Class ID: {}\n", .{self.classId});
         std.log.info("Trailer Present: {}\n", .{self.trailer});
         std.log.info("TSI: {}\n", .{self.tsi});
         std.log.info("TSF: {}\n", .{self.tsf});
-        std.log.info("Packet_Count: {}\n", .{self.packet_count});
-        std.log.info("Packet_Size: {}\n", .{self.packet_size});
+        std.log.info("Packet_Count: {}\n", .{self.packetCount});
+        std.log.info("Packet_Size: {}\n", .{self.packetSize});
     }
 };
 
 pub const ClassId = packed struct {
     reserved: u8,
     oui: u24,
-    info_class_code: u16,
-    packet_class_code: u16,
+    infoClassCode: u16,
+    packetClassCode: u16,
 
     pub fn init(stream: [8]u8) ClassId {
         return .{
             .reserved = stream[0],
             .oui = @as(u24, @bitCast(stream[1..4].*)),
-            .info_class_code = @bitCast(stream[4..6].*),
-            .packet_class_code = @bitCast(stream[6..8].*),
+            .infoClassCode = @bitCast(stream[4..6].*),
+            .packetClassCode = @bitCast(stream[6..8].*),
         };
     }
 };
@@ -254,10 +254,10 @@ test "Test Vita49 Packet w/o trailer" {
     var vita49_packet = try Vita49.init(&vita49_test_packet, std.testing.allocator, null);
     defer vita49_packet.deinit();
 
-    try std.testing.expectEqual(null, vita49_packet.i_timestamp);
-    try std.testing.expectEqual(128, vita49_packet.f_timestamp);
-    try std.testing.expectEqual(4660, vita49_packet.stream_id.?);
-    try std.testing.expectEqual(1193046, vita49_packet.class_id.?.oui);
+    try std.testing.expectEqual(null, vita49_packet.iTimestamp);
+    try std.testing.expectEqual(128, vita49_packet.fTimestamp);
+    try std.testing.expectEqual(4660, vita49_packet.streamId.?);
+    try std.testing.expectEqual(1193046, vita49_packet.classId.?.oui);
     try std.testing.expectEqualStrings("Hello, VITA 49!", vita49_packet.payload);
 }
 
@@ -287,9 +287,9 @@ test "Test Vita49 Packet w/ trailer" {
     var vita49_packet = try Vita49.init(&vita49_test_packet, std.testing.allocator, null);
     defer vita49_packet.deinit();
 
-    try std.testing.expectEqual(4660, vita49_packet.stream_id);
-    try std.testing.expectEqual(null, vita49_packet.class_id);
-    try std.testing.expectEqual(16777216, vita49_packet.i_timestamp);
-    try std.testing.expectEqual(128, vita49_packet.f_timestamp);
+    try std.testing.expectEqual(4660, vita49_packet.streamId);
+    try std.testing.expectEqual(null, vita49_packet.classId);
+    try std.testing.expectEqual(16777216, vita49_packet.iTimestamp);
+    try std.testing.expectEqual(128, vita49_packet.fTimestamp);
     try std.testing.expectEqualStrings("Hello, VITA 49!", vita49_packet.payload);
 }
