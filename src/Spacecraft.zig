@@ -1,6 +1,7 @@
 //! Base struct that takes the inputs needed to determine future orbit paths.
 
 const std = @import("std");
+const log = std.log;
 const Tle = @import("Tle.zig");
 const Datetime = @import("Datetime.zig");
 const constants = @import("constants.zig");
@@ -22,13 +23,13 @@ const StateTime = struct {
 /// Responsible for spacecraft orientation
 const AttitudeState = struct {
     quaternion: [4]f64,
-    angular_velocity: [3]f64,
+    angularVelocity: [3]f64,
 };
 
 /// Satellite details used in calculations
 pub const SatelliteParameters = struct {
     drag: f64,
-    cross_section: f64,
+    crossSection: f64,
     width: f64,
     height: f64,
     depth: f64,
@@ -37,12 +38,12 @@ pub const SatelliteParameters = struct {
 /// The impulse maneuver type
 pub const Impulse = struct {
     time: f64,
-    delta_v: [3]f64,
+    deltaV: [3]f64,
     mode: enum { Absolute, Prograde, Phase, Plane_Change },
-    phase_change: ?f64 = null,
-    plane_change: ?struct {
-        delta_inclination: f64,
-        delta_raan: f64,
+    phaseChange: ?f64 = null,
+    planeChange: ?struct {
+        deltaInclination: f64,
+        deltaRaan: f64,
     } = null,
 };
 
@@ -52,35 +53,43 @@ pub const OrbitalElements = struct {
     e: f64,
     i: f64,
     raan: f64,
-    arg_periapsis: f64,
-    true_anomaly: f64,
+    argPeriapsis: f64,
+    trueAnomaly: f64,
 };
 
 /// Determines the values in the SatelliteParameters struct
 pub const SatelliteSize = enum {
     Cube,
+    Mini,
     Medium,
     Large,
 
-    pub fn getDragAndCrossSectional(self: SatelliteSize) SatelliteParameters {
+    pub fn generateDragAndCrossSectional(self: SatelliteSize) SatelliteParameters {
         return switch (self) {
             .Cube => .{
                 .drag = 2.2,
-                .cross_section = 0.05,
+                .crossSection = 0.05,
                 .width = 0.1,
                 .height = 0.1,
                 .depth = 0.3,
             },
+            .Mini => .{
+                .drag = 2.2,
+                .crossSection = 2.5,
+                .width = 0.6,
+                .height = 0.6,
+                .depth = 1.0,
+            },
             .Medium => .{
                 .drag = 2.2,
-                .cross_section = 5.0,
+                .crossSection = 5.0,
                 .width = 1.4,
                 .height = 1.4,
                 .depth = 1.6,
             },
             .Large => .{
                 .drag = 2.2,
-                .cross_section = 50.0,
+                .crossSection = 50.0,
                 .width = 3.2,
                 .height = 3.2,
                 .depth = 4.0,
@@ -94,149 +103,151 @@ tle: Tle,
 mass: f64,
 size: SatelliteParameters,
 quaternion: [4]f64,
-angular_velocity: [3]f64,
-inertia_tensor: [3][3]f64,
-body_vectors: [2][3]f64,
-reference_vectors: [2][3]f64,
-orbiting_object: CelestialBody = constants.earth,
-orbit_predictions: std.ArrayList(StateTime),
+angularVelocity: [3]f64,
+inertiaTensor: [3][3]f64,
+bodyVectors: [2][3]f64,
+referenceVectors: [2][3]f64,
+orbitingObject: CelestialBody = constants.earth,
+orbitPredictions: std.ArrayList(StateTime),
 allocator: std.mem.Allocator,
 
-pub fn init(name: []const u8, tle: Tle, mass: f64, size: SatelliteSize, orbiting_object: ?CelestialBody, allocator: std.mem.Allocator) Spacecraft {
+pub fn init(name: []const u8, tle: Tle, mass: f64, size: SatelliteSize, orbitingObject: ?CelestialBody, allocator: std.mem.Allocator) Spacecraft {
     return .{
         .name = name,
         .tle = tle,
         .mass = mass,
-        .size = size.getDragAndCrossSectional(),
+        .size = size.generateDragAndCrossSectional(),
         .quaternion = .{ 1.0, 0.0, 0.0, 0.0 },
-        .angular_velocity = .{ 0.0, 0.0, 0.0 },
-        .inertia_tensor = .{
+        .angularVelocity = .{ 0.0, 0.0, 0.0 },
+        .inertiaTensor = .{
             .{ 1.0, 0.0, 0.0 },
             .{ 0.0, 1.0, 0.0 },
             .{ 0.0, 0.0, 1.0 },
         },
-        .body_vectors = .{
+        .bodyVectors = .{
             .{ 1.0, 0.0, 0.0 },
             .{ 0.0, 1.0, 0.0 },
         },
-        .reference_vectors = .{
+        .referenceVectors = .{
             .{ 1.0, 0.0, 0.0 },
             .{ 0.0, 1.0, 0.0 },
         },
-        .orbiting_object = orbiting_object.?,
-        .orbit_predictions = std.ArrayList(StateTime).init(allocator),
+        .orbitingObject = orbitingObject.?,
+        .orbitPredictions = std.ArrayList(StateTime).init(allocator),
         .allocator = allocator,
     };
 }
 
 pub fn deinit(self: *Spacecraft) void {
-    self.orbit_predictions.deinit();
+    self.orbitPredictions.deinit();
 }
 
 pub fn updateAttitude(self: *Spacecraft) void {
-    const attitude_matrix = triad(self.body_vectors[0], self.body_vectors[1], self.reference_vectors[0], self.reference_vectors[1]);
-    self.quaternion = matrixToQuaternion(attitude_matrix);
+    const attitudeMatrix = triad(self.bodyVectors[0], self.bodyVectors[1], self.referenceVectors[0], self.referenceVectors[1]);
+    self.quaternion = matrixToQuaternion(attitudeMatrix);
 }
 
 pub fn propagateAttitude(self: *Spacecraft, dt: f64) void {
-    const state = AttitudeState{ .quaternion = self.quaternion, .angular_velocity = self.angular_velocity };
-    const new_state = rk4Attitude(self, state, dt);
-    self.quaternion = new_state.quaternion;
-    self.angular_velocity = new_state.angular_velocity;
+    const state = AttitudeState{ .quaternion = self.quaternion, .angularVelocity = self.angularVelocity };
+    const newState = rk4Attitude(self, state, dt);
+    self.quaternion = newState.quaternion;
+    self.angularVelocity = newState.angularVelocity;
 }
 
 /// This will call the proper propagation methods based on a TLE epoch and recalculation time
 /// Most of the functions this calls are private and will need code inspection to see
-pub fn propagate(self: *Spacecraft, t0: f64, days: f64, h: f64, impulse_list: ?[]const Impulse) !void {
-    const y0_oe = calculations.tleToOrbitalElements(self.tle);
-    const y0 = calculations.orbitalElementsToStateVector(y0_oe, self.orbiting_object.mu);
+pub fn propagate(self: *Spacecraft, t0: f64, days: f64, h: f64, impulseList: ?[]const Impulse) !void {
+    const y0OE = calculations.tleToOrbitalElements(self.tle);
+    const y0 = calculations.orbitalElementsToStateVector(y0OE, self.orbitingObject.mu);
     var t = t0;
     const tf = self.tle.first_line.epoch + days * 86400.0;
     var y = y0;
-    const initial_energy = self.calculateEnergy(y);
-    std.log.info("Initial energy established: {d}\n", .{initial_energy});
-    try self.orbit_predictions.append(StateTime{ .time = t, .state = y });
+    const initialEnergy = self.calculateEnergy(y);
+
+    log.info("Initial energy established: {d}\n", .{initialEnergy});
+
+    try self.orbitPredictions.append(StateTime{ .time = t, .state = y });
     var step: usize = 0;
-    var impulse_index: usize = 0;
+    var impulseIndex: usize = 0;
 
     while (t < tf) : (step += 1) {
-        if (impulse_list) |impulses| {
-            while (impulse_index < impulses.len and impulses[impulse_index].time <= t + h) {
-                const dt = impulses[impulse_index].time - t;
+        if (impulseList) |impulses| {
+            while (impulseIndex < impulses.len and impulses[impulseIndex].time <= t + h) {
+                const dt = impulses[impulseIndex].time - t;
                 if (dt > 0) {
                     y = self.rk4(y, dt);
                     t += dt;
-                    try self.orbit_predictions.append(StateTime{ .time = t, .state = y });
+                    try self.orbitPredictions.append(StateTime{ .time = t, .state = y });
                 }
 
-                switch (impulses[impulse_index].mode) {
+                switch (impulses[impulseIndex].mode) {
                     .Absolute => {
-                        y = impulse(y, impulses[impulse_index].delta_v);
-                        std.log.info("Impulse completed at t={d:.2}s", .{t});
+                        y = impulse(y, impulses[impulseIndex].deltaV);
+                        log.info("Impulse completed at t={d:.2}s", .{t});
                     },
                     .Prograde => {
-                        const velocity_magnitude = @sqrt(y[3] * y[3] + y[4] * y[4] + y[5] * y[5]);
-                        const delta_v_magnitude = impulses[impulse_index].delta_v[0]; // Use the x-component as magnitude
-                        const delta_v = [3]f64{
-                            y[3] / velocity_magnitude * delta_v_magnitude,
-                            y[4] / velocity_magnitude * delta_v_magnitude,
-                            y[5] / velocity_magnitude * delta_v_magnitude,
+                        const velocityMagnitude = @sqrt(y[3] * y[3] + y[4] * y[4] + y[5] * y[5]);
+                        const deltaVMagnitude = impulses[impulseIndex].deltaV[0]; // Use the x-component as magnitude
+                        const deltaV = [3]f64{
+                            y[3] / velocityMagnitude * deltaVMagnitude,
+                            y[4] / velocityMagnitude * deltaVMagnitude,
+                            y[5] / velocityMagnitude * deltaVMagnitude,
                         };
-                        y = impulse(y, delta_v);
-                        std.log.info("Prograde impulse completed at t={d:.2}s", .{t});
+                        y = impulse(y, deltaV);
+                        log.info("Prograde impulse completed at t={d:.2}s", .{t});
                     },
                     .Phase => {
                         const r = @sqrt(y[0] * y[0] + y[1] * y[1] + y[2] * y[2]);
-                        const phase_change = impulses[impulse_index].phase_change orelse 0;
-                        const transfer_orbits = impulses[impulse_index].delta_v[0];
-                        const delta_v_magnitude = self.calculatePhaseChange(r, phase_change, transfer_orbits);
-                        const velocity_magnitude = @sqrt(y[3] * y[3] + y[4] * y[4] + y[5] * y[5]);
-                        const delta_v = [3]f64{
-                            y[3] / velocity_magnitude * delta_v_magnitude,
-                            y[4] / velocity_magnitude * delta_v_magnitude,
-                            y[5] / velocity_magnitude * delta_v_magnitude,
+                        const phaseChange = impulses[impulseIndex].phaseChange orelse 0;
+                        const transferOrbits = impulses[impulseIndex].deltaV[0];
+                        const deltaVMagnitude = self.calculatePhaseChange(r, phaseChange, transferOrbits);
+                        const velocityMagnitude = @sqrt(y[3] * y[3] + y[4] * y[4] + y[5] * y[5]);
+                        const deltaV = [3]f64{
+                            y[3] / velocityMagnitude * deltaVMagnitude,
+                            y[4] / velocityMagnitude * deltaVMagnitude,
+                            y[5] / velocityMagnitude * deltaVMagnitude,
                         };
-                        y = impulse(y, delta_v);
+                        y = impulse(y, deltaV);
 
-                        const period = 2 * std.math.pi * @sqrt(std.math.pow(f64, r, 3) / self.orbiting_object.mu);
-                        const second_impulse_time = t + period * transfer_orbits;
-                        while (t < second_impulse_time) : (t += h) {
+                        const period = 2 * std.math.pi * @sqrt(std.math.pow(f64, r, 3) / self.orbitingObject.mu);
+                        const secondImpulseTime = t + period * transferOrbits;
+                        while (t < secondImpulseTime) : (t += h) {
                             y = self.rk4(y, h);
-                            try self.orbit_predictions.append(StateTime{ .time = t + h, .state = y });
+                            try self.orbitPredictions.append(StateTime{ .time = t + h, .state = y });
                         }
-                        y = impulse(y, .{ -delta_v[0], -delta_v[1], -delta_v[2] });
-                        try self.orbit_predictions.append(StateTime{ .time = t, .state = y });
-                        std.log.info("Phase change completed at t={d:.2}s", .{t});
+                        y = impulse(y, .{ -deltaV[0], -deltaV[1], -deltaV[2] });
+                        try self.orbitPredictions.append(StateTime{ .time = t, .state = y });
+                        log.info("Phase change completed at t={d:.2}s", .{t});
                     },
                     .Plane_Change => {
-                        const plane_change = impulses[impulse_index];
-                        y = self.applyPlaneChange(y, plane_change);
-                        try self.orbit_predictions.append(StateTime{ .time = t, .state = y });
-                        std.log.info("Plane change completed at t={d:.2}s", .{t});
+                        const planeChange = impulses[impulseIndex];
+                        y = self.applyPlaneChange(y, planeChange);
+                        try self.orbitPredictions.append(StateTime{ .time = t, .state = y });
+                        log.info("Plane change completed at t={d:.2}s", .{t});
                     },
                 }
 
-                try self.orbit_predictions.append(StateTime{ .time = t, .state = y });
+                try self.orbitPredictions.append(StateTime{ .time = t, .state = y });
 
-                impulse_index += 1;
+                impulseIndex += 1;
             }
         }
 
         // Regular propagation step
-        const step_size = @min(h, tf - t);
-        y = self.rk4(y, step_size);
-        t += step_size;
+        const stepSize = @min(h, tf - t);
+        y = self.rk4(y, stepSize);
+        t += stepSize;
         const r = @sqrt(y[0] * y[0] + y[1] * y[1] + y[2] * y[2]);
         const energy = self.calculateEnergy(y);
 
-        try self.orbit_predictions.append(StateTime{ .time = t, .state = y });
+        try self.orbitPredictions.append(StateTime{ .time = t, .state = y });
 
         if (energy > 0 or std.math.isNan(energy) or r > 100_000) {
-            std.log.warn("Abnormal orbit detected at step {d}", .{step});
-            std.log.warn("Time: {d} seconds", .{t - t0});
-            std.log.warn("State vector: {any}", .{y});
-            std.log.warn("Radius: {d} km", .{r});
-            std.log.warn("Energy: {d}", .{energy});
+            log.warn("Abnormal orbit detected at step {d}", .{step});
+            log.warn("Time: {d} seconds", .{t - t0});
+            log.warn("State vector: {any}", .{y});
+            log.warn("Radius: {d} km", .{r});
+            log.warn("Energy: {d}", .{energy});
             break;
         }
     }
@@ -260,27 +271,27 @@ fn rk4(self: Spacecraft, y: StateV, h: f64) StateV {
 }
 
 fn triad(v1_body: [3]f64, v2_body: [3]f64, v1_ref: [3]f64, v2_ref: [3]f64) [3][3]f64 {
-    const t1_body = normalize(v1_body);
-    const t2_body = normalize(cross(v1_body, v2_body));
-    const t3_body = cross(t1_body, t2_body);
+    const t1Body = normalize(v1_body);
+    const t2Body = normalize(cross(v1_body, v2_body));
+    const t3Body = cross(t1Body, t2Body);
 
-    const t1_ref = normalize(v1_ref);
-    const t2_ref = normalize(cross(v1_ref, v2_ref));
-    const t3_ref = cross(t1_ref, t2_ref);
+    const t1Ref = normalize(v1_ref);
+    const t2Ref = normalize(cross(v1_ref, v2_ref));
+    const t3Ref = cross(t1Ref, t2Ref);
 
-    const body_matrix = [3][3]f64{
-        .{ t1_body[0], t2_body[0], t3_body[0] },
-        .{ t1_body[1], t2_body[1], t3_body[1] },
-        .{ t1_body[2], t2_body[2], t3_body[2] },
+    const bodyMatrix = [3][3]f64{
+        .{ t1Body[0], t2Body[0], t3Body[0] },
+        .{ t1Body[1], t2Body[1], t3Body[1] },
+        .{ t1Body[2], t2Body[2], t3Body[2] },
     };
 
-    const ref_matrix = [3][3]f64{
-        .{ t1_ref[0], t2_ref[0], t3_ref[0] },
-        .{ t1_ref[1], t2_ref[1], t3_ref[1] },
-        .{ t1_ref[2], t2_ref[2], t3_ref[2] },
+    const refMatrix = [3][3]f64{
+        .{ t1Ref[0], t2Ref[0], t3Ref[0] },
+        .{ t1Ref[1], t2Ref[1], t3Ref[1] },
+        .{ t1Ref[2], t2Ref[2], t3Ref[2] },
     };
 
-    return multiplyMatrices(body_matrix, transposeMatrix(ref_matrix));
+    return multiplyMatrices(bodyMatrix, transposeMatrix(refMatrix));
 }
 
 fn normalize(v: [3]f64) [3]f64 {
@@ -363,25 +374,25 @@ fn rk4Attitude(spacecraft: *Spacecraft, state: AttitudeState, dt: f64) AttitudeS
 
 fn attitudeDerivative(spacecraft: *Spacecraft, state: AttitudeState) AttitudeState {
     const q = state.quaternion;
-    const w = state.angular_velocity;
+    const w = state.angularVelocity;
 
-    const q_dot = [4]f64{
+    const qDot = [4]f64{
         0.5 * (-q[1] * w[0] - q[2] * w[1] - q[3] * w[2]),
         0.5 * (q[0] * w[0] + q[2] * w[2] - q[3] * w[1]),
         0.5 * (q[0] * w[1] - q[1] * w[2] + q[3] * w[0]),
         0.5 * (q[0] * w[2] + q[1] * w[1] - q[2] * w[0]),
     };
 
-    const I = spacecraft.inertia_tensor;
-    const w_dot = [3]f64{
+    const I = spacecraft.inertiaTensor;
+    const wDot = [3]f64{
         (I[1][1] - I[2][2]) / I[0][0] * w[1] * w[2],
         (I[2][2] - I[0][0]) / I[1][1] * w[2] * w[0],
         (I[0][0] - I[1][1]) / I[2][2] * w[0] * w[1],
     };
 
     return .{
-        .quaternion = q_dot,
-        .angular_velocity = w_dot,
+        .quaternion = qDot,
+        .angularVelocity = wDot,
     };
 }
 
@@ -393,10 +404,10 @@ fn addAttitudeStates(a: AttitudeState, b: AttitudeState) AttitudeState {
             a.quaternion[2] + b.quaternion[2],
             a.quaternion[3] + b.quaternion[3],
         },
-        .angular_velocity = .{
-            a.angular_velocity[0] + b.angular_velocity[0],
-            a.angular_velocity[1] + b.angular_velocity[1],
-            a.angular_velocity[2] + b.angular_velocity[2],
+        .angularVelocity = .{
+            a.angularVelocity[0] + b.angularVelocity[0],
+            a.angularVelocity[1] + b.angularVelocity[1],
+            a.angularVelocity[2] + b.angularVelocity[2],
         },
     };
 }
@@ -409,10 +420,10 @@ fn scaleAttitudeState(state: AttitudeState, scalar: f64) AttitudeState {
             state.quaternion[2] * scalar,
             state.quaternion[3] * scalar,
         },
-        .angular_velocity = .{
-            state.angular_velocity[0] * scalar,
-            state.angular_velocity[1] * scalar,
-            state.angular_velocity[2] * scalar,
+        .angularVelocity = .{
+            state.angularVelocity[0] * scalar,
+            state.angularVelocity[1] * scalar,
+            state.angularVelocity[2] * scalar,
         },
     };
 }
@@ -449,48 +460,48 @@ fn derivative(self: Spacecraft, state: StateV) StateV {
     const r3 = r2 * r;
     const r5 = r3 * r2;
 
-    var ax = -self.orbiting_object.mu * x / r3;
-    var ay = -self.orbiting_object.mu * y / r3;
-    var az = -self.orbiting_object.mu * z / r3;
+    var ax = -self.orbitingObject.mu * x / r3;
+    var ay = -self.orbitingObject.mu * y / r3;
+    var az = -self.orbitingObject.mu * z / r3;
 
-    const j2_factor = -1.5 * self.orbiting_object.j2_perturbation * self.orbiting_object.mu * self.orbiting_object.eq_radius.? * self.orbiting_object.eq_radius.? / r5;
-    ax += j2_factor * x * (5 * z * z / r2 - 1);
-    ay += j2_factor * y * (5 * z * z / r2 - 1);
-    az += j2_factor * z * (5 * z * z / r2 - 3);
+    const j2Factor = -1.5 * self.orbitingObject.j2Perturbation * self.orbitingObject.mu * self.orbitingObject.eqRadius.? * self.orbitingObject.eqRadius.? / r5;
+    ax += j2Factor * x * (5 * z * z / r2 - 1);
+    ay += j2Factor * y * (5 * z * z / r2 - 1);
+    az += j2Factor * z * (5 * z * z / r2 - 3);
 
-    const altitude = r - self.orbiting_object.eq_radius.?;
+    const altitude = r - self.orbitingObject.eqRadius.?;
     if (altitude < 1000) { // Only apply drag below 1000 km
         const v = @sqrt(vx * vx + vy * vy + vz * vz);
         const rho = self.atmosphericDensity(altitude);
-        const drag_factor = -0.5 * self.size.drag *
-            self.size.cross_section *
+        const dragFactor = -0.5 * self.size.drag *
+            self.size.crossSection *
             rho * v / self.mass;
-        ax += drag_factor * vx;
-        ay += drag_factor * vy;
-        az += drag_factor * vz;
+        ax += dragFactor * vx;
+        ay += dragFactor * vy;
+        az += dragFactor * vz;
     }
 
     return .{ vx, vy, vz, ax, ay, az };
 }
 
 fn atmosphericDensity(self: Spacecraft, altitude: f64) f64 {
-    return self.orbiting_object.sea_level_density * std.math.exp(-altitude / self.orbiting_object.scale_height);
+    return self.orbitingObject.seaLevelDensity * std.math.exp(-altitude / self.orbitingObject.scaleHeight);
 }
 
 fn calculateEnergy(self: Spacecraft, state: StateV) f64 {
     const r = @sqrt(state[0] * state[0] + state[1] * state[1] + state[2] * state[2]);
-    const v_squared = state[3] * state[3] + state[4] * state[4] + state[5] * state[5];
-    return 0.5 * v_squared - self.orbiting_object.mu / r;
+    const vSquared = state[3] * state[3] + state[4] * state[4] + state[5] * state[5];
+    return 0.5 * vSquared - self.orbitingObject.mu / r;
 }
 
 fn applyPlaneChange(self: *Spacecraft, y: [6]f64, plane_change: Impulse) [6]f64 {
-    const mu = self.orbiting_object.mu;
+    const mu = self.orbitingObject.mu;
     const r = [3]f64{ y[0], y[1], y[2] };
     const v = [3]f64{ y[3], y[4], y[5] };
 
     var elements = calculations.stateVectorToOrbitalElements(r, v, mu);
-    elements.i += plane_change.plane_change.?.delta_inclination;
-    elements.raan += plane_change.plane_change.?.delta_raan;
+    elements.i += plane_change.planeChange.?.deltaInclination;
+    elements.raan += plane_change.planeChange.?.deltaRaan;
 
     return calculations.orbitalElementsToStateVector(elements, mu);
 }
@@ -503,12 +514,12 @@ fn impulse(state: StateV, delta_v: [3]f64) StateV {
 }
 
 fn calculatePhaseChange(self: Spacecraft, radius: f64, phase_change: f64, transfer_orbits: f64) f64 {
-    const v_circular = @sqrt(self.orbiting_object.mu / radius);
-    const period = 2 * std.math.pi * @sqrt(std.math.pow(f64, radius, 3) / self.orbiting_object.mu);
-    const delta_t = phase_change * period / (2 * std.math.pi);
-    const a_transfer = std.math.pow(f64, (period + delta_t) / (2 * std.math.pi) * @sqrt(self.orbiting_object.mu), 2.0 / 3.0);
-    const v_transfer = @sqrt(self.orbiting_object.mu * (2 / radius - 1 / a_transfer));
-    return (v_transfer - v_circular) * 2 / transfer_orbits;
+    const vCircular = @sqrt(self.orbitingObject.mu / radius);
+    const period = 2 * std.math.pi * @sqrt(std.math.pow(f64, radius, 3) / self.orbitingObject.mu);
+    const deltaT = phase_change * period / (2 * std.math.pi);
+    const aTransfer = std.math.pow(f64, (period + deltaT) / (2 * std.math.pi) * @sqrt(self.orbitingObject.mu), 2.0 / 3.0);
+    const vTransfer = @sqrt(self.orbitingObject.mu * (2 / radius - 1 / aTransfer));
+    return (vTransfer - vCircular) * 2 / transfer_orbits;
 }
 
 test "init spacecraft" {
@@ -529,10 +540,10 @@ test "init spacecraft" {
         null,
     );
 
-    for (test_sc.orbit_predictions.items) |iter| {
+    for (test_sc.orbitPredictions.items) |iter| {
         const r = std.math.sqrt(iter.state[0] * iter.state[0] + iter.state[1] * iter.state[1] + iter.state[2] * iter.state[2]);
 
-        try std.testing.expect(r > test_sc.orbiting_object.eq_radius.?);
+        try std.testing.expect(r > test_sc.orbitingObject.eqRadius.?);
     }
 
     // write out to file for creating test mapping data
@@ -561,9 +572,9 @@ test "prop spacecraft w/ impulse" {
     defer test_sc.deinit();
 
     const impulses = [_]Impulse{
-        .{ .time = 2635014.50, .delta_v = .{ 0.2, 0.0, 0.0 }, .mode = .Prograde },
-        .{ .time = 2638026.50, .delta_v = .{ 0.2, 0.0, 0.0 }, .mode = .Prograde },
-        .{ .time = 2638103.50, .delta_v = .{ 0.2, 0.0, 0.0 }, .mode = .Prograde },
+        .{ .time = 2635014.50, .deltaV = .{ 0.2, 0.0, 0.0 }, .mode = .Prograde },
+        .{ .time = 2638026.50, .deltaV = .{ 0.2, 0.0, 0.0 }, .mode = .Prograde },
+        .{ .time = 2638103.50, .deltaV = .{ 0.2, 0.0, 0.0 }, .mode = .Prograde },
     };
 
     try test_sc.propagate(
@@ -573,10 +584,10 @@ test "prop spacecraft w/ impulse" {
         &impulses,
     );
 
-    for (test_sc.orbit_predictions.items) |iter| {
+    for (test_sc.orbitPredictions.items) |iter| {
         const r = std.math.sqrt(iter.state[0] * iter.state[0] + iter.state[1] * iter.state[1] + iter.state[2] * iter.state[2]);
 
-        try std.testing.expect(r > test_sc.orbiting_object.eq_radius.?);
+        try std.testing.expect(r > test_sc.orbitingObject.eqRadius.?);
     }
 }
 
@@ -593,9 +604,9 @@ test "prop spacecraft w/ phase" {
 
     const phase_maneuver = Impulse{
         .time = 2500000.0,
-        .delta_v = .{ 1.0, 0.0, 0.0 },
+        .deltaV = .{ 1.0, 0.0, 0.0 },
         .mode = .Phase,
-        .phase_change = std.math.pi / 2.0,
+        .phaseChange = std.math.pi / 2.0,
     };
 
     const impulses = [_]Impulse{phase_maneuver};
@@ -607,10 +618,10 @@ test "prop spacecraft w/ phase" {
         &impulses,
     );
 
-    for (test_sc.orbit_predictions.items) |iter| {
+    for (test_sc.orbitPredictions.items) |iter| {
         const r = std.math.sqrt(iter.state[0] * iter.state[0] + iter.state[1] * iter.state[1] + iter.state[2] * iter.state[2]);
 
-        try std.testing.expect(r > test_sc.orbiting_object.eq_radius.?);
+        try std.testing.expect(r > test_sc.orbitingObject.eqRadius.?);
     }
 
     // const file = try std.fs.cwd().createFile("./test/orbit_data_with_phase.csv", .{});
@@ -639,11 +650,11 @@ test "prop spacecraft w/ plane change" {
 
     const plane_change_maneuver = Impulse{
         .time = 2500000.0,
-        .delta_v = .{ 0.0, 0.0, 0.0 }, // Not used for plane changes
+        .deltaV = .{ 0.0, 0.0, 0.0 }, // Not used for plane changes
         .mode = .Plane_Change,
-        .plane_change = .{
-            .delta_inclination = std.math.pi / 18.0, // 10-degree inclination change
-            .delta_raan = std.math.pi / 36.0, // 5-degree RAAN change
+        .planeChange = .{
+            .deltaInclination = std.math.pi / 18.0, // 10-degree inclination change
+            .deltaRaan = std.math.pi / 36.0, // 5-degree RAAN change
         },
     };
 
@@ -656,10 +667,10 @@ test "prop spacecraft w/ plane change" {
         &impulses,
     );
 
-    for (test_sc.orbit_predictions.items) |iter| {
+    for (test_sc.orbitPredictions.items) |iter| {
         const r = std.math.sqrt(iter.state[0] * iter.state[0] + iter.state[1] * iter.state[1] + iter.state[2] * iter.state[2]);
 
-        try std.testing.expect(r > test_sc.orbiting_object.eq_radius.?);
+        try std.testing.expect(r > test_sc.orbitingObject.eqRadius.?);
     }
 
     // const file = try std.fs.cwd().createFile("./test/orbit_data_with_plane_change.csv", .{});
@@ -684,7 +695,7 @@ test "orientation determination testing" {
     defer test_tle.deinit();
     var spacecraft = Spacecraft.init("dummy_sc", test_tle, 300.000, SatelliteSize.Cube, constants.earth, std.testing.allocator);
 
-    spacecraft.angular_velocity = .{ 0.1, 0.05, 0.02 };
+    spacecraft.angularVelocity = .{ 0.1, 0.05, 0.02 };
 
     // const file = try std.fs.cwd().createFile("test/attitude_data.csv", .{});
     // defer file.close();
@@ -699,8 +710,8 @@ test "orientation determination testing" {
     while (t < simulation_time) : (t += dt) {
         const angle = 0.5 * @sin(2 * std.math.pi * t / orbital_period);
 
-        spacecraft.body_vectors[0] = .{ @cos(angle), 0, @sin(angle) };
-        spacecraft.body_vectors[1] = .{ 0, 1, 0 };
+        spacecraft.bodyVectors[0] = .{ @cos(angle), 0, @sin(angle) };
+        spacecraft.bodyVectors[1] = .{ 0, 1, 0 };
 
         spacecraft.updateAttitude();
         spacecraft.propagateAttitude(dt);
@@ -711,7 +722,7 @@ test "orientation determination testing" {
         // const y = orbit_radius * @sin(2 * std.math.pi * t / orbital_period);
         // const z = 0.0;
 
-        try std.testing.expect(orbit_radius > spacecraft.orbiting_object.m_radius.?);
+        try std.testing.expect(orbit_radius > spacecraft.orbitingObject.mRadius.?);
 
         // try writer.print("{d},{d},{d},{d},{d},{d},{d},{d},{d},{d},{d}\n", .{
         //     t,
@@ -740,7 +751,7 @@ test "orientation determination with dramatic changes" {
     defer spacecraft.deinit();
 
     // Initial angular velocity
-    spacecraft.angular_velocity = .{ 0.0, 0.0, 0.0 };
+    spacecraft.angularVelocity = .{ 0.0, 0.0, 0.0 };
 
     // const file = try std.fs.cwd().createFile("test/dramatic_attitude_data.csv", .{});
     // defer file.close();
@@ -760,9 +771,9 @@ test "orientation determination with dramatic changes" {
         const torque_z = 0.0002 * @sin(2 * std.math.pi * t / orbital_period);
 
         // Update angular velocity based on torque (simplified)
-        spacecraft.angular_velocity[0] += torque_x * dt;
-        spacecraft.angular_velocity[1] += torque_y * dt;
-        spacecraft.angular_velocity[2] += torque_z * dt;
+        spacecraft.angularVelocity[0] += torque_x * dt;
+        spacecraft.angularVelocity[1] += torque_y * dt;
+        spacecraft.angularVelocity[2] += torque_z * dt;
 
         // Update attitude
         spacecraft.updateAttitude();
@@ -774,7 +785,7 @@ test "orientation determination with dramatic changes" {
         // const y = orbit_radius * @sin(2 * std.math.pi * t / orbital_period);
         // const z = 0.0;
 
-        try std.testing.expect(orbit_radius > spacecraft.orbiting_object.m_radius.?);
+        try std.testing.expect(orbit_radius > spacecraft.orbitingObject.mRadius.?);
 
         // try writer.print("{d},{d},{d},{d},{d},{d},{d},{d},{d},{d},{d}\n", .{
         //     t,
