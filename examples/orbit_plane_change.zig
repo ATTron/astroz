@@ -11,37 +11,37 @@ pub fn main() !void {
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
 
-    const test_tle =
+    const testTle =
         \\1 55909U 23035B   24187.51050877  .00023579  00000+0  16099-2 0  9998
         \\2 55909  43.9978 311.8012 0011446 278.6226  81.3336 15.05761711 71371
     ;
 
-    var tle = try Tle.parse(test_tle, allocator);
+    var tle = try Tle.parse(testTle, allocator);
     defer tle.deinit();
 
-    var test_sc = Spacecraft.init("dummy_sc", tle, 300.000, Spacecraft.SatelliteSize.Cube, constants.earth, allocator);
-    defer test_sc.deinit();
+    var testSc = Spacecraft.init("dummy_sc", tle, 300.000, Spacecraft.SatelliteSize.Cube, constants.earth, allocator);
+    defer testSc.deinit();
 
-    const plane_change_maneuver = Impulse{
+    const planeChangeManeuver = Impulse{
         .time = 2500000.0,
-        .delta_v = .{ 0.0, 0.0, 0.0 }, // Not used for plane changes
-        .mode = .Plane_Change,
-        .plane_change = .{
-            .delta_inclination = math.pi / 18.0, // 10-degree inclination change
-            .delta_raan = math.pi / 36.0, // 5-degree RAAN change
+        .deltaV = .{ 0.0, 0.0, 0.0 }, // Not used for plane changes
+        .mode = .PlaneChange,
+        .planeChange = .{
+            .deltaInclination = math.pi / 18.0, // 10-degree inclination change
+            .deltaRaan = math.pi / 36.0, // 5-degree RAAN change
         },
     };
 
-    const impulses = [_]Impulse{plane_change_maneuver};
+    const impulses = [_]Impulse{planeChangeManeuver};
 
-    try test_sc.propagate(
-        test_sc.tle.first_line.epoch,
+    try testSc.propagate(
+        testSc.tle.firstLine.epoch,
         3, // 3 days worth of orbit predictions
         1, // steps, i.e. repredict every simulated second
         &impulses,
     );
 
-    for (test_sc.orbit_predictions.items) |iter| {
+    for (testSc.orbitPredictions.items) |iter| {
         const r = math.sqrt(iter.state[0] * iter.state[0] + iter.state[1] * iter.state[1] + iter.state[2] * iter.state[2]);
 
         std.debug.print("Next Prediction is: {any}\n", .{r});

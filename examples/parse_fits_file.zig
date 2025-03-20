@@ -7,6 +7,6 @@ pub fn main() !void {
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
 
-    var fits_png = try Fits.open_and_parse(allocator);
-    defer fits_png.close();
+    var fitsPng = try Fits.open_and_parse(allocator);
+    defer fitsPng.close();
 }
