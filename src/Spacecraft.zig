@@ -39,7 +39,7 @@ pub const SatelliteParameters = struct {
 pub const Impulse = struct {
     time: f64,
     deltaV: [3]f64,
-    mode: enum { Absolute, Prograde, Phase, Plane_Change },
+    mode: enum { Absolute, Prograde, Phase, PlaneChange },
     phaseChange: ?f64 = null,
     planeChange: ?struct {
         deltaInclination: f64,
@@ -160,7 +160,7 @@ pub fn propagate(self: *Spacecraft, t0: f64, days: f64, h: f64, impulseList: ?[]
     const y0OE = calculations.tleToOrbitalElements(self.tle);
     const y0 = calculations.orbitalElementsToStateVector(y0OE, self.orbitingObject.mu);
     var t = t0;
-    const tf = self.tle.first_line.epoch + days * 86400.0;
+    const tf = self.tle.firstLine.epoch + days * 86400.0;
     var y = y0;
     const initialEnergy = self.calculateEnergy(y);
 
@@ -219,7 +219,7 @@ pub fn propagate(self: *Spacecraft, t0: f64, days: f64, h: f64, impulseList: ?[]
                         try self.orbitPredictions.append(StateTime{ .time = t, .state = y });
                         log.info("Phase change completed at t={d:.2}s", .{t});
                     },
-                    .Plane_Change => {
+                    .PlaneChange => {
                         const planeChange = impulses[impulseIndex];
                         y = self.applyPlaneChange(y, planeChange);
                         try self.orbitPredictions.append(StateTime{ .time = t, .state = y });
@@ -534,7 +534,7 @@ test "init spacecraft" {
     defer test_sc.deinit();
 
     try test_sc.propagate(
-        test_sc.tle.first_line.epoch,
+        test_sc.tle.firstLine.epoch,
         3, // days to predict
         1, // steps, i.e. predict every simulated second
         null,
@@ -578,7 +578,7 @@ test "prop spacecraft w/ impulse" {
     };
 
     try test_sc.propagate(
-        test_sc.tle.first_line.epoch,
+        test_sc.tle.firstLine.epoch,
         3, // days to predict
         1, // steps, i.e. predict every simulated second
         &impulses,
@@ -612,7 +612,7 @@ test "prop spacecraft w/ phase" {
     const impulses = [_]Impulse{phase_maneuver};
 
     try test_sc.propagate(
-        test_sc.tle.first_line.epoch,
+        test_sc.tle.firstLine.epoch,
         3, // days to predict
         1, // steps, i.e. predict every simulated second
         &impulses,
@@ -651,7 +651,7 @@ test "prop spacecraft w/ plane change" {
     const plane_change_maneuver = Impulse{
         .time = 2500000.0,
         .deltaV = .{ 0.0, 0.0, 0.0 }, // Not used for plane changes
-        .mode = .Plane_Change,
+        .mode = .PlaneChange,
         .planeChange = .{
             .deltaInclination = std.math.pi / 18.0, // 10-degree inclination change
             .deltaRaan = std.math.pi / 36.0, // 5-degree RAAN change
@@ -661,7 +661,7 @@ test "prop spacecraft w/ plane change" {
     const impulses = [_]Impulse{plane_change_maneuver};
 
     try test_sc.propagate(
-        test_sc.tle.first_line.epoch,
+        test_sc.tle.firstLine.epoch,
         3, // days to predict
         1, // steps, i.e. predict every simulated second
         &impulses,
