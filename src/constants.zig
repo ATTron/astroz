@@ -14,11 +14,11 @@ pub const j2k = 2000.0;
 pub const CelestialBody = struct {
     mass: f64, // kg
     mu: f64, // km^3/s^2
-    m_fraction_solar_system: f64,
-    m_radius: ?f64, // km
-    eq_radius: ?f64, // km
-    p_radius: ?f64, //km
-    semi_major_axis: f64, // km
+    mFractionSolarSystem: f64,
+    mRadius: ?f64, // km
+    eqRadius: ?f64, // km
+    pRadius: ?f64, //km
+    semiMajorAxis: f64, // km
     perihelion: f64, // km
     aphelion: f64, // km
     period: f64, // days
@@ -26,20 +26,20 @@ pub const CelestialBody = struct {
     eccentricity: f64,
     inclination: f64, // degrees
     oblateness: ?f64,
-    j2_perturbation: f64,
-    sea_level_density: f64,
-    scale_height: f64,
-    rotation_rate: f64, // rad/s
+    j2Perturbation: f64,
+    seaLevelDensity: f64,
+    scaleHeight: f64,
+    rotationRate: f64, // rad/s
 
-    fn init(mass: f64, mu: f64, m_fraction_solar_system: f64, m_radius: ?f64, eq_radius: ?f64, p_radius: ?f64, semi_major_axis: ?f64, perihelion: ?f64, aphelion: ?f64, period: ?f64, velocity: ?f64, eccentricity: ?f64, inclination: ?f64, oblateness: ?f64, j2_perturbation: f64, sea_level_density: f64, scale_height: f64, rotation_rate: f64) CelestialBody {
+    fn init(mass: f64, mu: f64, mFractionSolarSystem: f64, mRadius: ?f64, eqRadius: ?f64, pRadius: ?f64, semiMajorAxis: ?f64, perihelion: ?f64, aphelion: ?f64, period: ?f64, velocity: ?f64, eccentricity: ?f64, inclination: ?f64, oblateness: ?f64, j2Perturbation: f64, seaLevelDensity: f64, scaleHeight: f64, rotationRate: f64) CelestialBody {
         return .{
             .mass = mass,
             .mu = mu,
-            .m_fraction_solar_system = m_fraction_solar_system,
-            .m_radius = m_radius,
-            .eq_radius = eq_radius,
-            .p_radius = p_radius,
-            .semi_major_axis = semi_major_axis orelse 0.0,
+            .mFractionSolarSystem = mFractionSolarSystem,
+            .mRadius = mRadius,
+            .eqRadius = eqRadius,
+            .pRadius = pRadius,
+            .semiMajorAxis = semiMajorAxis orelse 0.0,
             .perihelion = perihelion orelse 0.0,
             .aphelion = aphelion orelse 0.0,
             .period = period orelse 0.0,
@@ -47,10 +47,10 @@ pub const CelestialBody = struct {
             .eccentricity = eccentricity orelse 0.0,
             .inclination = inclination orelse 0.0,
             .oblateness = oblateness,
-            .j2_perturbation = j2_perturbation,
-            .sea_level_density = sea_level_density,
-            .scale_height = scale_height,
-            .rotation_rate = rotation_rate,
+            .j2Perturbation = j2Perturbation,
+            .seaLevelDensity = seaLevelDensity,
+            .scaleHeight = scaleHeight,
+            .rotationRate = rotationRate,
         };
     }
 };

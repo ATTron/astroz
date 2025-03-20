@@ -16,50 +16,50 @@ y: f64,
 z: f64,
 
 /// Currently this function assumes a fully parsed TLE already
-pub fn fromTle(tle: Tle, t0: f64, celestial_object: constants.CelestialBody) WorldCoordinateSystem {
+pub fn fromTle(tle: Tle, t0: f64, celestialObject: constants.CelestialBody) WorldCoordinateSystem {
     std.log.info("TLE PARSING, {}", .{tle});
-    const orbital_elements = calculations.tleToOrbitalElements(tle);
+    const orbitalElements = calculations.tleToOrbitalElements(tle);
 
-    const eci = orbitalElementsToECI(orbital_elements);
-    const ecef = eciToECEF(eci, t0, celestial_object);
+    const eci = orbitalElementsToECI(orbitalElements);
+    const ecef = eciToECEF(eci, t0, celestialObject);
 
     return .{ .x = ecef[0], .y = ecef[1], .z = ecef[2] };
 }
 
 fn orbitalElementsToECI(elements: Spacecraft.OrbitalElements) Vector3 {
-    const r = elements.a * (1 - elements.e * elements.e) / (1 + elements.e * @cos(elements.true_anomaly));
-    const x_orbit = r * @cos(elements.true_anomaly);
-    const y_orbit = r * @sin(elements.true_anomaly);
+    const r = elements.a * (1 - elements.e * elements.e) / (1 + elements.e * @cos(elements.trueAnomaly));
+    const xOrbit = r * @cos(elements.trueAnomaly);
+    const yOrbit = r * @sin(elements.trueAnomaly);
 
-    const R_w = Matrix3x3{
-        .{ @cos(elements.arg_periapsis), -@sin(elements.arg_periapsis), 0 },
-        .{ @sin(elements.arg_periapsis), @cos(elements.arg_periapsis), 0 },
+    const Rw = Matrix3x3{
+        .{ @cos(elements.argPeriapsis), -@sin(elements.argPeriapsis), 0 },
+        .{ @sin(elements.argPeriapsis), @cos(elements.argPeriapsis), 0 },
         .{ 0, 0, 1 },
     };
 
-    const R_i = Matrix3x3{
+    const Ri = Matrix3x3{
         .{ 1, 0, 0 },
         .{ 0, @cos(elements.i), -@sin(elements.i) },
         .{ 0, @sin(elements.i), @cos(elements.i) },
     };
 
-    const R_o = Matrix3x3{
+    const Ro = Matrix3x3{
         .{ @cos(elements.raan), -@sin(elements.raan), 0 },
         .{ @sin(elements.raan), @cos(elements.raan), 0 },
         .{ 0, 0, 1 },
     };
 
-    const R = calculations.multiplyMatrices(R_o, calculations.multiplyMatrices(R_i, R_w));
+    const R = calculations.multiplyMatrices(Ro, calculations.multiplyMatrices(Ri, Rw));
 
     return .{
-        R[0][0] * x_orbit + R[0][1] * y_orbit,
-        R[1][0] * x_orbit + R[1][1] * y_orbit,
-        R[2][0] * x_orbit + R[2][1] * y_orbit,
+        R[0][0] * xOrbit + R[0][1] * yOrbit,
+        R[1][0] * xOrbit + R[1][1] * yOrbit,
+        R[2][0] * xOrbit + R[2][1] * yOrbit,
     };
 }
 
-fn eciToECEF(eci: Vector3, time_since_epoch: f64, celestial_object: constants.CelestialBody) Vector3 {
-    const m = celestial_object.rotation_rate * time_since_epoch;
+fn eciToECEF(eci: Vector3, timeSinceEpoch: f64, celestialObject: constants.CelestialBody) Vector3 {
+    const m = celestialObject.rotationRate * timeSinceEpoch;
     return .{
         eci[0] * @cos(m) + eci[1] * @sin(m),
         -eci[0] * @sin(m) + eci[1] * @cos(m),

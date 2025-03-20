@@ -5,26 +5,26 @@ const Vita49 = @import("Vita49.zig");
 /// Semi-generic function that takes either Vita49 or CCSDS as the Frame type.
 pub fn Parser(comptime Frame: type) type {
     return struct {
-        ip_address: []const u8,
+        ipAddress: []const u8,
         port: u16,
-        buffer_size: u64 = 1024,
-        is_running: bool = false,
-        should_stop: bool = false,
+        bufferSize: u64 = 1024,
+        isRunning: bool = false,
+        shouldStop: bool = false,
         packets: std.ArrayList(Frame),
         allocator: std.mem.Allocator,
 
         const Self = @This();
 
         pub fn init(
-            ip_address: ?[]const u8,
+            ipAddress: ?[]const u8,
             port: ?u16,
-            buffer_size: u64,
+            bufferSize: u64,
             allocator: std.mem.Allocator,
         ) !Self {
             return .{
-                .ip_address = ip_address orelse "127.0.0.1",
+                .ipAddress = ipAddress orelse "127.0.0.1",
                 .port = port orelse 65432,
-                .buffer_size = buffer_size,
+                .bufferSize = bufferSize,
                 .packets = std.ArrayList(Frame).init(allocator),
                 .allocator = allocator,
             };
@@ -41,41 +41,41 @@ pub fn Parser(comptime Frame: type) type {
         /// Use this if you have a recording you need to parse
         pub fn parseFromFile(
             self: *Self,
-            file_name: []const u8,
-            sync_pattern: ?[]const u8,
+            fileName: []const u8,
+            syncPattern: ?[]const u8,
             callback: ?fn (Frame) void,
         ) !void {
-            const file = try std.fs.cwd().openFile(file_name, .{});
+            const file = try std.fs.cwd().openFile(fileName, .{});
             defer file.close();
 
             const stat = try file.stat();
-            var file_content = try file.readToEndAlloc(
+            var fileContent = try file.readToEndAlloc(
                 self.allocator,
                 stat.size,
             );
-            defer self.allocator.free(file_content);
+            defer self.allocator.free(fileContent);
 
             std.log.debug("type of Frame is: {s}", .{@typeName(Frame)});
             if (std.mem.eql(u8, @typeName(Frame), "Vita49")) {
-                if (sync_pattern) |sp| {
+                if (syncPattern) |sp| {
                     var i: usize = 0;
-                    while (file_content.len > 4) : (i += 1) {
-                        if (std.mem.startsWith(u8, file_content[i..], sp)) {
-                            const new_frame = try Frame.init(file_content[i..], self.allocator, null);
-                            try self.packets.append(new_frame);
+                    while (fileContent.len > 4) : (i += 1) {
+                        if (std.mem.startsWith(u8, fileContent[i..], sp)) {
+                            const newFrame = try Frame.init(fileContent[i..], self.allocator, null);
+                            try self.packets.append(newFrame);
                             if (callback) |cb| {
-                                cb(new_frame);
+                                cb(newFrame);
                             }
 
-                            const skip_length = new_frame.header.packet_size * 4;
-                            if (skip_length > file_content.len - i) {
+                            const skipLength = newFrame.header.packetSize * 4;
+                            if (skipLength > fileContent.len - i) {
                                 break;
                             }
 
-                            std.mem.copyForwards(u8, file_content[0..], file_content[i..]);
+                            std.mem.copyForwards(u8, fileContent[0..], fileContent[i..]);
 
-                            const new_alloc_size = file_content.len - i;
-                            file_content = self.allocator.realloc(file_content, new_alloc_size) catch |err| {
+                            const newAllocSize = fileContent.len - i;
+                            fileContent = self.allocator.realloc(fileContent, newAllocSize) catch |err| {
                                 std.log.err("Failed to reallocate memory for parsing: {}", .{err});
                                 break;
                             };
@@ -84,39 +84,39 @@ pub fn Parser(comptime Frame: type) type {
                         }
                     }
                 } else {
-                    const new_frame = try Frame.init(file_content, self.allocator, null);
-                    try self.packets.append(new_frame);
+                    const newFrame = try Frame.init(fileContent, self.allocator, null);
+                    try self.packets.append(newFrame);
                     if (callback) |cb| {
-                        cb(new_frame);
+                        cb(newFrame);
                     }
 
-                    const skip_length = new_frame.header.packet_size * 4;
+                    const skipLength = newFrame.header.packetSize * 4;
 
-                    std.mem.copyForwards(u8, file_content[0..], file_content[skip_length - 1 ..]);
+                    std.mem.copyForwards(u8, fileContent[0..], fileContent[skipLength - 1 ..]);
 
-                    const new_alloc_size = file_content.len - 1;
-                    file_content = try self.allocator.realloc(file_content, new_alloc_size);
+                    const newAllocSize = fileContent.len - 1;
+                    fileContent = try self.allocator.realloc(fileContent, newAllocSize);
                 }
             } else if (std.mem.eql(u8, @typeName(Frame), "Ccsds")) {
-                if (sync_pattern) |sp| {
+                if (syncPattern) |sp| {
                     var i: usize = 0;
-                    while (file_content.len > 4) : (i += 1) {
-                        if (std.mem.startsWith(u8, file_content[i..], sp)) {
-                            const new_frame = try Frame.init(file_content[i..], self.allocator, null);
-                            try self.packets.append(new_frame);
+                    while (fileContent.len > 4) : (i += 1) {
+                        if (std.mem.startsWith(u8, fileContent[i..], sp)) {
+                            const newFrame = try Frame.init(fileContent[i..], self.allocator, null);
+                            try self.packets.append(newFrame);
                             if (callback) |cb| {
-                                cb(new_frame);
+                                cb(newFrame);
                             }
 
-                            const skip_length = new_frame.header.packet_size + 6;
-                            if (skip_length > file_content.len - i) {
+                            const skipLength = newFrame.header.packetSize + 6;
+                            if (skipLength > fileContent.len - i) {
                                 break;
                             }
 
-                            std.mem.copyForwards(u8, file_content[0..], file_content[i..]);
+                            std.mem.copyForwards(u8, fileContent[0..], fileContent[i..]);
 
-                            const new_alloc_size = file_content.len - i;
-                            file_content = self.allocator.realloc(file_content, new_alloc_size) catch |err| {
+                            const newAllocSize = fileContent.len - i;
+                            fileContent = self.allocator.realloc(fileContent, newAllocSize) catch |err| {
                                 std.log.err("Failed to reallocate memory for parsing: {}", .{err});
                                 break;
                             };
@@ -125,39 +125,39 @@ pub fn Parser(comptime Frame: type) type {
                         }
                     }
                 } else {
-                    const new_frame = try Frame.init(file_content, self.allocator, null);
-                    try self.packets.append(new_frame);
+                    const newFrame = try Frame.init(fileContent, self.allocator, null);
+                    try self.packets.append(newFrame);
                     if (callback) |cb| {
-                        cb(new_frame);
+                        cb(newFrame);
                     }
 
-                    const skip_length = new_frame.header.packet_size + 6;
+                    const skipLength = newFrame.header.packetSize + 6;
 
-                    std.mem.copyForwards(u8, file_content[0..], file_content[skip_length - 1 ..]);
+                    std.mem.copyForwards(u8, fileContent[0..], fileContent[skipLength - 1 ..]);
 
-                    const new_alloc_size = file_content.len - 1;
-                    file_content = try self.allocator.realloc(file_content, new_alloc_size);
+                    const newAllocSize = fileContent.len - 1;
+                    fileContent = try self.allocator.realloc(fileContent, newAllocSize);
                 }
             }
         }
 
         /// This will start the tcp listener and begin parsing as data comes in
         pub fn start(self: *Self, comptime callback: ?fn (Frame) void) !void {
-            const addr = try std.net.Address.parseIp4(self.ip_address, self.port);
+            const addr = try std.net.Address.parseIp4(self.ipAddress, self.port);
 
             const stream = try std.net.tcpConnectToAddress(addr);
             defer stream.close();
 
             std.log.info("connected to socket successful", .{});
 
-            var incoming_buffer = std.mem.zeroes([1024]u8);
-            while (!self.should_stop) {
-                _ = try stream.read(&incoming_buffer);
-                const new_frame = try Frame.init(&incoming_buffer, self.allocator, null);
-                std.log.debug("message received: {any}", .{new_frame});
-                _ = try self.packets.append(new_frame);
+            var incomingBuffer = std.mem.zeroes([1024]u8);
+            while (!self.shouldStop) {
+                _ = try stream.read(&incomingBuffer);
+                const newFrame = try Frame.init(&incomingBuffer, self.allocator, null);
+                std.log.debug("message received: {any}", .{newFrame});
+                _ = try self.packets.append(newFrame);
                 if (callback != null) {
-                    callback.?(new_frame);
+                    callback.?(newFrame);
                 }
             }
         }
@@ -165,15 +165,15 @@ pub fn Parser(comptime Frame: type) type {
         /// Kills the tcp connection
         /// Make sure you clean up
         pub fn stop(self: *Self) void {
-            self.should_stop = true;
+            self.shouldStop = true;
         }
     };
 }
 
 fn testRunServer(parse_type: []const u8) !void {
-    const ip_addr = try std.net.Ip4Address.parse("127.0.0.1", 65432);
-    const test_host = std.net.Address{ .in = ip_addr };
-    var server = try test_host.listen(.{
+    const ipAddr = try std.net.Ip4Address.parse("127.0.0.1", 65432);
+    const testHost = std.net.Address{ .in = ipAddr };
+    var server = try testHost.listen(.{
         .reuse_port = true,
     });
     defer server.deinit();

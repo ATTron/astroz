@@ -6,7 +6,7 @@ const Datetime = @This();
 
 instant: ?std.time.Instant,
 doy: ?u16,
-days_in_year: u16,
+daysInYear: u16,
 year: ?u16,
 month: ?u8,
 day: ?u8,
@@ -16,37 +16,37 @@ seconds: ?f16,
 
 /// for dates only
 pub fn initDate(year: u16, month: u8, day: u8) Datetime {
-    var dt = Datetime{ .instant = null, .doy = null, .days_in_year = 365, .year = year, .month = month, .day = day, .hours = null, .minutes = null, .seconds = null };
+    var dt = Datetime{ .instant = null, .doy = null, .daysInYear = 365, .year = year, .month = month, .day = day, .hours = null, .minutes = null, .seconds = null };
     dt.calculateDoy();
     return dt;
 }
 
 /// for times only
 pub fn initTime(hours: u8, minutes: u8, seconds: f16) Datetime {
-    return .{ .instant = null, .doy = null, .days_in_year = 365, .year = null, .month = null, .day = null, .hours = hours, .minutes = minutes, .seconds = seconds };
+    return .{ .instant = null, .doy = null, .daysInYear = 365, .year = null, .month = null, .day = null, .hours = hours, .minutes = minutes, .seconds = seconds };
 }
 
 /// if you have a full timestamp
 pub fn initDatetime(year: u16, month: u8, day: u8, hours: u8, minutes: u8, seconds: f16) Datetime {
-    var dt = Datetime{ .instant = null, .doy = null, .days_in_year = 365, .year = year, .month = month, .day = day, .hours = hours, .minutes = minutes, .seconds = seconds };
+    var dt = Datetime{ .instant = null, .doy = null, .daysInYear = 365, .year = year, .month = month, .day = day, .hours = hours, .minutes = minutes, .seconds = seconds };
     dt.calculateDoy();
     return dt;
 }
 
 /// if you want an Instant converted
 pub fn fromInstant(instant: std.time.Instant) Datetime {
-    var new_dt = Datetime{ .instant = instant, .doy = null, .days_in_year = 365, .year = null, .month = null, .day = null, .hours = null, .minutes = null, .seconds = null };
-    return new_dt.epochToDatetime();
+    var newDt = Datetime{ .instant = instant, .doy = null, .daysInYear = 365, .year = null, .month = null, .day = null, .hours = null, .minutes = null, .seconds = null };
+    return newDt.epochToDatetime();
 }
 
 fn calculateDoy(self: *Datetime) void {
-    var days_in_month = [_]u8{ 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31 };
+    var daysInMonth = [_]u8{ 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31 };
     if (isLeapYear(self.year.?)) {
-        days_in_month[1] = 29;
-        self.days_in_year += 1;
+        daysInMonth[1] = 29;
+        self.daysInYear += 1;
     }
     var doy: u16 = 0;
-    for (days_in_month, 1..) |days, i| {
+    for (daysInMonth, 1..) |days, i| {
         if (i == self.month.?) {
             doy += self.day.?;
             break;
@@ -57,43 +57,43 @@ fn calculateDoy(self: *Datetime) void {
 }
 
 fn epochToDatetime(comptime timestamp: i64) Datetime {
-    const days_per_year = 365;
+    const daysPerYear = 365;
 
-    var remaining_seconds: i64 = timestamp;
+    var remainingSeconds: i64 = timestamp;
     var year: u16 = 1970;
 
     while (true) {
-        const days_this_year: u32 = if (isLeapYear(year)) days_per_year + 1 else days_per_year;
-        const seconds_this_year = days_this_year * std.time.s_per_day;
-        if (remaining_seconds < seconds_this_year) break;
-        remaining_seconds -= seconds_this_year;
+        const daysThisYear: u32 = if (isLeapYear(year)) daysPerYear + 1 else daysPerYear;
+        const secondsThisYear = daysThisYear * std.time.s_per_day;
+        if (remainingSeconds < secondsThisYear) break;
+        remainingSeconds -= secondsThisYear;
         year += 1;
     }
 
-    const days_elapsed = @divFloor(remaining_seconds, std.time.s_per_day);
-    remaining_seconds -= days_elapsed * std.time.s_per_day;
+    const daysElapsed = @divFloor(remainingSeconds, std.time.s_per_day);
+    remainingSeconds -= daysElapsed * std.time.s_per_day;
 
-    var days_in_month = [_]u8{ 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31 };
-    if (isLeapYear(year)) days_in_month[1] = 29;
+    var daysInMonth = [_]u8{ 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31 };
+    if (isLeapYear(year)) daysInMonth[1] = 29;
 
     var month: u8 = 1;
     var day: u8 = 1;
     var doy: u16 = 1;
-    var days_remaining = @as(u16, @intCast(days_elapsed)) + 1;
-    for (days_in_month, 0..) |days, i| {
-        if (days_remaining <= days) {
+    var daysRemaining = @as(u16, @intCast(daysElapsed)) + 1;
+    for (daysInMonth, 0..) |days, i| {
+        if (daysRemaining <= days) {
             month = @as(u8, @intCast(i + 1));
-            day = @as(u8, @intCast(days_remaining));
+            day = @as(u8, @intCast(daysRemaining));
             break;
         }
-        days_remaining -= days;
+        daysRemaining -= days;
         doy += 1;
     }
 
-    const hours = @as(u8, @intCast(@divFloor(remaining_seconds, std.time.s_per_hour)));
-    remaining_seconds -= hours * @as(i64, std.time.s_per_hour);
-    const minutes = @as(u8, @intCast(@divFloor(remaining_seconds, std.time.s_per_min)));
-    const seconds = @mod(remaining_seconds, std.time.s_per_min);
+    const hours = @as(u8, @intCast(@divFloor(remainingSeconds, std.time.s_per_hour)));
+    remainingSeconds -= hours * @as(i64, std.time.s_per_hour);
+    const minutes = @as(u8, @intCast(@divFloor(remainingSeconds, std.time.s_per_min)));
+    const seconds = @mod(remainingSeconds, std.time.s_per_min);
 
     return Datetime.initDatetime(year, month, day, hours, minutes, @as(f16, @floatFromInt(seconds)));
 }
@@ -104,7 +104,7 @@ fn isLeapYear(year: u16) bool {
 
 /// this is used by the TLE lib to generate an epoch
 pub fn doyToMonthDay(year: u16, doy: f64) struct { month: u8, day: u8 } {
-    var days_in_month = [_]f64{
+    var daysInMonth = [_]f64{
         31.0,
         28.0,
         31.0,
@@ -118,11 +118,11 @@ pub fn doyToMonthDay(year: u16, doy: f64) struct { month: u8, day: u8 } {
         30.0,
         31.0,
     };
-    if (isLeapYear(year)) days_in_month[1] = 29.0;
+    if (isLeapYear(year)) daysInMonth[1] = 29.0;
     var month: u8 = 1;
     var day = doy;
 
-    for (days_in_month) |days| {
+    for (daysInMonth) |days| {
         if (day > days) {
             day -= days;
             month += 1;
@@ -137,15 +137,15 @@ pub fn doyToMonthDay(year: u16, doy: f64) struct { month: u8, day: u8 } {
 
 /// Converts your datetime to the J2000 format used in astronomy
 pub fn convertToJ2000(self: Datetime) f32 {
-    const step_1 = 367.0 * @as(f32, @floatFromInt(self.year.?));
-    const step_2 = @as(f32, @floatFromInt(self.year.?)) + @floor((@as(f32, @floatFromInt(self.month.?)) + 9.0) / 12.0);
-    const step_3 = @as(f32, @floatFromInt(self.month.?)) * step_2;
-    const step_4 = @floor(step_3 / 4.0);
-    const step_5 = 275.0 * @as(f32, @floatFromInt(self.month.?));
-    const step_6 = @floor(step_5 / 9.0);
-    const step_7 = step_1 - step_4 + step_6 + @as(f32, @floatFromInt(self.day.?)) + 1721013.5;
+    const step1 = 367.0 * @as(f32, @floatFromInt(self.year.?));
+    const step2 = @as(f32, @floatFromInt(self.year.?)) + @floor((@as(f32, @floatFromInt(self.month.?)) + 9.0) / 12.0);
+    const step3 = @as(f32, @floatFromInt(self.month.?)) * step2;
+    const step4 = @floor(step3 / 4.0);
+    const step5 = 275.0 * @as(f32, @floatFromInt(self.month.?));
+    const step7 = @floor(step5 / 9.0);
+    const step8 = step1 - step4 + step7 + @as(f32, @floatFromInt(self.day.?)) + 1721013.5;
 
-    return step_7;
+    return step8;
 }
 
 /// Converts your datetime to the Modified J2000 format used in astronomy
