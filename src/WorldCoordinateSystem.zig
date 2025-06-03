@@ -26,7 +26,7 @@ pub fn fromTle(tle: Tle, t0: f64, celestialObject: constants.CelestialBody) Worl
     return .{ .x = ecef[0], .y = ecef[1], .z = ecef[2] };
 }
 
-fn orbitalElementsToECI(elements: Spacecraft.OrbitalElements) Vector3 {
+fn orbitalElementsToECI(elements: calculations.OrbitalElements) Vector3 {
     const r = elements.a * (1 - elements.e * elements.e) / (1 + elements.e * @cos(elements.trueAnomaly));
     const xOrbit = r * @cos(elements.trueAnomaly);
     const yOrbit = r * @sin(elements.trueAnomaly);
