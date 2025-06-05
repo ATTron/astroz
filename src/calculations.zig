@@ -1,7 +1,34 @@
+//! Various functions to perform the astrodynamics calculations
+
 const std = @import("std");
 const Tle = @import("Tle.zig");
-const OrbitalElements = @import("Spacecraft.zig").OrbitalElements;
 const constants = @import("constants.zig");
+
+/// State Vector - Used for position and velocity knowledge
+pub const StateV = [6]f64;
+
+/// Contains time and state vector to be used during propagation
+pub const StateTime = struct {
+    time: f64,
+    state: StateV,
+};
+
+// an easy win would be to combine this with StateTime to form a *spacecraftState* struct to deal with all of this
+/// Responsible for spacecraft orientation
+pub const AttitudeState = struct {
+    quaternion: [4]f64,
+    angularVelocity: [3]f64,
+};
+
+/// Needed for propagation.
+pub const OrbitalElements = struct {
+    a: f64,
+    e: f64,
+    i: f64,
+    raan: f64,
+    argPeriapsis: f64,
+    trueAnomaly: f64,
+};
 
 pub fn degreesToRadians(degrees: f64) f64 {
     return (degrees * std.math.pi) / 180.0;
@@ -162,4 +189,143 @@ fn solveKeplerEquation(mAnomaly: f64, eccentricity: f64) f64 {
     }
 
     return E;
+}
+
+pub fn triad(v1_body: [3]f64, v2_body: [3]f64, v1_ref: [3]f64, v2_ref: [3]f64) [3][3]f64 {
+    const t1Body = normalize(v1_body);
+    const t2Body = normalize(cross(v1_body, v2_body));
+    const t3Body = cross(t1Body, t2Body);
+
+    const t1Ref = normalize(v1_ref);
+    const t2Ref = normalize(cross(v1_ref, v2_ref));
+    const t3Ref = cross(t1Ref, t2Ref);
+
+    const bodyMatrix = [3][3]f64{
+        .{ t1Body[0], t2Body[0], t3Body[0] },
+        .{ t1Body[1], t2Body[1], t3Body[1] },
+        .{ t1Body[2], t2Body[2], t3Body[2] },
+    };
+
+    const refMatrix = [3][3]f64{
+        .{ t1Ref[0], t2Ref[0], t3Ref[0] },
+        .{ t1Ref[1], t2Ref[1], t3Ref[1] },
+        .{ t1Ref[2], t2Ref[2], t3Ref[2] },
+    };
+
+    return multiplyMatrices(bodyMatrix, transposeMatrix(refMatrix));
+}
+
+pub fn normalize(v: [3]f64) [3]f64 {
+    const magni = @sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]);
+    return .{ v[0] / magni, v[1] / magni, v[2] / magni };
+}
+
+pub fn cross(a: [3]f64, b: [3]f64) [3]f64 {
+    return .{
+        a[1] * b[2] - a[2] * b[1],
+        a[2] * b[0] - a[0] * b[2],
+        a[0] * b[1] - a[1] * b[0],
+    };
+}
+
+pub fn transposeMatrix(m: [3][3]f64) [3][3]f64 {
+    return .{
+        .{ m[0][0], m[1][0], m[2][0] },
+        .{ m[0][1], m[1][1], m[2][1] },
+        .{ m[0][2], m[1][2], m[2][2] },
+    };
+}
+
+pub fn matrixToQuaternion(m: [3][3]f64) [4]f64 {
+    var q: [4]f64 = undefined;
+    const trace = m[0][0] + m[1][1] + m[2][2];
+
+    if (trace > 0) {
+        const s = 0.5 / @sqrt(trace + 1.0);
+        q[0] = 0.25 / s;
+        q[1] = (m[2][1] - m[1][2]) * s;
+        q[2] = (m[0][2] - m[2][0]) * s;
+        q[3] = (m[1][0] - m[0][1]) * s;
+    } else {
+        if (m[0][0] > m[1][1] and m[0][0] > m[2][2]) {
+            const s = 2.0 * @sqrt(1.0 + m[0][0] - m[1][1] - m[2][2]);
+            q[0] = (m[2][1] - m[1][2]) / s;
+            q[1] = 0.25 * s;
+            q[2] = (m[0][1] + m[1][0]) / s;
+            q[3] = (m[0][2] + m[2][0]) / s;
+        } else if (m[1][1] > m[2][2]) {
+            const s = 2.0 * @sqrt(1.0 + m[1][1] - m[0][0] - m[2][2]);
+            q[0] = (m[0][2] - m[2][0]) / s;
+            q[1] = (m[0][1] + m[1][0]) / s;
+            q[2] = 0.25 * s;
+            q[3] = (m[1][2] + m[2][1]) / s;
+        } else {
+            const s = 2.0 * @sqrt(1.0 + m[2][2] - m[0][0] - m[1][1]);
+            q[0] = (m[1][0] - m[0][1]) / s;
+            q[1] = (m[0][2] + m[2][0]) / s;
+            q[2] = (m[1][2] + m[2][1]) / s;
+            q[3] = 0.25 * s;
+        }
+    }
+
+    return q;
+}
+
+pub fn addAttitudeStates(a: AttitudeState, b: AttitudeState) AttitudeState {
+    return .{
+        .quaternion = .{
+            a.quaternion[0] + b.quaternion[0],
+            a.quaternion[1] + b.quaternion[1],
+            a.quaternion[2] + b.quaternion[2],
+            a.quaternion[3] + b.quaternion[3],
+        },
+        .angularVelocity = .{
+            a.angularVelocity[0] + b.angularVelocity[0],
+            a.angularVelocity[1] + b.angularVelocity[1],
+            a.angularVelocity[2] + b.angularVelocity[2],
+        },
+    };
+}
+
+pub fn scaleAttitudeState(state: AttitudeState, scalar: f64) AttitudeState {
+    return .{
+        .quaternion = .{
+            state.quaternion[0] * scalar,
+            state.quaternion[1] * scalar,
+            state.quaternion[2] * scalar,
+            state.quaternion[3] * scalar,
+        },
+        .angularVelocity = .{
+            state.angularVelocity[0] * scalar,
+            state.angularVelocity[1] * scalar,
+            state.angularVelocity[2] * scalar,
+        },
+    };
+}
+
+pub fn addScaledAttitudeState(state: AttitudeState, delta: AttitudeState, scalar: f64) AttitudeState {
+    return addAttitudeStates(state, scaleAttitudeState(delta, scalar));
+}
+
+pub fn vectorAdd(a: StateV, b: StateV) StateV {
+    var result: StateV = undefined;
+    for (0..6) |i| {
+        result[i] = a[i] + b[i];
+    }
+    return result;
+}
+
+pub fn scalarMultiply(scalar: f64, vector: StateV) StateV {
+    var result: StateV = undefined;
+    for (0..6) |i| {
+        result[i] = scalar * vector[i];
+    }
+    return result;
+}
+
+pub fn impulse(state: StateV, delta_v: [3]f64) StateV {
+    return .{
+        state[0],              state[1],              state[2],
+        state[3] + delta_v[0], state[4] + delta_v[1], state[5] + delta_v[2],
+    };
 }
