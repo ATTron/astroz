@@ -218,13 +218,13 @@ pub fn lambertSolverSimple(self: OrbitalMechanics, r1Vec: Vector3D, r2Vec: Vecto
 
     const r2MinusFr1 = r2Vec - (r1Vec * f);
     const v1Array = r2MinusFr1 / g;
-    const v1Vec: Vector3D = .{.x = v1Array[0], .y = v1Array[1], .z = v1Array[2]};
+    const v1Vec: Vector3D = .{ .x = v1Array[0], .y = v1Array[1], .z = v1Array[2] };
 
     const fdot = @sqrt(self.mu / a) * @tan(transferAngle / 2) * ((s - c) / r1 - (s - c) / r2);
     const gdot = 1 - r1 / a * (1 - cosDnu);
 
     const v2Array = (r1Vec * fdot + v1Vec * gdot);
-    const v2Vec: Vector3D = .{.x = v2Array[0], .y = v2Array[1], .z = v2Array[2]};
+    const v2Vec: Vector3D = .{ .x = v2Array[0], .y = v2Array[1], .z = v2Array[2] };
 
     return .{
         .departureVelocity = v1Vec,
