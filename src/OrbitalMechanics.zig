@@ -2,10 +2,12 @@
 
 const std = @import("std");
 const log = std.log;
+
 const calculations = @import("calculations.zig");
-const constants = @import("constants.zig");
 const Vector3D = calculations.Vector3D;
+const constants = @import("constants.zig");
 const CelestialBody = constants.CelestialBody;
+
 const ValidationError = error{ InvalidDeltaV, ValueError };
 
 const OrbitalMechanics = @This();
@@ -63,14 +65,6 @@ pub const BiEllipticTransferResult = struct {
             .totalTimeDays = totalTimeDays,
         };
     }
-};
-
-pub const LambertResult = struct {
-    departureVelocity: Vector3D,
-    arrivalVelocity: Vector3D,
-    transferAngle: f64,
-    semiMajorAxis: f64,
-    timeOfFlight: f64,
 };
 
 centralBody: CelestialBody,
