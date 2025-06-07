@@ -66,8 +66,12 @@ pub const BiEllipticTransferResult = struct {
 };
 
 pub const LambertResult = struct {
-    departureVelocity
-}
+    departureVelocity: Vector3D,
+    arrivalVelocity: Vector3D,
+    transferAngle: f64,
+    semiMajorAxis: f64,
+    timeOfFlight: f64,
+};
 
 centralBody: CelestialBody,
 mu: f64,
