@@ -11,6 +11,8 @@ const calculations = @import("calculations.zig");
 const Mission = @This();
 
 allocator: std.mem.Allocator,
+parameters: MissionParameters,
+orbitalMechanics: OrbitalMechanics,
 
 pub const PlanetaryPositions = struct {
     planet: constants.CelestialBody,
@@ -26,9 +28,9 @@ pub const MissionParameters = struct {
     arrivalBody: constants.CelestialBody,
     departureTime: f64,
     arrivalTime: ?f64,
-    transferTime: []const u8,
+    transferType: []const u8,
 
-    pub fn init(departureBody: constants.CelestialBody, arrivalBody: constants.CelestialBody, departureTime: f64, arrivalTime: ?f64, transferTime: []const u8) !MissionParameters {
+    pub fn init(departureBody: constants.CelestialBody, arrivalBody: constants.CelestialBody, departureTime: f64, arrivalTime: ?f64, transferType: []const u8) !MissionParameters {
         if (departureTime <= 0) {
             return ValidationError.ValueError;
         }
@@ -38,7 +40,7 @@ pub const MissionParameters = struct {
             .arrivalBody = arrivalBody,
             .departureTime = departureTime,
             .arrivalTime = arrivalTime,
-            .transferTime = transferTime,
+            .transferType = transferType,
         };
     }
 };
@@ -87,4 +89,41 @@ pub fn planetaryPositions(self: *Mission, tYears: f64) std.AutoHashMap(constants
     }
 
     return positions;
+}
+
+pub fn planMission(self: *Mission, params: MissionParameters) void {
+    const rDeparture = params.departureBody.semiMajorAxis * 1000;
+    const rArrival = params.arrivalBody.semiMajorAxis * 1000;
+
+    var transfer = null;
+    if (std.mem.eql(u8, params.transferType, "hohmann")) {
+        transfer = self.orbitalMechanics.hohmannTransfer(rDeparture, rArrival);
+    } else if (std.mem.eql(u8, params.transferType, "bi_elliptic")) {
+        const rAphelion = 3 * @max(rDeparture, rArrival);
+        transfer = self.orbitalMechanics.biEllipicTransfer(rDeparture, rArrival, rAphelion);
+    } else {
+        return ValidationError.ValueError;
+    }
+
+    const tDeparture = params.departureBody.period / 365.25;
+    const tArrival = params.arrivalBody / 365.25;
+
+    var synodicPeriod = null;
+    if (@abs(tDeparture - tArrival) < 1e-6) {
+        synodicPeriod = std.math.inf(f32);
+    } else {
+        synodicPeriod = @abs(1 / (1 / tDeparture - 1 / tArrival));
+    }
+
+    return .{
+        .transfer = transfer,
+        .synodicPeriodYears = synodicPeriod,
+        .synodicPeriodDays = if (synodicPeriod != std.math.inf(f32)) synodicPeriod * 365.25 else std.math.inf(f32),
+        .departureBody = params.departureBody,
+        .arrivalBody = params.arrivalBody,
+        .departureOrbitalPeriodDays = params.departureBody.period,
+        .arrivalOrbitalPeriodDays = params.arrivalBody.period,
+        .departureEccentricity = params.departureBody.eccentricity,
+        .arrivalEccentricity = params.arrivalBody.eccentricity,
+    };
 }
