@@ -2,7 +2,7 @@
     .name = .astroz,
     .version = "0.1.0",
     .fingerprint = 0x2d8583fca695159f, // Changing this has security and trust implications.
-    .minimum_zig_version = "0.14.0-dev.3445+6c3cbb0c8",
+    .minimum_zig_version = "0.14.0",
     .dependencies = .{
         .zigimg = .{
             .url = "git+https://github.com/zigimg/zigimg.git#29ff47f9e011065460d1d049cdc18784d733e23b",
