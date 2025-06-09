@@ -4,6 +4,7 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
     const root_source_file = b.path("src/lib.zig");
+    const use_llvm = b.option(bool, "use-llvm", "Use Zig's llvm backend");
 
     // Module
     const astroz_mod = b.addModule("astroz", .{
@@ -20,6 +21,7 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
         .root_source_file = root_source_file,
+        .use_llvm = use_llvm,
     });
 
     // Currently not using cfitsio or zigimg due to breaking on the master branch
