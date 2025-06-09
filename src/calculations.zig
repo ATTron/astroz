@@ -4,6 +4,48 @@ const std = @import("std");
 const Tle = @import("Tle.zig");
 const constants = @import("constants.zig");
 
+pub const Vector3D = struct {
+    x: f64,
+    y: f64,
+    z: f64,
+
+    pub fn magnitude(self: *Vector3D) f64 {
+        return @sqrt(std.math.pow(f64, self.x, 2) + std.math.pow(f64, self.y, 2) + std.math.pow(f64, self.z, 2));
+    }
+
+    pub fn array(self: *Vector3D) []f64 {
+        return .{ self.x, self.y, self.z };
+    }
+
+    pub fn dot(self: *Vector3D, other: Vector3D) f64 {
+        return self.x * other.x + self.y * other.y + self.z * other.z;
+    }
+
+    pub fn add(self: *Vector3D, other: Vector3D) Vector3D {
+        return .{
+            .x = self.x + other.x,
+            .y = self.y + other.y,
+            .z = self.z + other.z,
+        };
+    }
+
+    pub fn sub(self: *Vector3D, other: Vector3D) Vector3D {
+        return .{
+            .x = self.x - other.x,
+            .y = self.y - other.y,
+            .z = self.z - other.z,
+        };
+    }
+
+    pub fn mul(self: *Vector3D, scalar: f64) Vector3D {
+        return .{
+            .x = self.x * scalar,
+            .y = self.y * scalar,
+            .z = self.z * scalar,
+        };
+    }
+};
+
 /// State Vector - Used for position and velocity knowledge
 pub const StateV = [6]f64;
 
