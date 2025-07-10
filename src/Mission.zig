@@ -83,7 +83,7 @@ pub fn planetaryPositions(self: *Mission, tYears: f64) std.AutoHashMap(constants
         const y = yOrbit * @cos(inclinationRad);
         const z = yOrbit * @sin(inclinationRad);
 
-        const position: calculations.Vector3D = .{ .x = x, .y = y, .z = z };
+        const position: calculations.Vector3D = calculations.Vector3D.new(x, y, z);
 
         positions.put(planet.name, position);
     }
