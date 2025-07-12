@@ -32,7 +32,7 @@ jobs:
       #   working-directory: ${{ github.workspace }}
 
       - name: Run `test`
-        run: zig build test --summary all
+        run: zig build -Duse-llvm=false test --summary all
         working-directory: ${{ github.workspace }}
 
   fmt:
