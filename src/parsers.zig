@@ -179,12 +179,12 @@ fn testRunServer(parse_type: []const u8) !void {
     defer server.deinit();
 
     const addr = server.listen_address;
-    std.log.info("Listening on {}\n", .{addr.getPort()});
+    std.log.info("Listening on {d}\n", .{addr.getPort()});
 
     var client = try server.accept();
     defer client.stream.close();
 
-    std.log.info("Connection received! {}\n", .{client.address});
+    std.log.info("Connection received! {any}\n", .{client.address});
 
     var _pkt: []const u8 = undefined;
     if (std.mem.eql(u8, parse_type, "vita49")) {
