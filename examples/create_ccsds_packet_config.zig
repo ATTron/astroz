@@ -4,9 +4,9 @@ const Ccsds = astroz.Ccsds;
 const Config = Ccsds.Config;
 
 pub fn main() !void {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    defer _ = gpa.deinit();
-    const allocator = gpa.allocator();
+    var dbga = std.heap.DebugAllocator(.{}).init;
+    defer _ = dbga.deinit();
+    const allocator = dbga.allocator();
 
     const configFile = try std.fs.cwd().readFileAlloc(allocator, "examples/create_ccsds_packet_config.json", 512);
     defer allocator.free(configFile);

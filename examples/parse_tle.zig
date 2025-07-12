@@ -3,9 +3,9 @@ const astroz = @import("astroz");
 const Tle = astroz.Tle;
 
 pub fn main() !void {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    defer _ = gpa.deinit();
-    const allocator = gpa.allocator();
+    var dbga = std.heap.DebugAllocator(.{}).init;
+    defer _ = dbga.deinit();
+    const allocator = dbga.allocator();
 
     const testTle =
         \\1 55909U 23035B   24187.51050877  .00023579  00000+0  16099-2 0  9998

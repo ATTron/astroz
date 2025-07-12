@@ -4,9 +4,9 @@ const Ccsds = astroz.Ccsds;
 const Parser = astroz.Parser;
 
 pub fn main() !void {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    defer _ = gpa.deinit();
-    const allocator = gpa.allocator();
+    var dbga = std.heap.DebugAllocator(.{}).init;
+    defer _ = dbga.deinit();
+    const allocator = dbga.allocator();
 
     const fileName = "./test/ccsds.bin".*;
     const syncPattern = .{ 0x78, 0x97, 0xC0, 0x00, 0x00, 0x0A, 0x01, 0x02 };
