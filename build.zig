@@ -16,11 +16,9 @@ pub fn build(b: *std.Build) void {
     // Library
     const lib_step = b.step("lib", "Install library");
 
-    const lib = b.addStaticLibrary(.{
+    const lib = b.addLibrary(.{
         .name = "astroz",
-        .target = target,
-        .optimize = optimize,
-        .root_source_file = root_source_file,
+        .root_module = astroz_mod,
         .use_llvm = use_llvm,
     });
 
@@ -62,9 +60,11 @@ pub fn build(b: *std.Build) void {
     inline for (EXAMPLE_NAMES) |EXAMPLE_NAME| {
         const example = b.addExecutable(.{
             .name = EXAMPLE_NAME,
-            .target = target,
-            .optimize = optimize,
-            .root_source_file = b.path("examples/" ++ EXAMPLE_NAME ++ ".zig"),
+            .root_module = b.createModule(.{
+                .target = target,
+                .root_source_file = b.path("examples/" ++ EXAMPLE_NAME ++ ".zig"),
+                .optimize = optimize,
+            }),
         });
         example.root_module.addImport("astroz", astroz_mod);
 
@@ -76,8 +76,7 @@ pub fn build(b: *std.Build) void {
     const tests_step = b.step("test", "Run test suite");
 
     const tests = b.addTest(.{
-        .target = target,
-        .root_source_file = root_source_file,
+        .root_module = astroz_mod,
     });
 
     // tests.root_module.addImport("zigimg", zigimg_dependency.module("zigimg"));
