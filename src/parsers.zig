@@ -174,7 +174,7 @@ fn testRunServer(parse_type: []const u8) !void {
     const ipAddr = try std.net.Ip4Address.parse("127.0.0.1", 65432);
     const testHost = std.net.Address{ .in = ipAddr };
     var server = try testHost.listen(.{
-        .reuse_port = true,
+        .reuse_address = true,
     });
     defer server.deinit();
 
@@ -203,7 +203,7 @@ fn testRunServer(parse_type: []const u8) !void {
     var counter: usize = 0;
     while (counter < 5) {
         _ = try client.stream.writeAll(_pkt);
-        std.time.sleep(2 * std.time.ns_per_s);
+        std.Thread.sleep(2 * std.time.ns_per_s);
         counter += 1;
     }
 }
@@ -280,7 +280,7 @@ test "Vita49 Parser Test" {
         const t1 = try std.Thread.spawn(.{}, testRunServer, .{"vita49"});
         defer t1.join();
 
-        std.time.sleep(2 * std.time.ns_per_s);
+        std.Thread.sleep(2 * std.time.ns_per_s);
 
         const t2 = try std.Thread.spawn(.{}, struct {
             fn run(pt: *parser) !void {
@@ -289,7 +289,7 @@ test "Vita49 Parser Test" {
         }.run, .{&par_test});
         defer t2.join();
 
-        std.time.sleep(10 * std.time.ns_per_s);
+        std.Thread.sleep(10 * std.time.ns_per_s);
 
         const t3 = try std.Thread.spawn(.{}, struct {
             fn run(pt: *parser) void {
@@ -312,7 +312,7 @@ test "Vita49 Parser Test w/ Callback" {
         const t1 = try std.Thread.spawn(.{}, testRunServer, .{"vita49"});
         defer t1.join();
 
-        std.time.sleep(2 * std.time.ns_per_s);
+        std.Thread.sleep(2 * std.time.ns_per_s);
 
         const t2 = try std.Thread.spawn(.{}, struct {
             fn run(pt: *parser) !void {
@@ -321,7 +321,7 @@ test "Vita49 Parser Test w/ Callback" {
         }.run, .{&par_test});
         defer t2.join();
 
-        std.time.sleep(10 * std.time.ns_per_s);
+        std.Thread.sleep(10 * std.time.ns_per_s);
 
         const t3 = try std.Thread.spawn(.{}, struct {
             fn run(pt: *parser) void {
@@ -344,7 +344,7 @@ test "CCSDS Parser Test" {
         const t1 = try std.Thread.spawn(.{}, testRunServer, .{"ccsds"});
         defer t1.join();
 
-        std.time.sleep(2 * std.time.ns_per_s);
+        std.Thread.sleep(2 * std.time.ns_per_s);
 
         const t2 = try std.Thread.spawn(.{}, struct {
             fn run(pt: *parser) !void {
@@ -353,7 +353,7 @@ test "CCSDS Parser Test" {
         }.run, .{&par_test});
         defer t2.join();
 
-        std.time.sleep(10 * std.time.ns_per_s);
+        std.Thread.sleep(10 * std.time.ns_per_s);
 
         const t3 = try std.Thread.spawn(.{}, struct {
             fn run(pt: *parser) void {
