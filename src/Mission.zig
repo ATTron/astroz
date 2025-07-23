@@ -58,13 +58,9 @@ pub fn planetaryPositions(self: *Mission, tYears: f64) std.AutoHashMap(constants
 
         const a = planet.semiMajorAxis * 1000;
         const e = planet.eccentricity;
-
         const periodYears = planet.period / 365.25;
-
         const n = 2 * std.math.pi / periodYears;
-
         const M = n * tYears;
-
         var E = M;
 
         for (0..10) |_| {
@@ -72,7 +68,6 @@ pub fn planetaryPositions(self: *Mission, tYears: f64) std.AutoHashMap(constants
         }
 
         const nu = 2 * std.math.atan2(@sqrt(1 + e) * @sin(E / 2), @sqrt(1 - e) * @cos(E / 2));
-
         const r = a * (1 - e * @cos(E));
 
         const xOrbit = r * @cos(nu);
@@ -126,4 +121,9 @@ pub fn planMission(self: *Mission, params: MissionParameters) void {
         .departureEccentricity = params.departureBody.eccentricity,
         .arrivalEccentricity = params.arrivalBody.eccentricity,
     };
+}
+
+test "mission planning" {
+    const ta = std.testing.allocator;
+    std.debug.print("This is the testing allocator: {any}", .{ta});
 }
