@@ -377,8 +377,8 @@ pub fn impulse(state: StateV, delta_v: [3]f64) StateV {
 test "Vector3D integration tests" {
     const testing = std.testing;
 
-    const pos = Vector3D.new(7000.0, 0.0, 0.0); // km from Earth center
-    const vel = Vector3D.new(0.0, 7.5, 0.0); // km/s
+    const pos = Vector3D.new(7000.0, 0.0, 0.0);
+    const vel = Vector3D.new(0.0, 7.5, 0.0);
 
     const r = pos.magnitude();
     const v = vel.magnitude();
@@ -387,12 +387,12 @@ test "Vector3D integration tests" {
     try testing.expectApproxEqAbs(@as(f64, 7.5), v, 1e-10);
 
     const specificEnergy = (v * v / 2.0) - (constants.earth.mu / r);
-    try testing.expect(specificEnergy < 0); // Should be negative for bound orbit
+    try testing.expect(specificEnergy < 0);
 
     const sunDir = Vector3D.new(1.0, 0.0, 0.0);
     const earthDir = Vector3D.new(0.0, 1.0, 0.0);
     const vectorDotProduct = sunDir.dot(earthDir);
-    try testing.expectApproxEqAbs(@as(f64, 0.0), vectorDotProduct, 1e-10); // Perpendicular vectors
+    try testing.expectApproxEqAbs(@as(f64, 0.0), vectorDotProduct, 1e-10);
 
     const rVec = Vector3D.new(1000.0, 2000.0, 3000.0);
     const vVec = Vector3D.new(5.0, -2.0, 1.0);
@@ -402,7 +402,7 @@ test "Vector3D integration tests" {
     try testing.expect(hMagnitude > 0);
 
     const testElements = OrbitalElements{
-        .a = 6700.0, // km
+        .a = 6700.0,
         .e = 0.001,
         .i = degreesToRadians(51.6),
         .raan = degreesToRadians(339.7),
