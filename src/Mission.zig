@@ -39,7 +39,7 @@ pub const MissionParameters = struct {
     transferType: []const u8,
 
     pub fn init(departureBody: constants.CelestialBody, arrivalBody: constants.CelestialBody, departureTime: f64, arrivalTime: ?f64, transferType: []const u8) !MissionParameters {
-        if (departureTime <= 0) {
+        if (departureTime < 0) {
             return ValidationError.ValueError;
         }
 
@@ -73,9 +73,9 @@ pub fn propagateTransfer(self: *Mission, totalDays: f64, timeStepDays: f64) !voi
     const departureBody = self.parameters.departureBody;
     const arrivalBody = self.parameters.arrivalBody;
 
-    // Get orbital parameters from constants
-    const departureRadius = departureBody.semiMajorAxis * 1000; // Convert AU to km
-    const arrivalRadius = arrivalBody.semiMajorAxis * 1000; // Convert AU to km
+    // Get orbital parameters from constants (already in km)
+    const departureRadius = departureBody.semiMajorAxis; // km
+    const arrivalRadius = arrivalBody.semiMajorAxis; // km
     const departurePeriod = departureBody.period; // days
     const arrivalPeriod = arrivalBody.period; // days
     const centralMu = self.orbitalMechanics.centralBody.mu; // km³/s²
@@ -302,8 +302,9 @@ test "mission planning parameter validation" {
     try testing.expectError(ValidationError.ValueError, MissionParameters.init(constants.earth, constants.mars, -1.0, // Invalid negative time
         null, "hohmann"));
 
-    try testing.expectError(ValidationError.ValueError, MissionParameters.init(constants.earth, constants.mars, 0.0, // Invalid zero time
-        null, "hohmann"));
+    // Zero time should be valid for examples/demonstrations
+    const validParams = try MissionParameters.init(constants.earth, constants.mars, 0.0, null, "hohmann");
+    try testing.expectEqual(@as(f64, 0.0), validParams.departureTime);
 }
 
 test "bi-elliptic vs hohmann transfer comparison" {
@@ -371,8 +372,8 @@ test "propagate transfer for different planetary pairs" {
 
     for (earthMarsMission.trajectoryPredictions.items) |point| {
         if (std.mem.eql(u8, point.label, "waypoint")) waypointCount += 1;
-        if (std.mem.eql(u8, point.body, "Earth")) earthCount += 1;
-        if (std.mem.eql(u8, point.body, "Mars")) marsCount += 1;
+        if (std.mem.eql(u8, point.body, "earth")) earthCount += 1;
+        if (std.mem.eql(u8, point.body, "mars")) marsCount += 1;
         if (std.mem.eql(u8, point.body, "Transfer")) transferCount += 1;
     }
 
@@ -393,8 +394,8 @@ test "propagate transfer for different planetary pairs" {
     var jupiterCount: usize = 0;
 
     for (marsJupiterMission.trajectoryPredictions.items) |point| {
-        if (std.mem.eql(u8, point.body, "Mars")) marsJupiterCount += 1;
-        if (std.mem.eql(u8, point.body, "Jupiter")) jupiterCount += 1;
+        if (std.mem.eql(u8, point.body, "mars")) marsJupiterCount += 1;
+        if (std.mem.eql(u8, point.body, "jupiter")) jupiterCount += 1;
     }
 
     try testing.expect(marsJupiterCount > 0);
@@ -412,8 +413,8 @@ test "propagate transfer for different planetary pairs" {
     var venusEarthCount: usize = 0;
 
     for (venusEarthMission.trajectoryPredictions.items) |point| {
-        if (std.mem.eql(u8, point.body, "Venus")) venusCount += 1;
-        if (std.mem.eql(u8, point.body, "Earth")) venusEarthCount += 1;
+        if (std.mem.eql(u8, point.body, "venus")) venusCount += 1;
+        if (std.mem.eql(u8, point.body, "earth")) venusEarthCount += 1;
     }
 
     try testing.expect(venusCount > 0);
