@@ -377,37 +377,30 @@ pub fn impulse(state: StateV, delta_v: [3]f64) StateV {
 test "Vector3D integration tests" {
     const testing = std.testing;
 
-    // Test complete orbital mechanics calculation using Vector3D
     const pos = Vector3D.new(7000.0, 0.0, 0.0); // km from Earth center
     const vel = Vector3D.new(0.0, 7.5, 0.0); // km/s
 
-    // Test magnitude calculations for position and velocity
     const r = pos.magnitude();
     const v = vel.magnitude();
 
     try testing.expectApproxEqAbs(@as(f64, 7000.0), r, 1e-10);
     try testing.expectApproxEqAbs(@as(f64, 7.5), v, 1e-10);
 
-    // Test specific orbital energy calculation
     const specificEnergy = (v * v / 2.0) - (constants.earth.mu / r);
     try testing.expect(specificEnergy < 0); // Should be negative for bound orbit
 
-    // Test dot product for angle calculations
     const sunDir = Vector3D.new(1.0, 0.0, 0.0);
     const earthDir = Vector3D.new(0.0, 1.0, 0.0);
     const vectorDotProduct = sunDir.dot(earthDir);
     try testing.expectApproxEqAbs(@as(f64, 0.0), vectorDotProduct, 1e-10); // Perpendicular vectors
 
-    // Test vector operations in orbital coordinate transformations
     const rVec = Vector3D.new(1000.0, 2000.0, 3000.0);
     const vVec = Vector3D.new(5.0, -2.0, 1.0);
 
-    // Calculate angular momentum vector magnitude (h = r × v)
     const hMag = crossProduct(.{ rVec.x(), rVec.y(), rVec.z() }, .{ vVec.x(), vVec.y(), vVec.z() });
     const hMagnitude = magnitude(hMag);
     try testing.expect(hMagnitude > 0);
 
-    // Test orbital elements conversion directly without TLE parsing
     const testElements = OrbitalElements{
         .a = 6700.0, // km
         .e = 0.001,
@@ -419,18 +412,15 @@ test "Vector3D integration tests" {
 
     const stateVector = orbitalElementsToStateVector(testElements, constants.earth.mu);
 
-    // Verify the state vector has reasonable values for LEO orbit
     const position = [3]f64{ stateVector[0], stateVector[1], stateVector[2] };
     const velocity = [3]f64{ stateVector[3], stateVector[4], stateVector[5] };
 
     const positionMag = magnitude(position);
     const velocityMag = magnitude(velocity);
 
-    // LEO orbit should be around 300 km altitude (6670 km from center)
     try testing.expect(positionMag > 6000.0 and positionMag < 8000.0);
     try testing.expect(velocityMag > 6.0 and velocityMag < 8.0);
 
-    // Test round trip conversion
     const backToElements = stateVectorToOrbitalElements(position, velocity, constants.earth.mu);
     try testing.expectApproxEqAbs(testElements.i, backToElements.i, 1e-2);
     try testing.expectApproxEqAbs(testElements.e, backToElements.e, 1e-2);
