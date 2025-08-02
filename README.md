@@ -82,7 +82,7 @@ exe.root_module.addImport("astroz", astroz_mod);
 
 <img src="assets/orbit_prop_impulse.gif" width="450" height="400" alt="visualization of orbit prop with impulse"/>
 
-- #### [Earth-Mars Hohmann Transfer](examples/earth_mars_transfer.zig)
+- #### [Planet Tranfer](examples/transfer_propagation.zig)
 
 <img src="assets/earth_mars_transfer.gif" width="300" height="300" alt="Earth-Mars transfer animation"/> <img src="assets/earth_mars_transfer_static.png" width="300" height="300" alt="Earth-Mars transfer trajectory"/> <img src="assets/earth_mars_transfer_analysis.png" width="300" height="300" alt="Earth-Mars transfer analysis"/>
 
