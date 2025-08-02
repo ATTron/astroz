@@ -69,19 +69,17 @@ pub fn deinit(self: *Mission) void {
 pub fn propagateTransfer(self: *Mission, totalDays: f64, timeStepDays: f64) !void {
     self.trajectoryPredictions.clearRetainingCapacity();
 
-    // Use mission parameters for departure and arrival bodies
     const departureBody = self.parameters.departureBody;
     const arrivalBody = self.parameters.arrivalBody;
 
-    // Get orbital parameters from constants (already in km)
-    const departureRadius = departureBody.semiMajorAxis; // km
-    const arrivalRadius = arrivalBody.semiMajorAxis; // km
-    const departurePeriod = departureBody.period; // days
-    const arrivalPeriod = arrivalBody.period; // days
-    const centralMu = self.orbitalMechanics.centralBody.mu; // km³/s²
+    const departureRadius = departureBody.semiMajorAxis;
+    const arrivalRadius = arrivalBody.semiMajorAxis;
+
+    const departurePeriod = departureBody.period;
+    const arrivalPeriod = arrivalBody.period;
+    const centralMu = self.orbitalMechanics.centralBody.mu;
     const math = std.math;
 
-    // Calculate Hohmann transfer parameters
     const aTransfer = (departureRadius + arrivalRadius) / 2.0;
     const v1Circular = @sqrt(centralMu / departureRadius);
     const v2Circular = @sqrt(centralMu / arrivalRadius);
@@ -98,17 +96,14 @@ pub fn propagateTransfer(self: *Mission, totalDays: f64, timeStepDays: f64) !voi
     log.info("Total Delta-V: {d:.2} km/s", .{totalDeltaV});
     log.info("Transfer Time: {d:.1} days", .{transferTimeDays});
 
-    // Calculate arrival body lead angle for proper intercept
-    const arrivalAngularVelocity = 2.0 * math.pi / arrivalPeriod; // rad/day
+    const arrivalAngularVelocity = 2.0 * math.pi / arrivalPeriod;
     const arrivalAngleAtTransfer = arrivalAngularVelocity * transferTimeDays;
-    const arrivalLeadAngle = math.pi - arrivalAngleAtTransfer; // π is the intercept point
+    const arrivalLeadAngle = math.pi - arrivalAngleAtTransfer;
 
     log.info("{s} lead angle required: {d:.1} degrees", .{ arrivalBody.name, arrivalLeadAngle * 180.0 / math.pi });
 
-    // Generate trajectory points
     var day: f64 = 0.0;
     while (day <= totalDays) : (day += timeStepDays) {
-        // Departure body position (circular orbit, starting at angle 0)
         const departureAngle = (day / departurePeriod) * 2.0 * math.pi;
         const departureX = departureRadius * @cos(departureAngle);
         const departureY = departureRadius * @sin(departureAngle);
@@ -121,7 +116,6 @@ pub fn propagateTransfer(self: *Mission, totalDays: f64, timeStepDays: f64) !voi
             .label = "planet",
         });
 
-        // Arrival body position (circular orbit, starting at correct lead angle)
         const arrivalAngle = arrivalLeadAngle + (day / arrivalPeriod) * 2.0 * math.pi;
         const arrivalX = arrivalRadius * @cos(arrivalAngle);
         const arrivalY = arrivalRadius * @sin(arrivalAngle);
@@ -134,9 +128,7 @@ pub fn propagateTransfer(self: *Mission, totalDays: f64, timeStepDays: f64) !voi
             .label = "planet",
         });
 
-        // Transfer trajectory (only during transfer period)
         if (day <= transferTimeDays) {
-            // Parametric equations for elliptical transfer orbit
             const transferAngle = (day / transferTimeDays) * math.pi; // 0 to π
             const a = aTransfer;
             const e = (arrivalRadius - departureRadius) / (arrivalRadius + departureRadius);
@@ -155,7 +147,6 @@ pub fn propagateTransfer(self: *Mission, totalDays: f64, timeStepDays: f64) !voi
         }
     }
 
-    // Add waypoints (use static strings to avoid memory issues)
     const departureWaypointPos = calculations.Vector3D.new(departureRadius, 0.0, 0.0);
     try self.trajectoryPredictions.append(TrajectoryPoint{
         .time = 0.0,
@@ -164,7 +155,6 @@ pub fn propagateTransfer(self: *Mission, totalDays: f64, timeStepDays: f64) !voi
         .label = "waypoint",
     });
 
-    // Arrival body arrival position (should be at π radians = opposite side of central body)
     const finalArrivalAngle = arrivalLeadAngle + (transferTimeDays / arrivalPeriod) * 2.0 * math.pi;
     const arrivalWaypointX = arrivalRadius * @cos(finalArrivalAngle);
     const arrivalWaypointY = arrivalRadius * @sin(finalArrivalAngle);
