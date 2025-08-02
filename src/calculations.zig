@@ -4,6 +4,50 @@ const std = @import("std");
 const Tle = @import("Tle.zig");
 const constants = @import("constants.zig");
 
+pub const Vector3D = struct {
+    data: @Vector(3, f64),
+
+    pub fn new(vx: f64, vy: f64, vz: f64) Vector3D {
+        return .{ .data = @Vector(3, f64){ vx, vy, vz } };
+    }
+
+    pub fn x(self: Vector3D) f64 {
+        return self.data[0];
+    }
+
+    pub fn y(self: Vector3D) f64 {
+        return self.data[1];
+    }
+
+    pub fn z(self: Vector3D) f64 {
+        return self.data[2];
+    }
+
+    pub fn magnitude(self: Vector3D) f64 {
+        return @sqrt(std.math.pow(f64, self.x(), 2) + std.math.pow(f64, self.y(), 2) + std.math.pow(f64, self.z(), 2));
+    }
+
+    pub fn array(self: Vector3D) [3]f64 {
+        return .{ self.x(), self.y(), self.z() };
+    }
+
+    pub fn dot(self: Vector3D, other: Vector3D) f64 {
+        return self.x() * other.x() + self.y() * other.y() + self.z() * other.z();
+    }
+
+    pub fn add(self: Vector3D, other: Vector3D) Vector3D {
+        return .{ .data = @Vector(3, f64){ self.x() + other.x(), self.y() + other.y(), self.z() + other.z() } };
+    }
+
+    pub fn sub(self: Vector3D, other: Vector3D) Vector3D {
+        return .{ .data = @Vector(3, f64){ self.x() - other.x(), self.y() - other.y(), self.z() - other.z() } };
+    }
+
+    pub fn mul(self: Vector3D, scalar: f64) Vector3D {
+        return .{ .data = @Vector(3, f64){ self.x() * scalar, self.y() * scalar, self.z() * scalar } };
+    }
+};
+
 /// State Vector - Used for position and velocity knowledge
 pub const StateV = [6]f64;
 
@@ -328,4 +372,56 @@ pub fn impulse(state: StateV, delta_v: [3]f64) StateV {
         state[0],              state[1],              state[2],
         state[3] + delta_v[0], state[4] + delta_v[1], state[5] + delta_v[2],
     };
+}
+
+test "Vector3D integration tests" {
+    const testing = std.testing;
+
+    const pos = Vector3D.new(7000.0, 0.0, 0.0);
+    const vel = Vector3D.new(0.0, 7.5, 0.0);
+
+    const r = pos.magnitude();
+    const v = vel.magnitude();
+
+    try testing.expectApproxEqAbs(@as(f64, 7000.0), r, 1e-10);
+    try testing.expectApproxEqAbs(@as(f64, 7.5), v, 1e-10);
+
+    const specificEnergy = (v * v / 2.0) - (constants.earth.mu / r);
+    try testing.expect(specificEnergy < 0);
+
+    const sunDir = Vector3D.new(1.0, 0.0, 0.0);
+    const earthDir = Vector3D.new(0.0, 1.0, 0.0);
+    const vectorDotProduct = sunDir.dot(earthDir);
+    try testing.expectApproxEqAbs(@as(f64, 0.0), vectorDotProduct, 1e-10);
+
+    const rVec = Vector3D.new(1000.0, 2000.0, 3000.0);
+    const vVec = Vector3D.new(5.0, -2.0, 1.0);
+
+    const hMag = crossProduct(.{ rVec.x(), rVec.y(), rVec.z() }, .{ vVec.x(), vVec.y(), vVec.z() });
+    const hMagnitude = magnitude(hMag);
+    try testing.expect(hMagnitude > 0);
+
+    const testElements = OrbitalElements{
+        .a = 6700.0,
+        .e = 0.001,
+        .i = degreesToRadians(51.6),
+        .raan = degreesToRadians(339.7),
+        .argPeriapsis = degreesToRadians(92.8),
+        .trueAnomaly = degreesToRadians(267.1),
+    };
+
+    const stateVector = orbitalElementsToStateVector(testElements, constants.earth.mu);
+
+    const position = [3]f64{ stateVector[0], stateVector[1], stateVector[2] };
+    const velocity = [3]f64{ stateVector[3], stateVector[4], stateVector[5] };
+
+    const positionMag = magnitude(position);
+    const velocityMag = magnitude(velocity);
+
+    try testing.expect(positionMag > 6000.0 and positionMag < 8000.0);
+    try testing.expect(velocityMag > 6.0 and velocityMag < 8.0);
+
+    const backToElements = stateVectorToOrbitalElements(position, velocity, constants.earth.mu);
+    try testing.expectApproxEqAbs(testElements.i, backToElements.i, 1e-2);
+    try testing.expectApproxEqAbs(testElements.e, backToElements.e, 1e-2);
 }
