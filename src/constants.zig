@@ -69,7 +69,7 @@ pub const uranus = CelestialBody.init("uranus", 8.68192e25, 5.79456e6, 4.36039e-
 pub const neptune = CelestialBody.init("neptune", 1.02431e26, 6.83653e6, 5.14447e-5, 24622, 24764, 24341, 4.50489e9, 4.46384e9, 4.54594e9, 60357.05, 5.43, 0.00911, 1.77, 0.01708, 0.003411, 0.45, 19.7, 1.083e-4);
 pub const pluto = CelestialBody.init("pluto", 1.46158e22, 9.75500e2, 7.34061e-9, 1188.3, null, null, 5.91540e9, 4.44212e9, 7.38868e9, 90821.51, 4.74, 0.24906, 17.14, 0.002, 0.00039, 1e-6, 50.0, -1.139e-5);
 
-pub const allBodies: []CelestialBody = .{
+pub const allBodies = [_]CelestialBody{
     sun,
     mercury,
     venus,

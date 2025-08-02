@@ -39,8 +39,8 @@
 - [x] Astronomical Computation
   - [x] Precession
 - [x] Celestial Bodies
-- [ ] Orbital Mechanics
-  - [ ] Interplanetary Maneuvers
+- [x] Orbital Mechanics
+  - [x] Interplanetary Maneuvers
 - [ ] FITS File Parsing - BROKEN DUE TO ZIGIMG DEPENDENCY BREAKING ON MAIN
   - [x] Image Generation
     - [ ] Multi Image Parsing/Generation
@@ -81,6 +81,10 @@ exe.root_module.addImport("astroz", astroz_mod);
 - #### [Orbit Prop for Next 3 Days with Impulse Maneuvers](examples/orbit_prop_impulse_manuevers.zig)
 
 <img src="assets/orbit_prop_impulse.gif" width="450" height="400" alt="visualization of orbit prop with impulse"/>
+
+- #### [Earth-Mars Hohmann Transfer](examples/earth_mars_transfer.zig)
+
+<img src="assets/earth_mars_transfer.gif" width="300" height="300" alt="Earth-Mars transfer animation"/> <img src="assets/earth_mars_transfer_static.png" width="300" height="300" alt="Earth-Mars transfer trajectory"/> <img src="assets/earth_mars_transfer_analysis.png" width="300" height="300" alt="Earth-Mars transfer analysis"/>
 
 - #### [Orbit Plane Change](examples/orbit_plane_change.zig)
 

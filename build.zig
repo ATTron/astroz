@@ -103,6 +103,7 @@ pub fn build(b: *std.Build) void {
 const EXAMPLE_NAMES = &.{
     "create_ccsds_packet_config",
     "create_ccsds_packet",
+    "earth_mars_transfer",
     "orbit_phase_change",
     "orbit_plane_change",
     "orbit_prop_impulse",
