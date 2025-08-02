@@ -19,8 +19,8 @@ pub fn main() !void {
         .orbitalMechanics = orbitalMechanics,
     };
 
-    const earthRadius = constants.earth.semiMajorAxis; // km
-    const marsRadius = constants.mars.semiMajorAxis; // km
+    const earthRadius = constants.earth.semiMajorAxis;
+    const marsRadius = constants.mars.semiMajorAxis;
 
     const transfer = try orbitalMechanics.hohmannTransfer(earthRadius, marsRadius);
 
@@ -36,7 +36,7 @@ pub fn main() !void {
     try writer.print("body,time_days,x_km,y_km,z_km,label\n");
 
     const totalDays = transfer.transferTimeDays * 3.0;
-    const timeStep = 1.0; // 1 day steps
+    const timeStep = 1.0;
 
     var day: f64 = 0.0;
     while (day <= totalDays) : (day += timeStep) {
@@ -51,7 +51,7 @@ pub fn main() !void {
         try writer.print("Mars,{d:.1},{d:.1},{d:.1},0.0,planet\n", .{ day, marsX, marsY });
 
         if (day <= transfer.transferTimeDays) {
-            const transferAngle = (day / transfer.transferTimeDays) * math.pi; // 0 to π
+            const transferAngle = (day / transfer.transferTimeDays) * math.pi;
             const a = transfer.semiMajorAxis;
             const e = (marsRadius - earthRadius) / (marsRadius + earthRadius);
             const r = a * (1.0 - e * e) / (1.0 + e * @cos(transferAngle));
