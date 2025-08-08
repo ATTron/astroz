@@ -269,13 +269,14 @@ fn applyStretch(self: *Fits, pixels: []f32, width: usize, height: usize, output_
 
     var image: zignal.Image(zignal.Rgb) = try .initAlloc(self.allocator, height, width);
     defer image.deinit(self.allocator);
+    std.debug.assert(image.data.len == pixels.len);
 
-    for (pixels, 0..) |pixel, i| {
+    for (pixels, image.data) |pixel, *i| {
         const normalized = std.math.clamp((pixel - vmin) / (vmax - vmin), 0, 1);
         const stretched = sineStretch(normalized, options);
         const color = applyColorMap(stretched);
 
-        image.data[i] = .{
+        i.* = .{
             .r = @intFromFloat(color[0] * 255),
             .g = @intFromFloat(color[1] * 255),
             .b = @intFromFloat(color[2] * 255),
