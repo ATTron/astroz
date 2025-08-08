@@ -4,9 +4,13 @@
     .fingerprint = 0x2d8583fca695159f, // Changing this has security and trust implications.
     .minimum_zig_version = "0.15.0-dev.1031+61eff7b6d",
     .dependencies = .{
-        .zigimg = .{
-            .url = "git+https://github.com/zigimg/zigimg.git#29ff47f9e011065460d1d049cdc18784d733e23b",
-            .hash = "12201c288e763fb7d7e3207a638498faa439124e231d6f0cbcd4ebc618f706164ea8",
+        .cfitsio = .{
+            .url = "https://github.com/arrufat/cfitsio/archive/9a7161ff41600aaa28fd040989294fb60a58df38.tar.gz",
+            .hash = "cfitsio-4.6.2-LaSYAO4YAACT0MYEVI4nelpfX5lnyQi_MvupX-zSrdRH",
+        },
+        .zignal = .{
+            .url = "https://github.com/bfactory-ai/zignal/archive/refs/tags/0.4.1.tar.gz",
+            .hash = "zignal-0.4.1-OrZ3s9agDwDpPhRcFDfe3jVA2PVPjasQ3WZTuHUsfio6",
         },
     },
     .paths = .{

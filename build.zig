@@ -22,22 +22,21 @@ pub fn build(b: *std.Build) void {
         .use_llvm = use_llvm,
     });
 
-    // Currently not using cfitsio or zigimg due to breaking on the master branch
-    // const zigimg_dependency = b.dependency("zigimg", .{
-    //     .target = target,
-    //     .optimize = optimize,
-    // });
-    //
-    // lib.root_module.addImport("zigimg", zigimg_dependency.module("zigimg"));
-    // astroz_mod.addImport("zigimg", zigimg_dependency.module("zigimg"));
+    const zignal_dependency = b.dependency("zignal", .{
+        .target = target,
+        .optimize = optimize,
+    });
 
-    // const cfitsio_dep = b.dependency("cfitsio", .{
-    //     .target = target,
-    //     .optimize = optimize,
-    // });
-    //
-    // lib.root_module.addImport("cfitsio", cfitsio_dep.module("cfitsio"));
-    // astroz_mod.addImport("cfitsio", cfitsio_dep.module("cfitsio"));
+    lib.root_module.addImport("zignal", zignal_dependency.module("zignal"));
+    astroz_mod.addImport("zignal", zignal_dependency.module("zignal"));
+
+    const cfitsio_dep = b.dependency("cfitsio", .{
+        .target = target,
+        .optimize = optimize,
+    });
+
+    lib.root_module.addImport("cfitsio", cfitsio_dep.module("cfitsio"));
+    astroz_mod.addImport("cfitsio", cfitsio_dep.module("cfitsio"));
 
     const lib_install = b.addInstallArtifact(lib, .{});
     lib_step.dependOn(&lib_install.step);
@@ -79,8 +78,8 @@ pub fn build(b: *std.Build) void {
         .root_module = astroz_mod,
     });
 
-    // tests.root_module.addImport("zigimg", zigimg_dependency.module("zigimg"));
-    // tests.root_module.addImport("cfitsio", cfitsio_dep.module("cfitsio"));
+    tests.root_module.addImport("zignal", zignal_dependency.module("zignal"));
+    tests.root_module.addImport("cfitsio", cfitsio_dep.module("cfitsio"));
 
     const tests_run = b.addRunArtifact(tests);
     tests_step.dependOn(&tests_run.step);
@@ -115,5 +114,5 @@ const EXAMPLE_NAMES = &.{
     "precess_star",
     "simple_spacecraft_orientation",
     "transfer_propagation",
-    // "parse_fits_image",
+    "parse_fits_file",
 };

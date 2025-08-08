@@ -1,5 +1,5 @@
 const std = @import("std");
-const zigimg = @import("zigimg");
+const zignal = @import("zignal");
 const cfitsio = @import("cfitsio").c;
 
 const Fits = @This();
@@ -137,8 +137,9 @@ pub fn readTable(self: *Fits, hdu_number: c_int, output_path: ?[]const u8) !void
     }
 
     defer file.close();
-    var buffered_writer = std.io.bufferedWriter(file.writer());
-    var buffered = buffered_writer.writer();
+    var write_buffer: [4096]u8 = undefined;
+    var file_writer = file.writer(&write_buffer);
+    var buffered = &file_writer.interface;
 
     // Write column headers
     var i: c_int = 1;
@@ -196,7 +197,7 @@ pub fn readTable(self: *Fits, hdu_number: c_int, output_path: ?[]const u8) !void
         }
         try buffered.writeAll("\n");
     }
-    try buffered_writer.flush();
+    try file_writer.interface.flush();
     std.log.debug("Finished processing all columns and rows. CSV file created: {any}\n", .{file});
 }
 
@@ -266,15 +267,16 @@ fn applyStretch(self: *Fits, pixels: []f32, width: usize, height: usize, output_
     const vmin = sorted_pixels[vmin_idx];
     const vmax = sorted_pixels[vmax_idx];
 
-    var image = try zigimg.Image.create(self.allocator, width, height, .rgb24);
-    defer image.deinit();
+    var image: zignal.Image(zignal.Rgb) = try .initAlloc(self.allocator, height, width);
+    defer image.deinit(self.allocator);
+    std.debug.assert(image.data.len == pixels.len);
 
-    for (pixels, 0..) |pixel, i| {
+    for (pixels, image.data) |pixel, *i| {
         const normalized = std.math.clamp((pixel - vmin) / (vmax - vmin), 0, 1);
         const stretched = sineStretch(normalized, options);
         const color = applyColorMap(stretched);
 
-        image.pixels.rgb24[i] = .{
+        i.* = .{
             .r = @intFromFloat(color[0] * 255),
             .g = @intFromFloat(color[1] * 255),
             .b = @intFromFloat(color[2] * 255),
@@ -291,10 +293,10 @@ fn applyStretch(self: *Fits, pixels: []f32, width: usize, height: usize, output_
     var output_path_buffer: [std.fs.max_path_bytes]u8 = undefined;
     if (output_path) |op| {
         const output = try std.fmt.bufPrint(&output_path_buffer, "{s}/{s}.png", .{ file_name, op });
-        try image.writeToFilePath(output, .{ .png = .{} });
+        try image.save(self.allocator, output);
     } else {
         const output = try std.fmt.bufPrint(&output_path_buffer, "{s}/{s}.png", .{ file_name, file_name });
-        try image.writeToFilePath(output, .{ .png = .{} });
+        try image.save(self.allocator, output);
     }
 }
 
