@@ -114,5 +114,5 @@ const EXAMPLE_NAMES = &.{
     "precess_star",
     "simple_spacecraft_orientation",
     "transfer_propagation",
-    "parse_fits_image",
+    "parse_fits_file",
 };

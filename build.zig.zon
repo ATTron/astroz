@@ -5,8 +5,8 @@
     .minimum_zig_version = "0.15.0-dev.1031+61eff7b6d",
     .dependencies = .{
         .cfitsio = .{
-            .url = "https://github.com/arrufat/cfitsio/archive/fbd70ae1144ea0eecbd8614179e3ff2e0ded31e9.tar.gz",
-            .hash = "cfitsio-4.6.2-LaSYAH0YAADk_V1sTcucNTxSJsQC5e3jZMzgniWQwTdb",
+            .url = "https://github.com/arrufat/cfitsio/archive/9a7161ff41600aaa28fd040989294fb60a58df38.tar.gz",
+            .hash = "cfitsio-4.6.2-LaSYAO4YAACT0MYEVI4nelpfX5lnyQi_MvupX-zSrdRH",
         },
         .zignal = .{
             .url = "https://github.com/bfactory-ai/zignal/archive/refs/tags/0.4.1.tar.gz",
