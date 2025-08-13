@@ -1,4 +1,4 @@
-//! CCSDS Data Structure.
+//! CCSDS packet structure
 
 const std = @import("std");
 
@@ -12,7 +12,7 @@ rawData: []const u8,
 allocator: std.mem.Allocator,
 
 pub fn init(pl: []const u8, allocator: std.mem.Allocator, config: ?Config) !Ccsds {
-    var rawPackets = try allocator.dupe(u8, pl);
+    var rawPackets = try allocator.dupe(u8, pl); // dupe so it doesn't go out of scope too early
     const primaryHeader = rawPackets[0..6];
     const version = @as(u3, @truncate((primaryHeader[0] >> 5) & 0x07));
     const packetType = @as(u1, @truncate((primaryHeader[0] >> 4) & 0x01));
@@ -31,7 +31,7 @@ pub fn init(pl: []const u8, allocator: std.mem.Allocator, config: ?Config) !Ccsd
     var start: u8 = 6;
     const secondaryHeader: ?[]const u8 = if (secondaryHeaderFlag) blk: {
         if (rawPackets.len < 10) {
-            std.log.warn("packet length is too short to have a secondary header", .{});
+            std.log.warn("packet length isn't long enough to have a secondary header", .{});
             break :blk null;
         }
         start = if (config != null) config.?.secondaryHeaderLength else 10;
