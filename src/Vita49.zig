@@ -1,4 +1,4 @@
-//! The Vita49 packet type which will be used by the Parser
+//! The Vita49 packet structure
 
 const std = @import("std");
 
@@ -15,10 +15,10 @@ allocator: std.mem.Allocator,
 end: usize,
 
 // private
-rawData: []const u8,
+_rawData: []const u8,
 
 pub fn init(pl: []const u8, allocator: std.mem.Allocator, config: ?[]const u8) !Vita49 {
-    var stream = try allocator.dupe(u8, pl); // dupe the data so we dont ever lose it
+    var stream = try allocator.dupe(u8, pl); // dupe this so it doesnt go out of scope too early
     if (config != null) {
         std.log.debug("Config found for Vita49 but this hasn't been implemented yet", .{});
     }
@@ -95,12 +95,12 @@ pub fn init(pl: []const u8, allocator: std.mem.Allocator, config: ?[]const u8) !
         .trailer = trailer,
         .allocator = allocator,
         .end = payloadRange.end,
-        .rawData = stream,
+        ._rawData = stream,
     };
 }
 
 pub fn deinit(self: *Vita49) void {
-    self.allocator.free(self.rawData);
+    self.allocator.free(self._rawData);
 }
 
 fn getPayloadRange(header: Header, hasStreamId: bool) !struct { start: usize, end: usize } {
@@ -127,7 +127,7 @@ fn getPayloadRange(header: Header, hasStreamId: bool) !struct { start: usize, en
     return .{ .start = start, .end = end };
 }
 
-/// Vita49 Possible error types
+/// Vita49 error types
 pub const Error = error{ MalformedPayloadRange, InsufficientData };
 
 const PacketType = enum(u4) {
