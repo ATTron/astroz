@@ -49,31 +49,35 @@ pub fn open(file_path: []const u8, allocator: std.mem.Allocator) !Fits {
     };
 }
 
-pub fn open_and_parse(file_path: []const u8, allocator: std.mem.Allocator) !Fits {
+pub fn open_and_parse(file_path: []const u8, allocator: std.mem.Allocator, options: ParseOptions) !Fits {
     var fits_file = try Fits.open(file_path, allocator);
     var image_count: usize = 0;
     var ascii_table_count: usize = 0;
     var binary_table_count: usize = 0;
 
     var output_path_buffer: [std.fs.max_path_bytes]u8 = undefined;
+    std.log.debug("Processing HDUs started. . .", .{});
     for (fits_file.hdus) |hdu| {
-        std.log.debug("\nShowing HDU info: {any}\n", .{hdu});
         switch (hdu.content_type) {
             .Image => {
                 image_count += 1;
-                std.log.debug("IMAGE FOUND NOW AT COUNT: {d}", .{image_count});
-                const filename = try std.fmt.bufPrint(&output_path_buffer, "image_{d}", .{image_count});
-                try fits_file.readImage(hdu.number, filename, .{});
+                if (options.createImages) {
+                    const filename = try std.fmt.bufPrint(&output_path_buffer, "image_{d}", .{image_count});
+                    try fits_file.readImage(hdu.number, filename, options.stretchOptions);
+                } else {
+                    const filename = try std.fmt.bufPrint(&output_path_buffer, "image_{d}_data", .{image_count});
+                    try fits_file.readImageAsTable(hdu.number, filename);
+                }
             },
             .AsciiTable => {
                 ascii_table_count += 1;
-                const filename = try std.fmt.bufPrint(&output_path_buffer, "ascii_table_{d}", .{image_count});
+                const filename = try std.fmt.bufPrint(&output_path_buffer, "ascii_table_{d}", .{ascii_table_count});
                 std.log.debug("Starting to read ASCII table...\n", .{});
                 try fits_file.readTable(hdu.number, filename);
             },
             .BinaryTable => {
                 binary_table_count += 1;
-                const filename = try std.fmt.bufPrint(&output_path_buffer, "binary_table_{d}", .{image_count});
+                const filename = try std.fmt.bufPrint(&output_path_buffer, "binary_table_{d}", .{binary_table_count});
                 std.log.debug("Starting to read binary table...\n", .{});
                 try fits_file.readTable(hdu.number, filename);
             },
@@ -193,7 +197,6 @@ pub fn readTable(self: *Fits, hdu_number: c_int, output_path: ?[]const u8) !void
             if (i < cols) {
                 try buffered.writeAll(",");
             }
-            std.log.debug("Inserting Row {s}\n", .{row_buffer});
         }
         try buffered.writeAll("\n");
     }
@@ -237,7 +240,7 @@ pub fn readImage(self: *Fits, hdu_number: c_int, output_path: ?[]const u8, optio
     }
 
     // this checks if the image would be empty
-    if (naxes[0] > 0 or naxes[1] > 0) {
+    if (naxes[0] > 0 and naxes[1] > 0) {
         const width: usize = @intCast(naxes[0]);
         const height: usize = @intCast(naxes[1]);
         const pixels: []f32 = try self.allocator.alloc(f32, width * height);
@@ -253,7 +256,85 @@ pub fn readImage(self: *Fits, hdu_number: c_int, output_path: ?[]const u8, optio
 
         try self.applyStretch(pixels, width, height, output_path, options);
     } else {
-        std.log.debug("Image is empty or too large\n", .{});
+        std.log.debug("Image is empty or invalid dimensions: {d}x{d}\n", .{ naxes[0], naxes[1] });
+    }
+}
+
+pub fn readImageAsTable(self: *Fits, hdu_number: c_int, output_path: ?[]const u8) !void {
+    if (hdu_number < 1 or hdu_number > self.hdus.len) {
+        return FitsError.InvalidHDUError;
+    }
+
+    const hdu_info = self.hdus[@intCast(hdu_number - 1)];
+
+    if (hdu_info.content_type != .Image) {
+        return FitsError.NotAnImageError;
+    }
+
+    var status: c_int = 0;
+
+    _ = cfitsio.fits_movabs_hdu(self.fptr, hdu_number, null, &status);
+    if (status != 0) {
+        try self.reportError(status);
+        return FitsError.ReadError;
+    }
+
+    var naxis: c_int = 0;
+    var naxes: [2]c_long = undefined;
+    _ = cfitsio.fits_get_img_dim(self.fptr, &naxis, &status);
+    _ = cfitsio.fits_get_img_size(self.fptr, 2, &naxes, &status);
+    if (status != 0) {
+        try self.reportError(status);
+        return FitsError.ReadError;
+    }
+
+    if (naxes[0] > 0 and naxes[1] > 0) {
+        const width: usize = @intCast(naxes[0]);
+        const height: usize = @intCast(naxes[1]);
+        const pixels: []f32 = try self.allocator.alloc(f32, width * height);
+        defer self.allocator.free(pixels);
+
+        const fpixel: c_long = 1;
+        const nelem: c_long = @intCast(width * height);
+        _ = cfitsio.fits_read_img(self.fptr, cfitsio.TFLOAT, fpixel, nelem, null, pixels.ptr, null, &status);
+        if (status != 0) {
+            try self.reportError(status);
+            return FitsError.ReadError;
+        }
+
+        const input_path = self.file_path;
+        const file_name = std.fs.path.stem(std.fs.path.basename(input_path));
+
+        createDirectoryIfNotExists(file_name) catch |err| {
+            std.log.warn("Failed to create directory: {s}. Error: {}", .{ file_name, err });
+        };
+
+        var output_path_buffer: [std.fs.max_path_bytes]u8 = undefined;
+        const output = if (output_path) |op|
+            try std.fmt.bufPrint(&output_path_buffer, "{s}/{s}.csv", .{ file_name, op })
+        else
+            try std.fmt.bufPrint(&output_path_buffer, "{s}/{s}_image_data.csv", .{ file_name, file_name });
+
+        const file = try std.fs.cwd().createFile(output, .{});
+        defer file.close();
+
+        var write_buffer: [4096]u8 = undefined;
+        var file_writer = file.writer(&write_buffer);
+        var buffered = &file_writer.interface;
+
+        try buffered.writeAll("x,y,value\n");
+
+        for (0..height) |y| {
+            for (0..width) |x| {
+                const pixel_value = pixels[y * width + x];
+                try buffered.print("{d},{d},{d}\n", .{ x, y, pixel_value });
+            }
+        }
+
+        try file_writer.interface.flush();
+        std.log.debug("Image data saved as CSV: {s}\n", .{output});
+    } else {
+        std.log.debug("Image is empty or invalid dimensions\n", .{});
     }
 }
 
@@ -330,6 +411,11 @@ pub const StretchOptions = struct {
     bend: f32 = 0.5,
 };
 
+pub const ParseOptions = struct {
+    createImages: bool = false,
+    stretchOptions: StretchOptions = .{},
+};
+
 pub const FitsError = error{
     OpenError,
     HeaderReadError,
@@ -363,7 +449,7 @@ pub const FitsTableInfo = struct {
 test Fits {
     const test_file_png = "sample_fits/image_1.png";
     const test_file_table = "sample_fits/ascii_table_1.csv";
-    var fits_png = try Fits.open_and_parse("test/sample_fits.fits", std.testing.allocator);
+    var fits_png = try Fits.open_and_parse("test/sample_fits.fits", std.testing.allocator, .{ .createImages = true });
     defer fits_png.close();
 
     var file = try std.fs.cwd().openFile(test_file_png, .{});
@@ -380,7 +466,7 @@ test Fits {
 
 test "Read FITS table" {
     const test_file_table = "small/binary_table_1.csv";
-    var fits_file = try Fits.open_and_parse("test/small.fits", std.testing.allocator);
+    var fits_file = try Fits.open_and_parse("test/small.fits", std.testing.allocator, .{});
     defer fits_file.close();
 
     var file = try std.fs.cwd().openFile(test_file_table, .{});

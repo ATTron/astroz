@@ -7,6 +7,6 @@ pub fn main() !void {
     defer _ = dbga.deinit();
     const allocator = dbga.allocator();
 
-    var fitsPng: Fits = try .open_and_parse("test/sample_fits.fits", allocator);
+    var fitsPng: Fits = try .open_and_parse("test/sample_fits.fits", allocator, .{ .createImages = true, .stretchOptions = .{ .stretch = 0.2 }});
     defer fitsPng.close();
 }
