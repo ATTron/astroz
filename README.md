@@ -1,7 +1,10 @@
 <h1 align="center">
-  <img src="https://repository-images.githubusercontent.com/819657891/6c35d769-baaa-46cc-ab71-8cee74f07475" width="100" height="100" alt="logo"/>
+  <img src="https://repository-images.githubusercontent.com/819657891/6c35d769-baaa-46cc-ab71-8cee74f07475" width="100" height="100"/>
 </h1>
-<h1 align="center">Astroz</h1>
+<h1 align="center">
+    Astroz
+</h1>
+
 [![CI][ci-shd]][ci-url]
 [![CD][cd-shd]][cd-url]
 [![DC][dc-shd]][dc-url]
@@ -121,9 +124,9 @@ exe.root_module.addImport("astroz", astroz_mod);
 
 <!-- MARKDOWN LINKS -->
 
-[ci-shd]: https://img.shields.io/github/actions/workflow/status/ATTron/astroz/ci.yaml?branch=main&style=for-the-badge&logo=github&label=CI&labelColor=black
+[ci-shd]: https://img.shields.io/github/actions/workflow/status/ATTron/astroz/ci.yaml?branch=main&logo=github&label=CI&labelColor=black
 [ci-url]: https://github.com/ATTron/astroz/blob/main/.github/workflows/ci.yaml
-[cd-shd]: https://img.shields.io/github/actions/workflow/status/ATTron/astroz/cd.yaml?branch=main&style=for-the-badge&logo=github&label=CD&labelColor=black
+[cd-shd]: https://img.shields.io/github/actions/workflow/status/ATTron/astroz/cd.yaml?branch=main&logo=github&label=CD&labelColor=black
 [cd-url]: https://github.com/ATTron/astroz/blob/main/.github/workflows/cd.yaml
-[dc-shd]: https://img.shields.io/badge/click-F6A516?style=for-the-badge&logo=zig&logoColor=F6A516&label=doc&labelColor=black
+[dc-shd]: https://img.shields.io/badge/click-F6A516?logo=zig&logoColor=F6A516&label=doc&labelColor=black
 [dc-url]: https://attron.github.io/astroz
