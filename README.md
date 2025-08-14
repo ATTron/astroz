@@ -1,8 +1,5 @@
 <h1 align="center">
-  <img src="https://repository-images.githubusercontent.com/819657891/6c35d769-baaa-46cc-ab71-8cee74f07475" width="100" height="100"/>
-</h1>
-<h1 align="center">
-    Astroz
+  <img src="https://repository-images.githubusercontent.com/819657891/f140ddd7-ec9e-4914-b639-6ccb6fcd028e" width="100" height="100"/>
 </h1>
 
 [![CI][ci-shd]][ci-url]
