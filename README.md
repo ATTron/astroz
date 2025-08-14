@@ -48,7 +48,7 @@
   - [x] Monte Carlo Simulations
 - [x] FITS File Parsing
   - [x] Image Generation
-    - [ ] Multi Image Parsing/Generation
+    - [x] MEF Parsing
   - [x] Table Parsing
 
 ### Feature not listed ?
