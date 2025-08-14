@@ -1,10 +1,12 @@
-# ASTROZ
+<h1 align="center">
+  <img src="https://repository-images.githubusercontent.com/819657891/6c35d769-baaa-46cc-ab71-8cee74f07475" width="100" height="100" alt="logo"/>
+</h1>
+<h1 align="center">Astroz
+    [![CI][ci-shd]][ci-url]
+    [![CD][cd-shd]][cd-url]
+    [![DC][dc-shd]][dc-url]
+</h1>
 
-[![CI][ci-shd]][ci-url]
-[![CD][cd-shd]][cd-url]
-[![DC][dc-shd]][dc-url]
-
-<img src="https://repository-images.githubusercontent.com/819657891/6c35d769-baaa-46cc-ab71-8cee74f07475" width="100" height="100"/>
 
 ## Astronomical and Spacecraft Toolkit Written in Zig for Zig!
 
@@ -58,6 +60,8 @@ best to be responsive.
 
 ```sh
 zig fetch --save https://github.com/ATTron/astroz/archive/<git_tag_or_commit_hash>.tar.gz
+#or
+zig fetch --save git+https://github.com/ATTron/astroz/#HEAD
 ```
 
 - Use `astroz` as a module in your `build.zig`.
@@ -88,7 +92,7 @@ exe.root_module.addImport("astroz", astroz_mod);
 <img src="assets/earth_mars_transfer.gif" width="300" height="300" alt="Earth-Mars transfer animation"/> <img src="assets/earth_mars_transfer_static.png" width="300" height="300" alt="Earth-Mars transfer trajectory"/> <img src="assets/earth_mars_transfer_analysis.png" width="300" height="300" alt="Earth-Mars transfer analysis"/>
 
 - #### [Monte Carlo Simulation](examples/simple_monte_carlo.zig)
-<img src="assets/monte_carlo_analysis.png" width="450" height="400" alt="graphs showing monte carlo run analysis">
+<img src="assets/monte_carlo_analysis.png" width="450" height="400" alt="graphs showing monte carlo run analysis"/>
 
 - #### [Orbit Plane Change](examples/orbit_plane_change.zig)
 
