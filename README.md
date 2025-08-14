@@ -1,10 +1,14 @@
-# ASTROZ
+<h1 align="center">
+  <img src="https://repository-images.githubusercontent.com/819657891/6c35d769-baaa-46cc-ab71-8cee74f07475" width="100" height="100"/>
+</h1>
+<h1 align="center">
+    Astroz
+</h1>
 
 [![CI][ci-shd]][ci-url]
 [![CD][cd-shd]][cd-url]
 [![DC][dc-shd]][dc-url]
 
-<img src="https://repository-images.githubusercontent.com/819657891/291c28ef-4c03-4d0e-bb0c-41d4662867c3" width="100" height="100"/>
 
 ## Astronomical and Spacecraft Toolkit Written in Zig for Zig!
 
@@ -41,6 +45,7 @@
 - [x] Celestial Bodies
 - [x] Orbital Mechanics
   - [x] Interplanetary Maneuvers
+  - [x] Monte Carlo Simulations
 - [x] FITS File Parsing
   - [x] Image Generation
     - [ ] Multi Image Parsing/Generation
@@ -57,6 +62,8 @@ best to be responsive.
 
 ```sh
 zig fetch --save https://github.com/ATTron/astroz/archive/<git_tag_or_commit_hash>.tar.gz
+#or
+zig fetch --save git+https://github.com/ATTron/astroz/#HEAD
 ```
 
 - Use `astroz` as a module in your `build.zig`.
@@ -86,6 +93,9 @@ exe.root_module.addImport("astroz", astroz_mod);
 
 <img src="assets/earth_mars_transfer.gif" width="300" height="300" alt="Earth-Mars transfer animation"/> <img src="assets/earth_mars_transfer_static.png" width="300" height="300" alt="Earth-Mars transfer trajectory"/> <img src="assets/earth_mars_transfer_analysis.png" width="300" height="300" alt="Earth-Mars transfer analysis"/>
 
+- #### [Monte Carlo Simulation](examples/simple_monte_carlo.zig)
+<img src="assets/monte_carlo_analysis.png" width="450" height="400" alt="graphs showing monte carlo run analysis"/>
+
 - #### [Orbit Plane Change](examples/orbit_plane_change.zig)
 
 - #### [Orbit Phase Change](examples/orbit_phase_change.zig)
@@ -114,9 +124,9 @@ exe.root_module.addImport("astroz", astroz_mod);
 
 <!-- MARKDOWN LINKS -->
 
-[ci-shd]: https://img.shields.io/github/actions/workflow/status/ATTron/astroz/ci.yaml?branch=main&style=for-the-badge&logo=github&label=CI&labelColor=black
+[ci-shd]: https://img.shields.io/github/actions/workflow/status/ATTron/astroz/ci.yaml?branch=main&logo=github&label=CI&labelColor=black
 [ci-url]: https://github.com/ATTron/astroz/blob/main/.github/workflows/ci.yaml
-[cd-shd]: https://img.shields.io/github/actions/workflow/status/ATTron/astroz/cd.yaml?branch=main&style=for-the-badge&logo=github&label=CD&labelColor=black
+[cd-shd]: https://img.shields.io/github/actions/workflow/status/ATTron/astroz/cd.yaml?branch=main&logo=github&label=CD&labelColor=black
 [cd-url]: https://github.com/ATTron/astroz/blob/main/.github/workflows/cd.yaml
-[dc-shd]: https://img.shields.io/badge/click-F6A516?style=for-the-badge&logo=zig&logoColor=F6A516&label=doc&labelColor=black
+[dc-shd]: https://img.shields.io/badge/click-F6A516?logo=zig&logoColor=F6A516&label=doc&labelColor=black
 [dc-url]: https://attron.github.io/astroz
