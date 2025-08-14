@@ -12,6 +12,7 @@ pub const EquatorialCoordinateSystem = @import("EquatorialCoordinateSystem.zig")
 pub const WorldCoordinateSystem = @import("WorldCoordinateSystem.zig");
 pub const OrbitalMechanics = @import("OrbitalMechanics.zig");
 pub const Mission = @import("Mission.zig");
+pub const MonteCarlo = @import("MonteCarlo.zig");
 pub const Fits = @import("Fits.zig");
 
 test {
