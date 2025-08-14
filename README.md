@@ -1,11 +1,10 @@
 <h1 align="center">
   <img src="https://repository-images.githubusercontent.com/819657891/6c35d769-baaa-46cc-ab71-8cee74f07475" width="100" height="100" alt="logo"/>
 </h1>
-<h1 align="center">Astroz
+<h1 align="center">Astroz</h1>
 [![CI][ci-shd]][ci-url]
 [![CD][cd-shd]][cd-url]
 [![DC][dc-shd]][dc-url]
-</h1>
 
 
 ## Astronomical and Spacecraft Toolkit Written in Zig for Zig!
