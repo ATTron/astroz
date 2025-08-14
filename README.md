@@ -88,7 +88,7 @@ exe.root_module.addImport("astroz", astroz_mod);
 <img src="assets/earth_mars_transfer.gif" width="300" height="300" alt="Earth-Mars transfer animation"/> <img src="assets/earth_mars_transfer_static.png" width="300" height="300" alt="Earth-Mars transfer trajectory"/> <img src="assets/earth_mars_transfer_analysis.png" width="300" height="300" alt="Earth-Mars transfer analysis"/>
 
 - #### [Monte Carlo Simulation](examples/simple_monte_carlo.zig)
-<img src="assets/monte_carlo_analysis" width="450" height="400" alt="graphs showing monte carlo run analysis">
+<img src="assets/monte_carlo_analysis.png" width="450" height="400" alt="graphs showing monte carlo run analysis">
 
 - #### [Orbit Plane Change](examples/orbit_plane_change.zig)
 
