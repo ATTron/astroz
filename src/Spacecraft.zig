@@ -107,13 +107,13 @@ pub fn init(name: []const u8, tle: Tle, mass: f64, size: SatelliteSize, orbiting
             .{ 0.0, 1.0, 0.0 },
         },
         .orbitingObject = orbitingObject.?,
-        .orbitPredictions = std.ArrayList(calculations.StateTime).init(allocator),
+        .orbitPredictions = std.ArrayList(calculations.StateTime){},
         .allocator = allocator,
     };
 }
 
 pub fn deinit(self: *Spacecraft) void {
-    self.orbitPredictions.deinit();
+    self.orbitPredictions.deinit(self.allocator);
 }
 
 pub fn updateAttitude(self: *Spacecraft) void {
@@ -140,7 +140,7 @@ pub fn propagate(self: *Spacecraft, t0: f64, days: f64, h: f64, impulseList: ?[]
 
     log.info("Initial energy established: {d}\n", .{initialEnergy});
 
-    try self.orbitPredictions.append(calculations.StateTime{ .time = t, .state = y });
+    try self.orbitPredictions.append(self.allocator, calculations.StateTime{ .time = t, .state = y });
     var step: usize = 0;
     var impulseIndex: usize = 0;
 
@@ -151,7 +151,7 @@ pub fn propagate(self: *Spacecraft, t0: f64, days: f64, h: f64, impulseList: ?[]
                 if (dt > 0) {
                     y = self.rk4(y, dt);
                     t += dt;
-                    try self.orbitPredictions.append(calculations.StateTime{ .time = t, .state = y });
+                    try self.orbitPredictions.append(self.allocator, calculations.StateTime{ .time = t, .state = y });
                 }
 
                 switch (impulses[impulseIndex].mode) {
@@ -187,21 +187,21 @@ pub fn propagate(self: *Spacecraft, t0: f64, days: f64, h: f64, impulseList: ?[]
                         const secondImpulseTime = t + period * transferOrbits;
                         while (t < secondImpulseTime) : (t += h) {
                             y = self.rk4(y, h);
-                            try self.orbitPredictions.append(calculations.StateTime{ .time = t + h, .state = y });
+                            try self.orbitPredictions.append(self.allocator, calculations.StateTime{ .time = t + h, .state = y });
                         }
                         y = calculations.impulse(y, .{ -deltaV[0], -deltaV[1], -deltaV[2] });
-                        try self.orbitPredictions.append(calculations.StateTime{ .time = t, .state = y });
+                        try self.orbitPredictions.append(self.allocator, calculations.StateTime{ .time = t, .state = y });
                         log.info("Phase change completed at t={d:.2}s", .{t});
                     },
                     .PlaneChange => {
                         const planeChange = impulses[impulseIndex];
                         y = self.applyPlaneChange(y, planeChange);
-                        try self.orbitPredictions.append(calculations.StateTime{ .time = t, .state = y });
+                        try self.orbitPredictions.append(self.allocator, calculations.StateTime{ .time = t, .state = y });
                         log.info("Plane change completed at t={d:.2}s", .{t});
                     },
                 }
 
-                try self.orbitPredictions.append(calculations.StateTime{ .time = t, .state = y });
+                try self.orbitPredictions.append(self.allocator, calculations.StateTime{ .time = t, .state = y });
 
                 impulseIndex += 1;
             }
@@ -214,7 +214,7 @@ pub fn propagate(self: *Spacecraft, t0: f64, days: f64, h: f64, impulseList: ?[]
         const r = @sqrt(y[0] * y[0] + y[1] * y[1] + y[2] * y[2]);
         const energy = self.calculateEnergy(y);
 
-        try self.orbitPredictions.append(calculations.StateTime{ .time = t, .state = y });
+        try self.orbitPredictions.append(self.allocator, calculations.StateTime{ .time = t, .state = y });
 
         if (energy > 0 or std.math.isNan(energy) or r > 100_000) {
             log.warn("Abnormal orbit detected at step {d}", .{step});

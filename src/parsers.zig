@@ -25,7 +25,7 @@ pub fn Parser(comptime Frame: type) type {
                 .ipAddress = ipAddress orelse "127.0.0.1",
                 .port = port orelse 65432,
                 .bufferSize = bufferSize,
-                .packets = std.ArrayList(Frame).init(allocator),
+                .packets = std.ArrayList(Frame){},
                 .allocator = allocator,
             };
         }
@@ -35,7 +35,7 @@ pub fn Parser(comptime Frame: type) type {
             for (self.packets.items) |*packet| {
                 packet.deinit();
             }
-            self.packets.deinit();
+            self.packets.deinit(self.allocator);
         }
 
         /// Use this if you have a recording you need to parse
@@ -62,7 +62,7 @@ pub fn Parser(comptime Frame: type) type {
                     while (fileContent.len > 4) : (i += 1) {
                         if (std.mem.startsWith(u8, fileContent[i..], sp)) {
                             const newFrame = try Frame.init(fileContent[i..], self.allocator, null);
-                            try self.packets.append(newFrame);
+                            try self.packets.append(self.allocator, newFrame);
                             if (callback) |cb| {
                                 cb(newFrame);
                             }
@@ -85,7 +85,7 @@ pub fn Parser(comptime Frame: type) type {
                     }
                 } else {
                     const newFrame = try Frame.init(fileContent, self.allocator, null);
-                    try self.packets.append(newFrame);
+                    try self.packets.append(self.allocator, newFrame);
                     if (callback) |cb| {
                         cb(newFrame);
                     }
@@ -103,7 +103,7 @@ pub fn Parser(comptime Frame: type) type {
                     while (fileContent.len > 4) : (i += 1) {
                         if (std.mem.startsWith(u8, fileContent[i..], sp)) {
                             const newFrame = try Frame.init(fileContent[i..], self.allocator, null);
-                            try self.packets.append(newFrame);
+                            try self.packets.append(self.allocator, newFrame);
                             if (callback) |cb| {
                                 cb(newFrame);
                             }
@@ -126,7 +126,7 @@ pub fn Parser(comptime Frame: type) type {
                     }
                 } else {
                     const newFrame = try Frame.init(fileContent, self.allocator, null);
-                    try self.packets.append(newFrame);
+                    try self.packets.append(self.allocator, newFrame);
                     if (callback) |cb| {
                         cb(newFrame);
                     }
@@ -155,7 +155,7 @@ pub fn Parser(comptime Frame: type) type {
                 _ = try stream.read(&incomingBuffer);
                 const newFrame = try Frame.init(&incomingBuffer, self.allocator, null);
                 std.log.debug("message received: {any}", .{newFrame});
-                _ = try self.packets.append(newFrame);
+                _ = try self.packets.append(self.allocator, newFrame);
                 if (callback != null) {
                     callback.?(newFrame);
                 }

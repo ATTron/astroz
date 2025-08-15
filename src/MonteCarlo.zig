@@ -62,13 +62,13 @@ pub fn init(allocator: std.mem.Allocator, config: MonteCarloConfig) MonteCarlo {
     return .{
         .allocator = allocator,
         .config = config,
-        .results = std.ArrayList(SimulationResult).init(allocator),
+        .results = std.ArrayList(SimulationResult){},
         .random = prng,
     };
 }
 
 pub fn deinit(self: *MonteCarlo) void {
-    self.results.deinit();
+    self.results.deinit(self.allocator);
 }
 
 fn generateNormal(self: *MonteCarlo, mean: f64, stdDev: f64) f64 {
@@ -125,7 +125,7 @@ pub fn runHohmannSimulation(self: *MonteCarlo) !void {
         };
 
         const transferResult = orbitalMechanics.hohmannTransfer(safeR1, safeR2) catch {
-            try self.results.append(SimulationResult{
+            try self.results.append(self.allocator, SimulationResult{
                 .deltaV = 0.0,
                 .transferTime = 0.0,
                 .semiMajorAxis = 0.0,
@@ -137,7 +137,7 @@ pub fn runHohmannSimulation(self: *MonteCarlo) !void {
             continue;
         };
 
-        try self.results.append(SimulationResult{
+        try self.results.append(self.allocator, SimulationResult{
             .deltaV = transferResult.totalDeltaV,
             .transferTime = transferResult.transferTimeDays,
             .semiMajorAxis = transferResult.semiMajorAxis,
@@ -162,12 +162,12 @@ pub fn calculateStatistics(self: *MonteCarlo) !StatisticalSummary {
         return ValidationError.ValueError;
     }
 
-    var successfulResults = std.ArrayList(SimulationResult).init(self.allocator);
-    defer successfulResults.deinit();
+    var successfulResults = std.ArrayList(SimulationResult){};
+    defer successfulResults.deinit(self.allocator);
 
     for (self.results.items) |result| {
         if (result.success) {
-            try successfulResults.append(result);
+            try successfulResults.append(self.allocator, result);
         }
     }
 
