@@ -58,12 +58,12 @@ pub fn init(allocator: std.mem.Allocator, parameters: MissionParameters, orbital
         .allocator = allocator,
         .parameters = parameters,
         .orbitalMechanics = orbitalMechanics,
-        .trajectoryPredictions = std.ArrayList(TrajectoryPoint).init(allocator),
+        .trajectoryPredictions = std.ArrayList(TrajectoryPoint){},
     };
 }
 
 pub fn deinit(self: *Mission) void {
-    self.trajectoryPredictions.deinit();
+    self.trajectoryPredictions.deinit(self.allocator);
 }
 
 pub fn propagateTransfer(self: *Mission, totalDays: f64, timeStepDays: f64) !void {
@@ -109,7 +109,7 @@ pub fn propagateTransfer(self: *Mission, totalDays: f64, timeStepDays: f64) !voi
         const departureY = departureRadius * @sin(departureAngle);
         const departurePos = calculations.Vector3D.new(departureX, departureY, 0.0);
 
-        try self.trajectoryPredictions.append(TrajectoryPoint{
+        try self.trajectoryPredictions.append(self.allocator, TrajectoryPoint{
             .time = day,
             .body = departureBody.name,
             .position = departurePos,
@@ -121,7 +121,7 @@ pub fn propagateTransfer(self: *Mission, totalDays: f64, timeStepDays: f64) !voi
         const arrivalY = arrivalRadius * @sin(arrivalAngle);
         const arrivalPos = calculations.Vector3D.new(arrivalX, arrivalY, 0.0);
 
-        try self.trajectoryPredictions.append(TrajectoryPoint{
+        try self.trajectoryPredictions.append(self.allocator, TrajectoryPoint{
             .time = day,
             .body = arrivalBody.name,
             .position = arrivalPos,
@@ -138,7 +138,7 @@ pub fn propagateTransfer(self: *Mission, totalDays: f64, timeStepDays: f64) !voi
             const transferY = r * @sin(transferAngle);
             const transferPos = calculations.Vector3D.new(transferX, transferY, 0.0);
 
-            try self.trajectoryPredictions.append(TrajectoryPoint{
+            try self.trajectoryPredictions.append(self.allocator, TrajectoryPoint{
                 .time = day,
                 .body = "Transfer",
                 .position = transferPos,
@@ -148,7 +148,7 @@ pub fn propagateTransfer(self: *Mission, totalDays: f64, timeStepDays: f64) !voi
     }
 
     const departureWaypointPos = calculations.Vector3D.new(departureRadius, 0.0, 0.0);
-    try self.trajectoryPredictions.append(TrajectoryPoint{
+    try self.trajectoryPredictions.append(self.allocator, TrajectoryPoint{
         .time = 0.0,
         .body = "Departure",
         .position = departureWaypointPos,
@@ -160,7 +160,7 @@ pub fn propagateTransfer(self: *Mission, totalDays: f64, timeStepDays: f64) !voi
     const arrivalWaypointY = arrivalRadius * @sin(finalArrivalAngle);
     const arrivalWaypointPos = calculations.Vector3D.new(arrivalWaypointX, arrivalWaypointY, 0.0);
 
-    try self.trajectoryPredictions.append(TrajectoryPoint{
+    try self.trajectoryPredictions.append(self.allocator, TrajectoryPoint{
         .time = transferTimeDays,
         .body = "Arrival",
         .position = arrivalWaypointPos,
@@ -171,7 +171,7 @@ pub fn propagateTransfer(self: *Mission, totalDays: f64, timeStepDays: f64) !voi
 }
 
 pub fn planetaryPositions(self: *Mission, tYears: f64) std.ArrayList(PlanetaryPositions) {
-    var positions = std.ArrayList(PlanetaryPositions).init(self.allocator);
+    var positions = std.ArrayList(PlanetaryPositions){};
 
     for (constants.allBodies) |planet| {
         if (std.mem.eql(u8, planet.name, "sun")) {
@@ -210,7 +210,7 @@ pub fn planetaryPositions(self: *Mission, tYears: f64) std.ArrayList(PlanetaryPo
             .time = tYears,
         };
 
-        positions.append(planetaryPos) catch {};
+        positions.append(self.allocator, planetaryPos) catch {};
     }
 
     return positions;
@@ -270,7 +270,7 @@ test "mission planning Earth-Mars transfer" {
 
     const tYears = 1.0;
     var positions = mission.planetaryPositions(tYears);
-    defer positions.deinit();
+    defer positions.deinit(ta);
 
     try testing.expect(positions.items.len > 0);
 
