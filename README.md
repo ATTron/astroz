@@ -1,5 +1,5 @@
 <h1 align="center">
-  <img src="https://repository-images.githubusercontent.com/819657891/f140ddd7-ec9e-4914-b639-6ccb6fcd028e" width="900" height="600"/>
+  <img src="https://repository-images.githubusercontent.com/819657891/7fdb22c8-7171-4b75-9f33-88a62ea67259" width="900" height="600" />
 </h1>
 
 [![CI][ci-shd]][ci-url]

@@ -2,7 +2,7 @@
     .name = .astroz,
     .version = "0.3.0",
     .fingerprint = 0x2d8583fca695159f, // Changing this has security and trust implications.
-    .minimum_zig_version = "0.15.0-dev.1509+b9a6dae2a",
+    .minimum_zig_version = "0.15.0-dev.1519+dd4e25cf4",
     .dependencies = .{
         .cfitsio = .{
             .url = "https://github.com/arrufat/cfitsio/archive/9a7161ff41600aaa28fd040989294fb60a58df38.tar.gz",
