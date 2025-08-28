@@ -44,7 +44,7 @@ pub fn parseLSK(allocator: std.mem.Allocator, content: []const u8) LSKError!LSK 
         .k = 0,
         .eb = 0,
         .m = [2]f64{ 0, 0 },
-        .leap_seconds = .{},
+        .leap_seconds = ArrayList(LeapSecondEntry){},
         .allocator = allocator,
     };
 
@@ -54,12 +54,12 @@ pub fn parseLSK(allocator: std.mem.Allocator, content: []const u8) LSKError!LSK 
     while (lines.next()) |line| {
         const trimmed = std.mem.trim(u8, line, " \t\r\n");
 
-        if (std.mem.eql(u8, trimmed, "\\begindata")) {
+        if (std.mem.eql(u8, trimmed, "\\\\begindata")) {
             in_data_section = true;
             continue;
         }
 
-        if (std.mem.eql(u8, trimmed, "\\begintext")) {
+        if (std.mem.eql(u8, trimmed, "\\\\begintext")) {
             in_data_section = false;
             continue;
         }
@@ -75,17 +75,60 @@ pub fn parseLSK(allocator: std.mem.Allocator, content: []const u8) LSKError!LSK 
         } else if (std.mem.startsWith(u8, trimmed, "DELTET/M")) {
             parseMFromAssignment(trimmed, &lsk.m) catch return LSKError.ParseError;
         } else if (std.mem.startsWith(u8, trimmed, "DELTET/DELTA_AT")) {
-            parseDeltaAtFromAssignment(trimmed, &lsk.leap_seconds, allocator) catch return LSKError.ParseError;
+            var full_line = std.ArrayList(u8){};
+            defer full_line.deinit(allocator);
+
+            try full_line.appendSlice(allocator, trimmed);
+
+            var assignment_processed = false;
+            while (lines.next()) |continuation_line| {
+                const continuation_trimmed = std.mem.trim(u8, continuation_line, " \t\r\n");
+                if (continuation_trimmed.len == 0) continue;
+
+                if (continuation_line.len > 0 and (continuation_line[0] == ' ' or continuation_line[0] == '\t')) {
+                    try full_line.appendSlice(allocator, " ");
+                    try full_line.appendSlice(allocator, continuation_trimmed);
+                } else {
+                    parseDeltaAtFromAssignment(full_line.items, &lsk.leap_seconds, allocator) catch return LSKError.ParseError;
+                    assignment_processed = true;
+
+                    if (std.mem.eql(u8, continuation_trimmed, "\\\\begintext")) {
+                        in_data_section = false;
+                        break;
+                    }
+                    break;
+                }
+            }
+
+            if (!assignment_processed and full_line.items.len > 0) {
+                parseDeltaAtFromAssignment(full_line.items, &lsk.leap_seconds, allocator) catch return LSKError.ParseError;
+            }
         }
     }
 
     return lsk;
 }
 
+fn convertSpiceNotation(input: []const u8, buffer: []u8) []const u8 {
+    if (std.mem.indexOf(u8, input, "D")) |d_pos| {
+        const len = input.len;
+        if (len < buffer.len) {
+            @memcpy(buffer[0..len], input);
+            buffer[d_pos] = 'e';
+            return buffer[0..len];
+        }
+    }
+    return input;
+}
+
 fn parseFloatFromAssignment(line: []const u8) !f64 {
     if (std.mem.indexOf(u8, line, "=")) |eq_pos| {
         const value_part = std.mem.trim(u8, line[eq_pos + 1 ..], " \t");
-        return std.fmt.parseFloat(f64, value_part);
+
+        var buffer: [256]u8 = undefined;
+        const converted_value = convertSpiceNotation(value_part, &buffer);
+
+        return std.fmt.parseFloat(f64, converted_value);
     }
     return error.ParseError;
 }
@@ -93,13 +136,20 @@ fn parseFloatFromAssignment(line: []const u8) !f64 {
 fn parseMFromAssignment(line: []const u8, m: *[2]f64) !void {
     if (std.mem.indexOf(u8, line, "=")) |eq_pos| {
         const value_part = std.mem.trim(u8, line[eq_pos + 1 ..], " \t()");
-        var values = std.mem.splitAny(u8, value_part, ",");
+        var values = std.mem.splitAny(u8, value_part, " ");
 
-        if (values.next()) |first| {
-            m[0] = try std.fmt.parseFloat(f64, std.mem.trim(u8, first, " \t"));
-        }
-        if (values.next()) |second| {
-            m[1] = try std.fmt.parseFloat(f64, std.mem.trim(u8, second, " \t"));
+        var count: u32 = 0;
+        while (values.next()) |val| {
+            const trimmed = std.mem.trim(u8, val, " \t");
+            if (trimmed.len == 0) continue;
+
+            var buffer: [256]u8 = undefined;
+            const final_val = convertSpiceNotation(trimmed, &buffer);
+
+            if (count < 2) {
+                m[count] = try std.fmt.parseFloat(f64, final_val);
+                count += 1;
+            }
         }
     }
 }
@@ -107,35 +157,19 @@ fn parseMFromAssignment(line: []const u8, m: *[2]f64) !void {
 fn parseDeltaAtFromAssignment(line: []const u8, leap_seconds: *ArrayList(LeapSecondEntry), allocator: std.mem.Allocator) !void {
     if (std.mem.indexOf(u8, line, "=")) |eq_pos| {
         const value_part = std.mem.trim(u8, line[eq_pos + 1 ..], " \t()");
-        var pairs = std.mem.splitAny(u8, value_part, ",");
 
-        while (pairs.next()) |pair| {
-            const trimmed_pair = std.mem.trim(u8, pair, " \t");
-            if (trimmed_pair.len == 0) continue;
+        var tokens = std.mem.tokenizeAny(u8, value_part, " \t,()");
 
-            var values = std.mem.splitAny(u8, trimmed_pair, " ");
-            var delta_at: f64 = 0;
-            var jd_utc: f64 = 0;
-            var count: u32 = 0;
+        while (tokens.next()) |token| {
+            if (std.mem.startsWith(u8, token, "@")) continue;
 
-            while (values.next()) |val| {
-                const trimmed_val = std.mem.trim(u8, val, " \t");
-                if (trimmed_val.len == 0) continue;
-
-                if (count == 0) {
-                    delta_at = try std.fmt.parseFloat(f64, trimmed_val);
-                } else if (count == 1) {
-                    jd_utc = try std.fmt.parseFloat(f64, trimmed_val);
-                    break;
-                }
-                count += 1;
-            }
-
-            if (count >= 2) {
+            if (std.fmt.parseFloat(f64, token)) |delta_at| {
                 try leap_seconds.append(allocator, LeapSecondEntry{
                     .delta_at = delta_at,
-                    .jd_utc = jd_utc,
+                    .jd_utc = 0.0, // placeholder for now
                 });
+            } else |_| {
+                continue;
             }
         }
     }
