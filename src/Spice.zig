@@ -5,6 +5,14 @@ const ArrayList = std.ArrayList;
 
 pub const Spice = @This();
 
+const FieldType = enum {
+    deltaTA,
+    k,
+    eb,
+    m,
+    unknown,
+};
+
 pub const LSKError = error{
     InvalidFormat,
     MissingData,
@@ -66,43 +74,10 @@ pub fn parseLSK(allocator: std.mem.Allocator, content: []const u8) LSKError!LSK 
 
         if (!in_data_section or trimmed.len == 0) continue;
 
-        if (std.mem.startsWith(u8, trimmed, "DELTET/DELTA_T_A")) {
-            lsk.delta_t_a = parseFloatFromAssignment(trimmed) catch return LSKError.ParseError;
-        } else if (std.mem.startsWith(u8, trimmed, "DELTET/K")) {
-            lsk.k = parseFloatFromAssignment(trimmed) catch return LSKError.ParseError;
-        } else if (std.mem.startsWith(u8, trimmed, "DELTET/EB")) {
-            lsk.eb = parseFloatFromAssignment(trimmed) catch return LSKError.ParseError;
-        } else if (std.mem.startsWith(u8, trimmed, "DELTET/M")) {
-            parseMFromAssignment(trimmed, &lsk.m) catch return LSKError.ParseError;
-        } else if (std.mem.startsWith(u8, trimmed, "DELTET/DELTA_AT")) {
-            var full_line = std.ArrayList(u8){};
-            defer full_line.deinit(allocator);
-
-            try full_line.appendSlice(allocator, trimmed);
-
-            var assignment_processed = false;
-            while (lines.next()) |continuation_line| {
-                const continuation_trimmed = std.mem.trim(u8, continuation_line, " \t\r\n");
-                if (continuation_trimmed.len == 0) continue;
-
-                if (continuation_line.len > 0 and (continuation_line[0] == ' ' or continuation_line[0] == '\t')) {
-                    try full_line.appendSlice(allocator, " ");
-                    try full_line.appendSlice(allocator, continuation_trimmed);
-                } else {
-                    parseDeltaAtFromAssignment(full_line.items, &lsk.leap_seconds, allocator) catch return LSKError.ParseError;
-                    assignment_processed = true;
-
-                    if (std.mem.eql(u8, continuation_trimmed, "\\\\begintext")) {
-                        in_data_section = false;
-                        break;
-                    }
-                    break;
-                }
-            }
-
-            if (!assignment_processed and full_line.items.len > 0) {
-                parseDeltaAtFromAssignment(full_line.items, &lsk.leap_seconds, allocator) catch return LSKError.ParseError;
-            }
+        if (std.mem.startsWith(u8, trimmed, "DELTET/DELTA_AT")) {
+            try handleDeltaAt(trimmed, &lines, &lsk, allocator, &in_data_section);
+        } else {
+            try handleSimpleField(trimmed, &lsk);
         }
     }
 
@@ -172,6 +147,52 @@ fn parseDeltaAtFromAssignment(line: []const u8, leap_seconds: *ArrayList(LeapSec
                 continue;
             }
         }
+    }
+}
+
+fn fromPrefix(trimmed_line: []const u8) FieldType {
+    if (std.mem.startsWith(u8, trimmed_line, "DELTET/DELTA_T_A")) return .deltaTA;
+    if (std.mem.startsWith(u8, trimmed_line, "DELTET/K")) return .k;
+    if (std.mem.startsWith(u8, trimmed_line, "DELTET/EB")) return .eb;
+    if (std.mem.startsWith(u8, trimmed_line, "DELTET/M")) return .m;
+    return .unknown;
+}
+
+fn handleSimpleField(trimmed: []const u8, lsk: *LSK) !void {
+    switch (fromPrefix(trimmed)) {
+        .deltaTA => lsk.delta_t_a = parseFloatFromAssignment(trimmed) catch return LSKError.ParseError,
+        .k => lsk.k = parseFloatFromAssignment(trimmed) catch return LSKError.ParseError,
+        .eb => lsk.eb = parseFloatFromAssignment(trimmed) catch return LSKError.ParseError,
+        .m => parseMFromAssignment(trimmed, &lsk.m) catch return LSKError.ParseError,
+        .unknown => {},
+    }
+}
+
+fn handleDeltaAt(trimmed: []const u8, lines: *std.mem.SplitIterator(u8, .any), lsk: *LSK, allocator: std.mem.Allocator, inDataSection: *bool) !void {
+    var fullLine: std.ArrayList(u8) = .{};
+    defer fullLine.deinit(allocator);
+
+    try fullLine.appendSlice(allocator, trimmed);
+    var assignmentProcessed = false;
+
+    while (lines.next()) |continuationLine| {
+        const continuationTrimmed = std.mem.trim(u8, continuationLine, " \t\r\n");
+        if (continuationTrimmed.len == 0) continue;
+        if (continuationLine.len > 0 and (continuationLine[0] == ' ' or continuationLine[0] == '\t')) {
+            try fullLine.appendSlice(allocator, " ");
+            try fullLine.appendSlice(allocator, continuationTrimmed);
+        } else {
+            parseDeltaAtFromAssignment(fullLine.items, &lsk.leap_seconds, allocator) catch return LSKError.ParseError;
+            assignmentProcessed = true;
+            if (std.mem.eql(u8, continuationTrimmed, "\\\\begintext")) {
+                inDataSection.* = false;
+                break;
+            }
+            break;
+        }
+    }
+    if (!assignmentProcessed and fullLine.items.len > 0) {
+        parseDeltaAtFromAssignment(fullLine.items, &lsk.leap_seconds, allocator) catch return LSKError.ParseError;
     }
 }
 
