@@ -25,6 +25,8 @@
     - [x] Phase Maneuvers
     - [x] Plane Change Maneuvers
 - [x] Orientation Determination
+- [ ] SPICE Kernel Parsing
+    - [x] LSK
 
 #### Astronomical
 
