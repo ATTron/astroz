@@ -8,7 +8,7 @@ pub fn main() !void {
     defer _ = dbga.deinit();
     const allocator = dbga.allocator();
 
-    const configFile = try std.fs.cwd().readFileAlloc(allocator, "examples/create_ccsds_packet_config.json", 512);
+    const configFile = try std.fs.cwd().readFileAlloc("examples/create_ccsds_packet_config.json", allocator, .limited(512));
     defer allocator.free(configFile);
 
     const config = try Ccsds.parseConfig(configFile, allocator);
