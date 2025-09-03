@@ -45,14 +45,7 @@ pub fn Parser(comptime Frame: type) type {
             syncPattern: ?[]const u8,
             callback: ?fn (Frame) void,
         ) !void {
-            const file = try std.fs.cwd().openFile(fileName, .{});
-            defer file.close();
-
-            const stat = try file.stat();
-            var fileContent = try file.readToEndAlloc(
-                self.allocator,
-                stat.size,
-            );
+            var fileContent = try std.fs.cwd().readFileAlloc(fileName, self.allocator, .unlimited);
             defer self.allocator.free(fileContent);
 
             std.log.debug("type of Frame is: {s}", .{@typeName(Frame)});
