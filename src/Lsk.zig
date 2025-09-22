@@ -1,9 +1,9 @@
-//! SPICE file structure
+//! LSK file structure
 const std = @import("std");
 const log = std.log;
 const ArrayList = std.ArrayList;
 
-pub const Spice = @This();
+pub const Lsk = @This();
 
 const FieldType = enum {
     deltaTA,
@@ -25,29 +25,19 @@ pub const LeapSecondEntry = struct {
     jd_utc: f64,
 };
 
-pub const LSK = struct {
-    delta_t_a: f64,
-    k: f64,
-    eb: f64,
-    m: [2]f64,
-    leap_seconds: ArrayList(LeapSecondEntry),
-    allocator: std.mem.Allocator,
+delta_t_a: f64,
+k: f64,
+eb: f64,
+m: [2]f64,
+leap_seconds: ArrayList(LeapSecondEntry),
+allocator: std.mem.Allocator,
 
-    pub fn deinit(self: *LSK) void {
-        self.leap_seconds.deinit(self.allocator);
-    }
-};
-
-lsk: ?LSK,
-
-pub fn new(lsk: LSK) Spice {
-    return .{
-        .lsk = lsk,
-    };
+pub fn deinit(self: *Lsk) void {
+    self.leap_seconds.deinit(self.allocator);
 }
 
-pub fn parseLSK(allocator: std.mem.Allocator, content: []const u8) LSKError!LSK {
-    var lsk = LSK{
+pub fn parseLsk(allocator: std.mem.Allocator, content: []const u8) LSKError!Lsk {
+    var lsk = Lsk{
         .delta_t_a = 0,
         .k = 0,
         .eb = 0,
@@ -158,7 +148,7 @@ fn fromPrefix(trimmed_line: []const u8) FieldType {
     return .unknown;
 }
 
-fn handleSimpleField(trimmed: []const u8, lsk: *LSK) !void {
+fn handleSimpleField(trimmed: []const u8, lsk: *Lsk) !void {
     switch (fromPrefix(trimmed)) {
         .deltaTA => lsk.delta_t_a = parseFloatFromAssignment(trimmed) catch return LSKError.ParseError,
         .k => lsk.k = parseFloatFromAssignment(trimmed) catch return LSKError.ParseError,
@@ -168,7 +158,7 @@ fn handleSimpleField(trimmed: []const u8, lsk: *LSK) !void {
     }
 }
 
-fn handleDeltaAt(trimmed: []const u8, lines: *std.mem.SplitIterator(u8, .any), lsk: *LSK, allocator: std.mem.Allocator, inDataSection: *bool) !void {
+fn handleDeltaAt(trimmed: []const u8, lines: *std.mem.SplitIterator(u8, .any), lsk: *Lsk, allocator: std.mem.Allocator, inDataSection: *bool) !void {
     var fullLine: std.ArrayList(u8) = .{};
     defer fullLine.deinit(allocator);
 
@@ -196,12 +186,12 @@ fn handleDeltaAt(trimmed: []const u8, lines: *std.mem.SplitIterator(u8, .any), l
     }
 }
 
-test "LSK parser basic functionality" {
+test "Lsk parser basic functionality" {
     const testing = std.testing;
     const allocator = testing.allocator;
 
     const sample_lsk =
-        \\KPL/LSK
+        \\KPL/Lsk
         \\
         \\LEAPSECONDS KERNEL FILE
         \\
@@ -219,7 +209,7 @@ test "LSK parser basic functionality" {
         \\\\begintext
     ;
 
-    var lsk = try parseLSK(allocator, sample_lsk);
+    var lsk = try parseLsk(allocator, sample_lsk);
     defer lsk.deinit();
 
     try testing.expectEqual(@as(f64, 32.184), lsk.delta_t_a);
@@ -230,26 +220,26 @@ test "LSK parser basic functionality" {
     try testing.expectEqual(@as(usize, 3), lsk.leap_seconds.items.len);
 }
 
-test "LSK parser error handling" {
+test "Lsk parser error handling" {
     const testing = std.testing;
     const allocator = testing.allocator;
 
     const invalid_lsk = "invalid content";
-    var lsk = try parseLSK(allocator, invalid_lsk);
+    var lsk = try parseLsk(allocator, invalid_lsk);
     defer lsk.deinit();
 
     try testing.expectEqual(@as(f64, 0), lsk.delta_t_a);
     try testing.expectEqual(@as(usize, 0), lsk.leap_seconds.items.len);
 }
 
-test "LSK parse float from assignment" {
+test "Lsk parse float from assignment" {
     const testing = std.testing;
 
     try testing.expectEqual(@as(f64, 32.184), try parseFloatFromAssignment("DELTET/DELTA_T_A = 32.184"));
     try testing.expectApproxEqRel(@as(f64, 1.657e-3), try parseFloatFromAssignment("DELTET/K = 1.657D-3"), 1e-10);
 }
 
-test "LSK parse M values" {
+test "Lsk parse M values" {
     const testing = std.testing;
     var m: [2]f64 = undefined;
 
