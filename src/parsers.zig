@@ -145,8 +145,10 @@ pub fn Parser(comptime Frame: type) type {
 
             var incomingBuffer = std.mem.zeroes([1024]u8);
             while (!self.shouldStop) {
-                _ = try stream.read(&incomingBuffer);
-                const newFrame = try Frame.init(&incomingBuffer, self.allocator, null);
+                const bytesRead = try stream.read(&incomingBuffer);
+                if (bytesRead == 0) continue;
+                
+                const newFrame = Frame.init(incomingBuffer[0..bytesRead], self.allocator, null) catch continue;
                 std.log.debug("message received: {any}", .{newFrame});
                 _ = try self.packets.append(self.allocator, newFrame);
                 if (callback != null) {
@@ -291,7 +293,7 @@ test "Vita49 Parser Test" {
         }.run, .{&par_test});
         defer t3.join();
     }
-    try std.testing.expectEqual(7, par_test.packets.capacity);
+    try std.testing.expectEqual(5, par_test.packets.items.len);
 }
 
 test "Vita49 Parser Test w/ Callback" {
@@ -323,7 +325,7 @@ test "Vita49 Parser Test w/ Callback" {
         }.run, .{&par_test});
         defer t3.join();
     }
-    try std.testing.expectEqual(7, par_test.packets.capacity);
+    try std.testing.expectEqual(5, par_test.packets.items.len);
 }
 
 test "CCSDS Parser Test" {
@@ -355,5 +357,5 @@ test "CCSDS Parser Test" {
         }.run, .{&par_test});
         defer t3.join();
     }
-    try std.testing.expectEqual(7, par_test.packets.capacity);
+    try std.testing.expectEqual(5, par_test.packets.items.len);
 }
