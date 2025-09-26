@@ -147,7 +147,7 @@ pub fn Parser(comptime Frame: type) type {
             while (!self.shouldStop) {
                 const bytesRead = try stream.read(&incomingBuffer);
                 if (bytesRead == 0) continue;
-                
+
                 const newFrame = Frame.init(incomingBuffer[0..bytesRead], self.allocator, null) catch continue;
                 std.log.debug("message received: {any}", .{newFrame});
                 _ = try self.packets.append(self.allocator, newFrame);
