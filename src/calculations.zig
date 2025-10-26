@@ -280,6 +280,7 @@ pub fn transposeMatrix(m: [3][3]f64) [3][3]f64 {
     };
 }
 
+// TODO: this can probably be improved somehow
 pub fn matrixToQuaternion(m: [3][3]f64) [4]f64 {
     var q: [4]f64 = undefined;
     const trace = m[0][0] + m[1][1] + m[2][2];
