@@ -121,6 +121,7 @@ const Precess = struct {
     M: f64,
     N: f64,
 
+    // TODO: clean up magic numbers
     pub fn init(datetime: Datetime) Precess {
         const t = @as(f64, @floatFromInt(datetime.year.?)) + calculateDoyPercentage(datetime);
         const T = (t - constants.j2k) / 100.0;

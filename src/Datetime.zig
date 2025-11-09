@@ -16,26 +16,66 @@ seconds: ?f16,
 
 /// for dates only
 pub fn initDate(year: u16, month: u8, day: u8) Datetime {
-    var dt = Datetime{ .instant = null, .doy = null, .daysInYear = 365, .year = year, .month = month, .day = day, .hours = null, .minutes = null, .seconds = null };
+    var dt = Datetime{
+        .instant = null,
+        .doy = null,
+        .daysInYear = 365,
+        .year = year,
+        .month = month,
+        .day = day,
+        .hours = null,
+        .minutes = null,
+        .seconds = null,
+    };
     dt.calculateDoy();
     return dt;
 }
 
 /// for times only
 pub fn initTime(hours: u8, minutes: u8, seconds: f16) Datetime {
-    return .{ .instant = null, .doy = null, .daysInYear = 365, .year = null, .month = null, .day = null, .hours = hours, .minutes = minutes, .seconds = seconds };
+    return .{
+        .instant = null,
+        .doy = null,
+        .daysInYear = 365,
+        .year = null,
+        .month = null,
+        .day = null,
+        .hours = hours,
+        .minutes = minutes,
+        .seconds = seconds,
+    };
 }
 
 /// if you have a full timestamp
 pub fn initDatetime(year: u16, month: u8, day: u8, hours: u8, minutes: u8, seconds: f16) Datetime {
-    var dt = Datetime{ .instant = null, .doy = null, .daysInYear = 365, .year = year, .month = month, .day = day, .hours = hours, .minutes = minutes, .seconds = seconds };
+    var dt = Datetime{
+        .instant = null,
+        .doy = null,
+        .daysInYear = 365,
+        .year = year,
+        .month = month,
+        .day = day,
+        .hours = hours,
+        .minutes = minutes,
+        .seconds = seconds,
+    };
     dt.calculateDoy();
     return dt;
 }
 
 /// if you want an Instant converted
 pub fn fromInstant(instant: std.time.Instant) Datetime {
-    var newDt = Datetime{ .instant = instant, .doy = null, .daysInYear = 365, .year = null, .month = null, .day = null, .hours = null, .minutes = null, .seconds = null };
+    var newDt = Datetime{
+        .instant = instant,
+        .doy = null,
+        .daysInYear = 365,
+        .year = null,
+        .month = null,
+        .day = null,
+        .hours = null,
+        .minutes = null,
+        .seconds = null,
+    };
     return newDt.epochToDatetime();
 }
 

@@ -38,7 +38,13 @@ pub const MissionParameters = struct {
     arrivalTime: ?f64,
     transferType: []const u8,
 
-    pub fn init(departureBody: constants.CelestialBody, arrivalBody: constants.CelestialBody, departureTime: f64, arrivalTime: ?f64, transferType: []const u8) !MissionParameters {
+    pub fn init(
+        departureBody: constants.CelestialBody,
+        arrivalBody: constants.CelestialBody,
+        departureTime: f64,
+        arrivalTime: ?f64,
+        transferType: []const u8,
+    ) !MissionParameters {
         if (departureTime < 0) {
             return ValidationError.ValueError;
         }
@@ -216,6 +222,7 @@ pub fn planetaryPositions(self: *Mission, tYears: f64) std.ArrayList(PlanetaryPo
     return positions;
 }
 
+// TODO: assumes earth centric, eventually make this more flexible
 pub fn planMission(self: *Mission, params: MissionParameters) void {
     const rDeparture = params.departureBody.semiMajorAxis * 1000;
     const rArrival = params.arrivalBody.semiMajorAxis * 1000;
@@ -259,7 +266,13 @@ test "mission planning Earth-Mars transfer" {
 
     const orbitalMechanics = OrbitalMechanics.init(constants.sun.mu, constants.sun);
 
-    const params = try MissionParameters.init(constants.earth, constants.mars, 365.0, null, "hohmann");
+    const params = try MissionParameters.init(
+        constants.earth,
+        constants.mars,
+        365.0,
+        null,
+        "hohmann",
+    );
 
     var mission = Mission.init(ta, params, orbitalMechanics);
     defer mission.deinit();
@@ -293,7 +306,13 @@ test "mission planning parameter validation" {
         null, "hohmann"));
 
     // Zero time should be valid for examples/demonstrations
-    const validParams = try MissionParameters.init(constants.earth, constants.mars, 0.0, null, "hohmann");
+    const validParams = try MissionParameters.init(
+        constants.earth,
+        constants.mars,
+        0.0,
+        null,
+        "hohmann",
+    );
     try testing.expectEqual(@as(f64, 0.0), validParams.departureTime);
 }
 
@@ -372,7 +391,13 @@ test "propagate transfer for different planetary pairs" {
     try testing.expect(marsCount > 0);
     try testing.expect(transferCount > 0);
 
-    const marsJupiterParams = try MissionParameters.init(constants.mars, constants.jupiter, 0.0, null, "hohmann");
+    const marsJupiterParams = try MissionParameters.init(
+        constants.mars,
+        constants.jupiter,
+        0.0,
+        null,
+        "hohmann",
+    );
     var marsJupiterMission = Mission.init(ta, marsJupiterParams, orbitalMechanics);
     defer marsJupiterMission.deinit();
 
@@ -391,7 +416,13 @@ test "propagate transfer for different planetary pairs" {
     try testing.expect(marsJupiterCount > 0);
     try testing.expect(jupiterCount > 0);
 
-    const venusEarthParams = try MissionParameters.init(constants.venus, constants.earth, 0.0, null, "hohmann");
+    const venusEarthParams = try MissionParameters.init(
+        constants.venus,
+        constants.earth,
+        0.0,
+        null,
+        "hohmann",
+    );
     var venusEarthMission = Mission.init(ta, venusEarthParams, orbitalMechanics);
     defer venusEarthMission.deinit();
 
@@ -416,7 +447,13 @@ test "propagate transfer trajectory validation" {
     const ta = std.testing.allocator;
 
     const orbitalMechanics = OrbitalMechanics.init(constants.sun.mu, constants.sun);
-    const params = try MissionParameters.init(constants.earth, constants.mars, 0.0, null, "hohmann");
+    const params = try MissionParameters.init(
+        constants.earth,
+        constants.mars,
+        0.0,
+        null,
+        "hohmann",
+    );
     var mission = Mission.init(ta, params, orbitalMechanics);
     defer mission.deinit();
 
@@ -475,7 +512,11 @@ test "Lambert solver integration" {
 
     // place mars at 45 degrees ahead in its orbit for a realistic transfer scenario
     const marsAngle = std.math.pi / 4.0; // 45 degrees
-    const marsPos = calculations.Vector3D.new(constants.mars.semiMajorAxis * @cos(marsAngle), constants.mars.semiMajorAxis * @sin(marsAngle), 0.0);
+    const marsPos = calculations.Vector3D.new(
+        constants.mars.semiMajorAxis * @cos(marsAngle),
+        constants.mars.semiMajorAxis * @sin(marsAngle),
+        0.0,
+    );
 
     // approximate transfer time for Hohmann transfer to Mars (~259 days)
     const transferTime = 259.0 * 24.0 * 3600.0;

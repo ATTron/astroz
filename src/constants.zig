@@ -32,7 +32,27 @@ pub const CelestialBody = struct {
     scaleHeight: f64,
     rotationRate: f64, // rad/s
 
-    fn init(name: []const u8, mass: f64, mu: f64, mFractionSolarSystem: f64, mRadius: ?f64, eqRadius: ?f64, pRadius: ?f64, semiMajorAxis: ?f64, perihelion: ?f64, aphelion: ?f64, period: ?f64, velocity: ?f64, eccentricity: ?f64, inclination: ?f64, oblateness: ?f64, j2Perturbation: f64, seaLevelDensity: f64, scaleHeight: f64, rotationRate: f64) CelestialBody {
+    fn init(
+        name: []const u8,
+        mass: f64,
+        mu: f64,
+        mFractionSolarSystem: f64,
+        mRadius: ?f64,
+        eqRadius: ?f64,
+        pRadius: ?f64,
+        semiMajorAxis: ?f64,
+        perihelion: ?f64,
+        aphelion: ?f64,
+        period: ?f64,
+        velocity: ?f64,
+        eccentricity: ?f64,
+        inclination: ?f64,
+        oblateness: ?f64,
+        j2Perturbation: f64,
+        seaLevelDensity: f64,
+        scaleHeight: f64,
+        rotationRate: f64,
+    ) CelestialBody {
         return .{
             .name = name,
             .mass = mass,

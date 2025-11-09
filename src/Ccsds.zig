@@ -51,7 +51,14 @@ pub fn init(pl: []const u8, allocator: std.mem.Allocator, config: ?Config) !Ccsd
 
     _ = allocator.resize(rawPackets, end);
 
-    return .{ .header = header, .primaryHeader = primaryHeader, .secondaryHeader = secondaryHeader, .packets = packets, .rawData = rawPackets, .allocator = allocator };
+    return .{
+        .header = header,
+        .primaryHeader = primaryHeader,
+        .secondaryHeader = secondaryHeader,
+        .packets = packets,
+        .rawData = rawPackets,
+        .allocator = allocator,
+    };
 }
 
 pub fn deinit(self: *Ccsds) void {

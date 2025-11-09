@@ -117,12 +117,20 @@ pub fn deinit(self: *Spacecraft) void {
 }
 
 pub fn updateAttitude(self: *Spacecraft) void {
-    const attitudeMatrix = calculations.triad(self.bodyVectors[0], self.bodyVectors[1], self.referenceVectors[0], self.referenceVectors[1]);
+    const attitudeMatrix = calculations.triad(
+        self.bodyVectors[0],
+        self.bodyVectors[1],
+        self.referenceVectors[0],
+        self.referenceVectors[1],
+    );
     self.quaternion = calculations.matrixToQuaternion(attitudeMatrix);
 }
 
 pub fn propagateAttitude(self: *Spacecraft, dt: f64) void {
-    const state = calculations.AttitudeState{ .quaternion = self.quaternion, .angularVelocity = self.angularVelocity };
+    const state = calculations.AttitudeState{
+        .quaternion = self.quaternion,
+        .angularVelocity = self.angularVelocity,
+    };
     const newState = rk4Attitude(self, state, dt);
     self.quaternion = newState.quaternion;
     self.angularVelocity = newState.angularVelocity;
@@ -250,7 +258,14 @@ fn rk4Attitude(spacecraft: *Spacecraft, state: calculations.AttitudeState, dt: f
     const k3 = attitudeDerivative(spacecraft, calculations.addScaledAttitudeState(state, k2, 0.5 * dt));
     const k4 = attitudeDerivative(spacecraft, calculations.addScaledAttitudeState(state, k3, dt));
 
-    return calculations.addScaledAttitudeState(state, calculations.addAttitudeStates(calculations.addAttitudeStates(k1, calculations.scaleAttitudeState(k2, 2)), calculations.addAttitudeStates(calculations.scaleAttitudeState(k3, 2), k4)), dt / 6.0);
+    return calculations.addScaledAttitudeState(
+        state,
+        calculations.addAttitudeStates(
+            calculations.addAttitudeStates(k1, calculations.scaleAttitudeState(k2, 2)),
+            calculations.addAttitudeStates(calculations.scaleAttitudeState(k3, 2), k4),
+        ),
+        dt / 6.0,
+    );
 }
 
 fn attitudeDerivative(spacecraft: *Spacecraft, state: calculations.AttitudeState) calculations.AttitudeState {
@@ -352,7 +367,14 @@ test "init spacecraft" {
     var test_tle = try Tle.parse(raw_tle, std.testing.allocator);
     defer test_tle.deinit();
 
-    var test_sc = Spacecraft.init("dummy_sc", test_tle, 300.000, SatelliteSize.Cube, constants.earth, std.testing.allocator);
+    var test_sc = Spacecraft.init(
+        "dummy_sc",
+        test_tle,
+        300.000,
+        SatelliteSize.Cube,
+        constants.earth,
+        std.testing.allocator,
+    );
     defer test_sc.deinit();
 
     try test_sc.propagate(
@@ -390,7 +412,14 @@ test "prop spacecraft w/ impulse" {
     var test_tle = try Tle.parse(raw_tle, std.testing.allocator);
     defer test_tle.deinit();
 
-    var test_sc = Spacecraft.init("dummy_sc", test_tle, 300.000, SatelliteSize.Cube, constants.earth, std.testing.allocator);
+    var test_sc = Spacecraft.init(
+        "dummy_sc",
+        test_tle,
+        300.000,
+        SatelliteSize.Cube,
+        constants.earth,
+        std.testing.allocator,
+    );
     defer test_sc.deinit();
 
     const impulses = [_]Impulse{
@@ -421,7 +450,14 @@ test "prop spacecraft w/ phase" {
     var test_tle = try Tle.parse(raw_tle, std.testing.allocator);
     defer test_tle.deinit();
 
-    var test_sc = Spacecraft.init("dummy_sc", test_tle, 300.000, SatelliteSize.Cube, constants.earth, std.testing.allocator);
+    var test_sc = Spacecraft.init(
+        "dummy_sc",
+        test_tle,
+        300.000,
+        SatelliteSize.Cube,
+        constants.earth,
+        std.testing.allocator,
+    );
     defer test_sc.deinit();
 
     const phase_maneuver = Impulse{
@@ -467,7 +503,14 @@ test "prop spacecraft w/ plane change" {
     var test_tle = try Tle.parse(raw_tle, std.testing.allocator);
     defer test_tle.deinit();
 
-    var test_sc = Spacecraft.init("dummy_sc", test_tle, 300.000, SatelliteSize.Cube, constants.earth, std.testing.allocator);
+    var test_sc = Spacecraft.init(
+        "dummy_sc",
+        test_tle,
+        300.000,
+        SatelliteSize.Cube,
+        constants.earth,
+        std.testing.allocator,
+    );
     defer test_sc.deinit();
 
     const plane_change_maneuver = Impulse{
@@ -515,7 +558,14 @@ test "orientation determination testing" {
     ;
     var test_tle = try Tle.parse(raw_tle, std.testing.allocator);
     defer test_tle.deinit();
-    var spacecraft = Spacecraft.init("dummy_sc", test_tle, 300.000, SatelliteSize.Cube, constants.earth, std.testing.allocator);
+    var spacecraft = Spacecraft.init(
+        "dummy_sc",
+        test_tle,
+        300.000,
+        SatelliteSize.Cube,
+        constants.earth,
+        std.testing.allocator,
+    );
 
     spacecraft.angularVelocity = .{ 0.1, 0.05, 0.02 };
 
@@ -569,7 +619,14 @@ test "orientation determination with dramatic changes" {
     ;
     var test_tle = try Tle.parse(raw_tle, std.testing.allocator);
     defer test_tle.deinit();
-    var spacecraft = Spacecraft.init("dummy_sc", test_tle, 300.000, SatelliteSize.Cube, constants.earth, std.testing.allocator);
+    var spacecraft = Spacecraft.init(
+        "dummy_sc",
+        test_tle,
+        300.000,
+        SatelliteSize.Cube,
+        constants.earth,
+        std.testing.allocator,
+    );
     defer spacecraft.deinit();
 
     // Initial angular velocity
