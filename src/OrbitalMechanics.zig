@@ -54,7 +54,15 @@ pub const BiEllipticTransferResult = struct {
     totalTime: f64,
     totalTimeDays: f64,
 
-    pub fn init(semiMajorAxis: f64, deltaV1: f64, deltaV2: f64, deltaV3: f64, totalDeltaV: f64, totalTime: f64, totalTimeDays: f64) !BiEllipticTransferResult {
+    pub fn init(
+        semiMajorAxis: f64,
+        deltaV1: f64,
+        deltaV2: f64,
+        deltaV3: f64,
+        totalDeltaV: f64,
+        totalTime: f64,
+        totalTimeDays: f64,
+    ) !BiEllipticTransferResult {
         return .{
             .semiMajorAxis = semiMajorAxis,
             .deltaV1 = deltaV1,
