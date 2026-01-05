@@ -7,11 +7,12 @@ pub fn main() !void {
     var dbga = std.heap.DebugAllocator(.{}).init;
     defer _ = dbga.deinit();
     const allocator = dbga.allocator();
+    const io = std.Io.Threaded.global_single_threaded.ioBasic();
 
     const fileName = "./test/ccsds.bin".*;
 
     const P = Parser(Ccsds);
-    var parser = try P.init(null, null, 1024, allocator);
+    var parser = try P.init(null, null, 1024, io, allocator);
     defer parser.deinit();
 
     _ = try parser.parseFromFile(&fileName, null, null);

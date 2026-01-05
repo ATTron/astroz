@@ -1,15 +1,17 @@
 const std = @import("std");
 const zignal = @import("zignal");
+const Rgba = zignal.Rgba(u8);
 const cfitsio = @import("cfitsio").c;
 
 const Fits = @This();
 
 allocator: std.mem.Allocator,
+io: std.Io,
 fptr: ?*cfitsio.fitsfile,
 file_path: []const u8,
 hdus: []HduInfo,
 
-pub fn open(file_path: []const u8, allocator: std.mem.Allocator) !Fits {
+pub fn open(file_path: []const u8, io: std.Io, allocator: std.mem.Allocator) !Fits {
     var status: c_int = 0;
     var fptr: ?*cfitsio.fitsfile = null;
     _ = cfitsio.fits_open_file(&fptr, file_path.ptr, cfitsio.READONLY, &status);
@@ -41,16 +43,18 @@ pub fn open(file_path: []const u8, allocator: std.mem.Allocator) !Fits {
             },
         };
     }
+
     return Fits{
         .allocator = allocator,
         .fptr = fptr,
+        .io = io,
         .file_path = file_path,
         .hdus = hdus,
     };
 }
 
-pub fn open_and_parse(file_path: []const u8, allocator: std.mem.Allocator, options: ParseOptions) !Fits {
-    var fits_file = try Fits.open(file_path, allocator);
+pub fn open_and_parse(file_path: []const u8, io: std.Io, allocator: std.mem.Allocator, options: ParseOptions) !Fits {
+    var fits_file = try Fits.open(file_path, io, allocator);
     var image_count: usize = 0;
     var ascii_table_count: usize = 0;
     var binary_table_count: usize = 0;
@@ -122,7 +126,7 @@ pub fn readTable(self: *Fits, hdu_number: c_int, output_path: ?[]const u8) !void
         return FitsError.ReadError;
     }
     std.log.debug("Table has {d} rows and {d} columns\n", .{ rows, cols });
-    var file: std.fs.File = undefined;
+    var file: std.Io.File = undefined;
 
     const input_path = self.file_path;
     const file_name = std.fs.path.stem(std.fs.path.basename(input_path));
@@ -134,15 +138,15 @@ pub fn readTable(self: *Fits, hdu_number: c_int, output_path: ?[]const u8) !void
     var output_path_buffer: [std.fs.max_path_bytes]u8 = undefined;
     if (output_path) |op| {
         const output = try std.fmt.bufPrint(&output_path_buffer, "{s}/{s}.csv", .{ file_name, op });
-        file = try std.fs.cwd().createFile(output, .{});
+        file = try std.Io.Dir.cwd().createFile(self.io, output, .{});
     } else {
         const output = try std.fmt.bufPrint(&output_path_buffer, "{s}/{s}.csv", .{ file_name, file_name });
-        file = try std.fs.cwd().createFile(output, .{});
+        file = try std.Io.Dir.cwd().createFile(self.io, output, .{});
     }
 
-    defer file.close();
+    defer file.close(self.io);
     var write_buffer: [4096]u8 = undefined;
-    var file_writer = file.writer(&write_buffer);
+    var file_writer = file.writer(self.io, &write_buffer);
     var buffered = &file_writer.interface;
 
     // Write column headers
@@ -315,11 +319,11 @@ pub fn readImageAsTable(self: *Fits, hdu_number: c_int, output_path: ?[]const u8
         else
             try std.fmt.bufPrint(&output_path_buffer, "{s}/{s}_image_data.csv", .{ file_name, file_name });
 
-        const file = try std.fs.cwd().createFile(output, .{});
-        defer file.close();
+        const file = try std.Io.Dir.cwd().createFile(self.io, output, .{});
+        defer file.close(self.io);
 
         var write_buffer: [4096]u8 = undefined;
-        var file_writer = file.writer(&write_buffer);
+        var file_writer = file.writer(self.io, &write_buffer);
         var buffered = &file_writer.interface;
 
         try buffered.writeAll("x,y,value\n");
@@ -348,7 +352,8 @@ fn applyStretch(self: *Fits, pixels: []f32, width: usize, height: usize, output_
     const vmin = sorted_pixels[vmin_idx];
     const vmax = sorted_pixels[vmax_idx];
 
-    var image: zignal.Image(zignal.Rgb) = try .initAlloc(self.allocator, height, width);
+    // var image: zignal.Image(zignal.Rgb) = try .initAlloc(self.allocator, height, width);
+    var image: zignal.Image(Rgba) = try .init(self.allocator, height, width);
     defer image.deinit(self.allocator);
     std.debug.assert(image.data.len == pixels.len);
 
@@ -374,10 +379,10 @@ fn applyStretch(self: *Fits, pixels: []f32, width: usize, height: usize, output_
     var output_path_buffer: [std.fs.max_path_bytes]u8 = undefined;
     if (output_path) |op| {
         const output = try std.fmt.bufPrint(&output_path_buffer, "{s}/{s}.png", .{ file_name, op });
-        try image.save(self.allocator, output);
+        try image.save(self.io, self.allocator, output);
     } else {
         const output = try std.fmt.bufPrint(&output_path_buffer, "{s}/{s}.png", .{ file_name, file_name });
-        try image.save(self.allocator, output);
+        try image.save(self.io, self.allocator, output);
     }
 }
 
@@ -392,14 +397,13 @@ inline fn applyColorMap(value: f32) [3]f32 {
 }
 
 fn createDirectoryIfNotExists(dir_name: []const u8) !void {
-    std.fs.cwd().makeDir(dir_name) catch |err| {
+    const io = std.Io.Threaded.global_single_threaded.ioBasic();
+    std.Io.Dir.cwd().createDir(io, dir_name, .default_dir) catch |err| {
         switch (err) {
             error.PathAlreadyExists => {
-                // Directory already exists, which is fine
                 return;
             },
             else => {
-                // For any other error, we return it
                 return err;
             },
         }
@@ -449,29 +453,31 @@ pub const FitsTableInfo = struct {
 test Fits {
     const test_file_png = "sample_fits/image_1.png";
     const test_file_table = "sample_fits/ascii_table_1.csv";
-    var fits_png = try Fits.open_and_parse("test/sample_fits.fits", std.testing.allocator, .{ .createImages = true });
+    const io = std.Io.Threaded.global_single_threaded.ioBasic();
+    var fits_png = try Fits.open_and_parse("test/sample_fits.fits", io, std.testing.allocator, .{ .createImages = true });
     defer fits_png.close();
 
-    var file = try std.fs.cwd().openFile(test_file_png, .{});
+    var file = try std.Io.Dir.cwd().openFile(io, test_file_png, .{});
 
-    var stat = try file.stat();
+    var stat = try file.stat(io);
     try std.testing.expect(stat.size > 0);
 
-    file = try std.fs.cwd().openFile(test_file_table, .{});
-    defer file.close();
+    file = try std.Io.Dir.cwd().openFile(io, test_file_table, .{});
+    defer file.close(io);
 
-    stat = try file.stat();
+    stat = try file.stat(io);
     try std.testing.expect(stat.size > 0);
 }
 
 test "Read FITS table" {
+    const io = std.Io.Threaded.global_single_threaded.ioBasic();
     const test_file_table = "small/binary_table_1.csv";
-    var fits_file = try Fits.open_and_parse("test/small.fits", std.testing.allocator, .{});
+    var fits_file = try Fits.open_and_parse("test/small.fits", io, std.testing.allocator, .{});
     defer fits_file.close();
 
-    var file = try std.fs.cwd().openFile(test_file_table, .{});
-    defer file.close();
+    var file = try std.Io.Dir.cwd().openFile(io, test_file_table, .{});
+    defer file.close(io);
 
-    const stat = try file.stat();
+    const stat = try file.stat(io);
     try std.testing.expect(stat.size > 0);
 }

@@ -8,7 +8,7 @@ const Vector3D = calculations.Vector3D;
 const constants = @import("constants.zig");
 const CelestialBody = constants.CelestialBody;
 
-pub const ValidationError = error{ InvalidDeltaV, ValueError };
+pub const ValidationError = error{ InvalidDeltaV, InvalidDistance, InvalidSMA, ValueError };
 
 const OrbitalMechanics = @This();
 
@@ -86,10 +86,10 @@ pub fn init(mu: f64, centralBody: CelestialBody) OrbitalMechanics {
 }
 
 /// calculate orbital velocity
-pub fn orbitalVelocity(self: *OrbitalMechanics, r: f64, a: ?f64) f64 {
+pub fn orbitalVelocity(self: *OrbitalMechanics, r: f64, a: ?f64) ValidationError!f64 {
     if (r <= 0) {
         log.warn("Distance cannot be negative: {d}", .{r});
-        return 0;
+        return ValidationError.InvalidDistance;
     }
 
     if (a == null) {
@@ -98,26 +98,27 @@ pub fn orbitalVelocity(self: *OrbitalMechanics, r: f64, a: ?f64) f64 {
         const sma = a.?;
         if (sma <= 0) {
             log.warn("Semi major axis cannot be negative: {d}", .{sma});
-            return 0;
+            return ValidationError.InvalidSMA;
         }
         return @sqrt(self.mu * (2.0 / r - 1.0 / sma));
     }
 }
 
 /// calculate orbital period
-pub fn orbitalPeriod(self: *OrbitalMechanics, a: f64) f64 {
+pub fn orbitalPeriod(self: *OrbitalMechanics, a: f64) ValidationError!f64 {
     if (a <= 0) {
         log.warn("Semi major axis cannot be negative: {d}", .{a});
-        return 0;
+        return ValidationError.InvalidSMA;
     }
 
     return 2.0 * std.math.pi * @sqrt((a * a * a) / self.mu);
 }
 
 /// calculate escape velocity from a given radius
-pub fn escapeVelocity(self: *OrbitalMechanics, r: f64) f64 {
+pub fn escapeVelocity(self: *OrbitalMechanics, r: f64) ValidationError!f64 {
     if (r <= 0) {
         log.warn("Distance cannot be negative: {d}", .{r});
+        return ValidationError.InvalidDistance;
     }
     return @sqrt(2 * self.mu / r);
 }
@@ -170,17 +171,17 @@ pub fn biEllipicTransfer(self: *OrbitalMechanics, r1: f64, r2: f64, rAphelion: f
     }
 
     const a1 = (r1 + rAphelion) / 2;
-    const v1Circular = self.orbitalVelocity(r1, null);
-    const v1Transfer = self.orbitalVelocity(r1, a1);
+    const v1Circular = try self.orbitalVelocity(r1, null);
+    const v1Transfer = try self.orbitalVelocity(r1, a1);
     const deltaV1 = v1Transfer - v1Circular;
 
     const a2 = (r2 + rAphelion) / 2;
-    const vAphelion1 = self.orbitalVelocity(rAphelion, a1);
-    const vAphelion2 = self.orbitalVelocity(rAphelion, a2);
+    const vAphelion1 = try self.orbitalVelocity(rAphelion, a1);
+    const vAphelion2 = try self.orbitalVelocity(rAphelion, a2);
     const deltaV2 = vAphelion2 - vAphelion1;
 
-    const v2Circular = self.orbitalVelocity(r2, null);
-    const v2Transfer = self.orbitalVelocity(r2, a2);
+    const v2Circular = try self.orbitalVelocity(r2, null);
+    const v2Transfer = try self.orbitalVelocity(r2, a2);
     const deltaV3 = v2Circular - v2Transfer;
 
     const totalDeltaV = @abs(deltaV1) + @abs(deltaV2) + @abs(deltaV3);
