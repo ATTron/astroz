@@ -11,6 +11,7 @@ pub fn Parser(comptime Frame: type) type {
         isRunning: bool = false,
         shouldStop: bool = false,
         packets: std.ArrayList(Frame),
+        io: std.Io,
         allocator: std.mem.Allocator,
 
         const Self = @This();
@@ -19,6 +20,7 @@ pub fn Parser(comptime Frame: type) type {
             ipAddress: ?[]const u8,
             port: ?u16,
             bufferSize: u64,
+            io: std.Io,
             allocator: std.mem.Allocator,
         ) !Self {
             return .{
@@ -26,6 +28,7 @@ pub fn Parser(comptime Frame: type) type {
                 .port = port orelse 65432,
                 .bufferSize = bufferSize,
                 .packets = std.ArrayList(Frame){},
+                .io = io,
                 .allocator = allocator,
             };
         }
@@ -45,7 +48,9 @@ pub fn Parser(comptime Frame: type) type {
             syncPattern: ?[]const u8,
             callback: ?fn (Frame) void,
         ) !void {
-            var fileContent = try std.fs.cwd().readFileAlloc(fileName, self.allocator, .unlimited);
+            // var fileContent = try std.fs.cwd().readFileAlloc(fileName, self.allocator, .unlimited);
+            var fileContent = try std.Io.Dir.cwd().readFileAlloc(self.io, fileName, self.allocator, .unlimited);
+
             defer self.allocator.free(fileContent);
 
             std.log.debug("type of Frame is: {s}", .{@typeName(Frame)});
@@ -217,11 +222,12 @@ fn testCallback(packet: Vita49) void {
 }
 
 test "Vita49 Parse From File w/ sync" {
+    const io = std.Io.Threaded.global_single_threaded.ioBasic();
     const file_name = "./test/vita49.bin".*;
     //3a02 0a00 3412 0000 0056
     const sync_pattern = .{ 0x3A, 0x02, 0x0a, 0x00, 0x34, 0x12, 0x00, 0x00, 0x00, 0x56 };
     const P = Parser(Vita49);
-    var parser = try P.init(null, null, 1024, std.testing.allocator);
+    var parser = try P.init(null, null, 1024, io, std.testing.allocator);
     defer parser.deinit();
 
     _ = try parser.parseFromFile(&file_name, &sync_pattern, null);
@@ -231,10 +237,11 @@ test "Vita49 Parse From File w/ sync" {
 }
 
 test "Vita49 Parse From File w/o sync" {
+    const io = std.Io.Threaded.global_single_threaded.ioBasic();
     const file_name = "./test/vita49.bin".*;
     //3a02 0a00 3412 0000 0056
     const P = Parser(Vita49);
-    var parser = try P.init(null, null, 1024, std.testing.allocator);
+    var parser = try P.init(null, null, 1024, io, std.testing.allocator);
     defer parser.deinit();
 
     _ = try parser.parseFromFile(&file_name, null, null);
@@ -244,9 +251,10 @@ test "Vita49 Parse From File w/o sync" {
 }
 
 test "CCSDS Parse From File w/o sync" {
+    const io = std.Io.Threaded.global_single_threaded.ioBasic();
     const file_name = "./test/ccsds.bin".*;
     const P = Parser(Ccsds);
-    var parser = try P.init(null, null, 1024, std.testing.allocator);
+    var parser = try P.init(null, null, 1024, io, std.testing.allocator);
     defer parser.deinit();
 
     const packets = .{ 5, 6, 7, 8, 9, 10 };
@@ -258,11 +266,12 @@ test "CCSDS Parse From File w/o sync" {
 }
 
 test "CCSDS Parse From File w/ sync" {
+    const io = std.Io.Threaded.global_single_threaded.ioBasic();
     const file_name = "./test/ccsds.bin".*;
     // 7897 c000 000a 0102
     const sync_pattern = .{ 0x78, 0x97, 0xC0, 0x00, 0x00, 0x0A, 0x01, 0x02 };
     const P = Parser(Ccsds);
-    var parser = try P.init(null, null, 1024, std.testing.allocator);
+    var parser = try P.init(null, null, 1024, io, std.testing.allocator);
     defer parser.deinit();
 
     const packets = .{ 5, 6, 7, 8, 9, 10 };

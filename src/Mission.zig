@@ -345,18 +345,18 @@ test "planetary orbital mechanics integration" {
     const earthSMA = constants.earth.semiMajorAxis;
 
     var earthOM = OrbitalMechanics.init(constants.sun.mu, constants.sun);
-    const earthVelocity = earthOM.orbitalVelocity(earthSMA, null);
+    const earthVelocity = try earthOM.orbitalVelocity(earthSMA, null);
 
     // average orbital velocity should be ~29.78 km/s
     try testing.expectApproxEqRel(29.78, earthVelocity, 0.01);
 
     const marsSMA = constants.mars.semiMajorAxis; // km
-    const marsVelocity = earthOM.orbitalVelocity(marsSMA, null);
+    const marsVelocity = try earthOM.orbitalVelocity(marsSMA, null);
 
     try testing.expect(marsVelocity < earthVelocity);
     try testing.expect(marsVelocity > 20.0 and marsVelocity < 30.0);
 
-    const calculatedEarthPeriod = earthOM.orbitalPeriod(earthSMA) / (24.0 * 3600.0);
+    const calculatedEarthPeriod = try earthOM.orbitalPeriod(earthSMA) / (24.0 * 3600.0);
     try testing.expectApproxEqRel(earthPeriod, calculatedEarthPeriod, 0.01);
 }
 
