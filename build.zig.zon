@@ -9,8 +9,8 @@
             .hash = "cfitsio-4.6.2-LaSYAD8ZAADmDI5X4e906pIVSb_dmIXrMYhm0PNVondp",
         },
         .zignal = .{
-            .url = "git+https://github.com/bfactory-ai/zignal#b5448b9f62f87cb5a71695b1bf52d9b2a378ee9e",
-            .hash = "zignal-0.10.0-dev-OrZ3s-gSJgBCy-lsn7PIuYM2ijP-H7hEh-lPgWNr3sgZ",
+            .url = "git+https://github.com/bfactory-ai/zignal#c5a319426477a646f512418ea8a819f6956ca7a0",
+            .hash = "zignal-0.10.0-dev-OrZ3s5gNJgBxkM-NSd3r1YM7ejRecanjsTEXpR4FZXul",
         },
     },
     .paths = .{
