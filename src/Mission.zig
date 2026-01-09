@@ -4,7 +4,7 @@ const std = @import("std");
 const log = std.log;
 
 const OrbitalMechanics = @import("OrbitalMechanics.zig");
-const ValidationError = @import("OrbitalMechanics.zig").ValidationError;
+const ValidationError = OrbitalMechanics.ValidationError;
 const constants = @import("constants.zig");
 const calculations = @import("calculations.zig");
 
@@ -15,6 +15,16 @@ pub const TrajectoryPoint = struct {
     body: []const u8,
     position: calculations.Vector3D,
     label: []const u8,
+};
+
+const HohmannTransfer = struct {
+    totalDeltaV: f64,
+    transferTimeDays: f64,
+    arrivalLeadAngle: f64,
+    departureRadius: f64,
+    arrivalRadius: f64,
+    semiMajorAxis: f64,
+    eccentricity: f64,
 };
 
 allocator: std.mem.Allocator,
@@ -72,104 +82,171 @@ pub fn deinit(self: *Mission) void {
     self.trajectoryPredictions.deinit(self.allocator);
 }
 
+pub fn printWaypoints(self: *Mission, limit: ?u8) void {
+    var count: usize = 0;
+    for (self.trajectoryPredictions.items) |point| {
+        if (std.mem.eql(u8, point.label, "waypoint")) {
+            std.debug.print("Day {d:>6.1}: {s} at ({d:>8.0}, {d:>8.0}) km\n", .{
+                point.time,
+                point.body,
+                point.position.x(),
+                point.position.y(),
+            });
+        }
+        if (limit != null and count < limit.?) {
+            count += 1;
+        }
+    }
+}
+
+// TODO: probably want a sane limit of like 100 or something but for now this will just dump everything
+pub fn printTrajectories(self: *Mission, limit: ?u8) void {
+    var count: usize = 0;
+    for (self.trajectoryPredictions.items) |point| {
+        std.debug.print("Day {d:>6.1}: Transfer at ({d:>8.0}, {d:>8.0}) km\n", .{
+            point.time,
+            point.position.x(),
+            point.position.y(),
+        });
+        if (limit != null and count < limit.?) {
+            count += 1;
+        }
+    }
+}
+
+pub fn calculateCircularAndTransfer(mu: f64, r1: f64, r2: f64) struct { f64, f64 } {
+    const circular = @sqrt(mu / r1);
+    const transfer = @sqrt(mu / r1) * @sqrt(2.0 * r2 / (r1 + r2));
+
+    return .{ circular, transfer };
+}
+
+fn calculateHohmannTransfer(
+    departureBody: constants.CelestialBody,
+    arrivalBody: constants.CelestialBody,
+    centralMu: f64,
+) HohmannTransfer {
+    const r1 = departureBody.semiMajorAxis;
+    const r2 = arrivalBody.semiMajorAxis;
+
+    const a = (r1 + r2) / 2.0;
+    const e = (r2 - r1) / (r2 + r1);
+
+    const v1Circular, const v1Transfer = calculateCircularAndTransfer(centralMu, r1, r2);
+    const v2Circular, const v2Transfer = calculateCircularAndTransfer(centralMu, r2, r1);
+
+    const deltaV1 = v1Transfer - v1Circular;
+    const deltaV2 = v2Circular - v2Transfer;
+    const totalDeltaV = @abs(deltaV1) + @abs(deltaV2);
+
+    const transferTime = std.math.pi * @sqrt((a * a * a) / centralMu);
+    const transferTimeDays = transferTime / (24.0 * 3600.0);
+
+    const arrivalAngularVelocity = 2.0 * std.math.pi / arrivalBody.period;
+    const arrivalAngleAtTransfer = arrivalAngularVelocity * transferTimeDays;
+    const arrivalLeadAngle = std.math.pi - arrivalAngleAtTransfer;
+
+    return .{
+        .totalDeltaV = totalDeltaV,
+        .transferTimeDays = transferTimeDays,
+        .arrivalLeadAngle = arrivalLeadAngle,
+        .departureRadius = r1,
+        .arrivalRadius = r2,
+        .semiMajorAxis = a,
+        .eccentricity = e,
+    };
+}
+
+fn logTransferInfo(
+    departureName: []const u8,
+    arrivalName: []const u8,
+    transfer: HohmannTransfer,
+) void {
+    log.info("{s}-{s} Hohmann Transfer:", .{ departureName, arrivalName });
+    log.info("Total Delta-V: {d:.2} km/s", .{transfer.totalDeltaV});
+    log.info("Transfer Time: {d:.1} days", .{transfer.transferTimeDays});
+    log.info("{s} lead angle required: {d:.1} degrees", .{
+        arrivalName,
+        calculations.radiansToDegrees(transfer.arrivalLeadAngle),
+    });
+}
+
 pub fn propagateTransfer(self: *Mission, totalDays: f64, timeStepDays: f64) !void {
+    const transfer = calculateHohmannTransfer(
+        self.parameters.departureBody,
+        self.parameters.arrivalBody,
+        self.orbitalMechanics.centralBody.mu,
+    );
+
+    logTransferInfo(
+        self.parameters.departureBody.name,
+        self.parameters.arrivalBody.name,
+        transfer,
+    );
+
     self.trajectoryPredictions.clearRetainingCapacity();
 
     const departureBody = self.parameters.departureBody;
     const arrivalBody = self.parameters.arrivalBody;
 
-    const departureRadius = departureBody.semiMajorAxis;
-    const arrivalRadius = arrivalBody.semiMajorAxis;
-
-    const departurePeriod = departureBody.period;
-    const arrivalPeriod = arrivalBody.period;
-    const centralMu = self.orbitalMechanics.centralBody.mu;
-    const math = std.math;
-
-    const aTransfer = (departureRadius + arrivalRadius) / 2.0;
-    const v1Circular = @sqrt(centralMu / departureRadius);
-    const v2Circular = @sqrt(centralMu / arrivalRadius);
-    const v1Transfer = @sqrt(centralMu / departureRadius) * @sqrt(2.0 * arrivalRadius / (departureRadius + arrivalRadius));
-    const v2Transfer = @sqrt(centralMu / arrivalRadius) * @sqrt(2.0 * departureRadius / (departureRadius + arrivalRadius));
-
-    const deltaV1 = v1Transfer - v1Circular;
-    const deltaV2 = v2Circular - v2Transfer;
-    const totalDeltaV = @abs(deltaV1) + @abs(deltaV2);
-    const transferTime = math.pi * @sqrt((aTransfer * aTransfer * aTransfer) / centralMu);
-    const transferTimeDays = transferTime / (24.0 * 3600.0);
-
-    log.info("{s}-{s} Hohmann Transfer:", .{ departureBody.name, arrivalBody.name });
-    log.info("Total Delta-V: {d:.2} km/s", .{totalDeltaV});
-    log.info("Transfer Time: {d:.1} days", .{transferTimeDays});
-
-    const arrivalAngularVelocity = 2.0 * math.pi / arrivalPeriod;
-    const arrivalAngleAtTransfer = arrivalAngularVelocity * transferTimeDays;
-    const arrivalLeadAngle = math.pi - arrivalAngleAtTransfer;
-
-    log.info("{s} lead angle required: {d:.1} degrees", .{ arrivalBody.name, arrivalLeadAngle * 180.0 / math.pi });
-
     var day: f64 = 0.0;
     while (day <= totalDays) : (day += timeStepDays) {
-        const departureAngle = (day / departurePeriod) * 2.0 * math.pi;
-        const departureX = departureRadius * @cos(departureAngle);
-        const departureY = departureRadius * @sin(departureAngle);
-        const departurePos = calculations.Vector3D.new(departureX, departureY, 0.0);
+        const departureAngle = (day / departureBody.period) * 2.0 * std.math.pi;
+        const departureX = transfer.departureRadius * @cos(departureAngle);
+        const departureY = transfer.departureRadius * @sin(departureAngle);
 
         try self.trajectoryPredictions.append(self.allocator, TrajectoryPoint{
             .time = day,
             .body = departureBody.name,
-            .position = departurePos,
+            .position = calculations.Vector3D.new(departureX, departureY, 0.0),
             .label = "planet",
         });
 
-        const arrivalAngle = arrivalLeadAngle + (day / arrivalPeriod) * 2.0 * math.pi;
-        const arrivalX = arrivalRadius * @cos(arrivalAngle);
-        const arrivalY = arrivalRadius * @sin(arrivalAngle);
-        const arrivalPos = calculations.Vector3D.new(arrivalX, arrivalY, 0.0);
+        const arrivalAngle = transfer.arrivalLeadAngle + (day / arrivalBody.period) * 2.0 * std.math.pi;
+        const arrivalX = transfer.arrivalRadius * @cos(arrivalAngle);
+        const arrivalY = transfer.arrivalRadius * @sin(arrivalAngle);
 
         try self.trajectoryPredictions.append(self.allocator, TrajectoryPoint{
             .time = day,
             .body = arrivalBody.name,
-            .position = arrivalPos,
+            .position = calculations.Vector3D.new(arrivalX, arrivalY, 0.0),
             .label = "planet",
         });
 
-        if (day <= transferTimeDays) {
-            const transferAngle = (day / transferTimeDays) * math.pi; // 0 to π
-            const a = aTransfer;
-            const e = (arrivalRadius - departureRadius) / (arrivalRadius + departureRadius);
-            const r = a * (1.0 - e * e) / (1.0 + e * @cos(transferAngle));
+        if (day <= transfer.transferTimeDays) {
+            const transferAngle = (day / transfer.transferTimeDays) * std.math.pi;
+            const r = transfer.semiMajorAxis * (1.0 - transfer.eccentricity * transfer.eccentricity) /
+                (1.0 + transfer.eccentricity * @cos(transferAngle));
 
             const transferX = r * @cos(transferAngle);
             const transferY = r * @sin(transferAngle);
-            const transferPos = calculations.Vector3D.new(transferX, transferY, 0.0);
 
             try self.trajectoryPredictions.append(self.allocator, TrajectoryPoint{
                 .time = day,
                 .body = "Transfer",
-                .position = transferPos,
+                .position = calculations.Vector3D.new(transferX, transferY, 0.0),
                 .label = "trajectory",
             });
         }
     }
 
-    const departureWaypointPos = calculations.Vector3D.new(departureRadius, 0.0, 0.0);
     try self.trajectoryPredictions.append(self.allocator, TrajectoryPoint{
         .time = 0.0,
         .body = "Departure",
-        .position = departureWaypointPos,
+        .position = calculations.Vector3D.new(transfer.departureRadius, 0.0, 0.0),
         .label = "waypoint",
     });
 
-    const finalArrivalAngle = arrivalLeadAngle + (transferTimeDays / arrivalPeriod) * 2.0 * math.pi;
-    const arrivalWaypointX = arrivalRadius * @cos(finalArrivalAngle);
-    const arrivalWaypointY = arrivalRadius * @sin(finalArrivalAngle);
-    const arrivalWaypointPos = calculations.Vector3D.new(arrivalWaypointX, arrivalWaypointY, 0.0);
+    const finalArrivalAngle = transfer.arrivalLeadAngle +
+        (transfer.transferTimeDays / arrivalBody.period) * 2.0 * std.math.pi;
+
+    const arrivalWaypointX = transfer.arrivalRadius * @cos(finalArrivalAngle);
+    const arrivalWaypointY = transfer.arrivalRadius * @sin(finalArrivalAngle);
 
     try self.trajectoryPredictions.append(self.allocator, TrajectoryPoint{
-        .time = transferTimeDays,
+        .time = transfer.transferTimeDays,
         .body = "Arrival",
-        .position = arrivalWaypointPos,
+        .position = calculations.Vector3D.new(arrivalWaypointX, arrivalWaypointY, 0.0),
         .label = "waypoint",
     });
 
@@ -186,9 +263,12 @@ pub fn planetaryPositions(self: *Mission, tYears: f64) std.ArrayList(PlanetaryPo
 
         const a = planet.semiMajorAxis * 1000;
         const e = planet.eccentricity;
+
         const periodYears = planet.period / 365.25;
+
         const n = 2 * std.math.pi / periodYears;
         const M = n * tYears;
+
         var E = M;
 
         for (0..10) |_| {
