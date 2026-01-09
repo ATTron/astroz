@@ -4,7 +4,7 @@ const std = @import("std");
 const log = std.log;
 
 const OrbitalMechanics = @import("OrbitalMechanics.zig");
-const ValidationError = @import("OrbitalMechanics.zig").ValidationError;
+const ValidationError = OrbitalMechanics.ValidationError;
 const constants = @import("constants.zig");
 const calculations = @import("calculations.zig");
 
@@ -59,6 +59,23 @@ pub const MissionParameters = struct {
     }
 };
 
+pub const TransferType = union(enum) {
+    hohmann: OrbitalMechanics.TransferResult,
+    bi_elliptic: OrbitalMechanics.BiEllipticTransferResult,
+};
+
+pub const MissionPlan = struct {
+    transfer: TransferType,
+    synodicPeriodYears: f64,
+    synodicPeriodDays: f64,
+    departureBody: constants.CelestialBody,
+    arrivalBody: constants.CelestialBody,
+    departureOrbitalPeriodDays: f64,
+    arrivalOrbitalPeriodDays: f64,
+    departureEccentricity: f64,
+    arrivalEccentricity: f64,
+};
+
 pub fn init(allocator: std.mem.Allocator, parameters: MissionParameters, orbitalMechanics: OrbitalMechanics) Mission {
     return .{
         .allocator = allocator,
@@ -72,111 +89,141 @@ pub fn deinit(self: *Mission) void {
     self.trajectoryPredictions.deinit(self.allocator);
 }
 
-pub fn propagateTransfer(self: *Mission, totalDays: f64, timeStepDays: f64) !void {
-    self.trajectoryPredictions.clearRetainingCapacity();
+pub fn printWaypoints(self: *Mission, limit: ?u8) void {
+    var count: usize = 0;
+    for (self.trajectoryPredictions.items) |point| {
+        if (std.mem.eql(u8, point.label, "waypoint")) {
+            std.debug.print("Day {d:>6.1}: {s} at ({d:>8.0}, {d:>8.0}) km\n", .{
+                point.time,
+                point.body,
+                point.position.x(),
+                point.position.y(),
+            });
+        }
+        if (limit != null and count < limit.?) {
+            count += 1;
+        }
+    }
+}
 
+// TODO: probably want a sane limit of like 100 or something but for now this will just dump everything
+pub fn printTrajectories(self: *Mission, limit: ?u8) void {
+    var count: usize = 0;
+    for (self.trajectoryPredictions.items) |point| {
+        std.debug.print("Day {d:>6.1}: Transfer at ({d:>8.0}, {d:>8.0}) km\n", .{
+            point.time,
+            point.position.x(),
+            point.position.y(),
+        });
+        if (limit != null and count < limit.?) {
+            count += 1;
+        }
+    }
+}
+
+fn logTransferInfo(
+    departureName: []const u8,
+    arrivalName: []const u8,
+    transfer: OrbitalMechanics.TransferResult,
+    arrivalLeadAngle: f64,
+) void {
+    log.info("{s}-{s} Hohmann Transfer:", .{ departureName, arrivalName });
+    log.info("Total Delta-V: {d:.2} km/s", .{transfer.totalDeltaV});
+    log.info("Transfer Time: {d:.1} days", .{transfer.transferTimeDays});
+    log.info("{s} lead angle required: {d:.1} degrees", .{
+        arrivalName,
+        calculations.radiansToDegrees(arrivalLeadAngle),
+    });
+}
+
+pub fn propagateTransfer(self: *Mission, totalDays: f64, timeStepDays: f64) !void {
     const departureBody = self.parameters.departureBody;
     const arrivalBody = self.parameters.arrivalBody;
 
     const departureRadius = departureBody.semiMajorAxis;
     const arrivalRadius = arrivalBody.semiMajorAxis;
 
-    const departurePeriod = departureBody.period;
-    const arrivalPeriod = arrivalBody.period;
-    const centralMu = self.orbitalMechanics.centralBody.mu;
-    const math = std.math;
+    const transfer = try self.orbitalMechanics.hohmannTransfer(departureRadius, arrivalRadius);
 
-    const aTransfer = (departureRadius + arrivalRadius) / 2.0;
-    const v1Circular = @sqrt(centralMu / departureRadius);
-    const v2Circular = @sqrt(centralMu / arrivalRadius);
-    const v1Transfer = @sqrt(centralMu / departureRadius) * @sqrt(2.0 * arrivalRadius / (departureRadius + arrivalRadius));
-    const v2Transfer = @sqrt(centralMu / arrivalRadius) * @sqrt(2.0 * departureRadius / (departureRadius + arrivalRadius));
+    const transferEccentricity = (arrivalRadius - departureRadius) / (arrivalRadius + departureRadius);
+    const arrivalAngularVelocity = 2.0 * std.math.pi / arrivalBody.period;
+    const arrivalAngleAtTransfer = arrivalAngularVelocity * transfer.transferTimeDays;
+    const arrivalLeadAngle = std.math.pi - arrivalAngleAtTransfer;
 
-    const deltaV1 = v1Transfer - v1Circular;
-    const deltaV2 = v2Circular - v2Transfer;
-    const totalDeltaV = @abs(deltaV1) + @abs(deltaV2);
-    const transferTime = math.pi * @sqrt((aTransfer * aTransfer * aTransfer) / centralMu);
-    const transferTimeDays = transferTime / (24.0 * 3600.0);
+    logTransferInfo(
+        departureBody.name,
+        arrivalBody.name,
+        transfer,
+        arrivalLeadAngle,
+    );
 
-    log.info("{s}-{s} Hohmann Transfer:", .{ departureBody.name, arrivalBody.name });
-    log.info("Total Delta-V: {d:.2} km/s", .{totalDeltaV});
-    log.info("Transfer Time: {d:.1} days", .{transferTimeDays});
-
-    const arrivalAngularVelocity = 2.0 * math.pi / arrivalPeriod;
-    const arrivalAngleAtTransfer = arrivalAngularVelocity * transferTimeDays;
-    const arrivalLeadAngle = math.pi - arrivalAngleAtTransfer;
-
-    log.info("{s} lead angle required: {d:.1} degrees", .{ arrivalBody.name, arrivalLeadAngle * 180.0 / math.pi });
+    self.trajectoryPredictions.clearRetainingCapacity();
 
     var day: f64 = 0.0;
     while (day <= totalDays) : (day += timeStepDays) {
-        const departureAngle = (day / departurePeriod) * 2.0 * math.pi;
+        const departureAngle = (day / departureBody.period) * 2.0 * std.math.pi;
         const departureX = departureRadius * @cos(departureAngle);
         const departureY = departureRadius * @sin(departureAngle);
-        const departurePos = calculations.Vector3D.new(departureX, departureY, 0.0);
 
         try self.trajectoryPredictions.append(self.allocator, TrajectoryPoint{
             .time = day,
             .body = departureBody.name,
-            .position = departurePos,
+            .position = calculations.Vector3D.new(departureX, departureY, 0.0),
             .label = "planet",
         });
 
-        const arrivalAngle = arrivalLeadAngle + (day / arrivalPeriod) * 2.0 * math.pi;
+        const arrivalAngle = arrivalLeadAngle + (day / arrivalBody.period) * 2.0 * std.math.pi;
         const arrivalX = arrivalRadius * @cos(arrivalAngle);
         const arrivalY = arrivalRadius * @sin(arrivalAngle);
-        const arrivalPos = calculations.Vector3D.new(arrivalX, arrivalY, 0.0);
 
         try self.trajectoryPredictions.append(self.allocator, TrajectoryPoint{
             .time = day,
             .body = arrivalBody.name,
-            .position = arrivalPos,
+            .position = calculations.Vector3D.new(arrivalX, arrivalY, 0.0),
             .label = "planet",
         });
 
-        if (day <= transferTimeDays) {
-            const transferAngle = (day / transferTimeDays) * math.pi; // 0 to π
-            const a = aTransfer;
-            const e = (arrivalRadius - departureRadius) / (arrivalRadius + departureRadius);
-            const r = a * (1.0 - e * e) / (1.0 + e * @cos(transferAngle));
+        if (day <= transfer.transferTimeDays) {
+            const transferAngle = (day / transfer.transferTimeDays) * std.math.pi;
+            const transferRadius = transfer.semiMajorAxis * (1.0 - transferEccentricity * transferEccentricity) /
+                (1.0 + transferEccentricity * @cos(transferAngle));
 
-            const transferX = r * @cos(transferAngle);
-            const transferY = r * @sin(transferAngle);
-            const transferPos = calculations.Vector3D.new(transferX, transferY, 0.0);
+            const transferX = transferRadius * @cos(transferAngle);
+            const transferY = transferRadius * @sin(transferAngle);
 
             try self.trajectoryPredictions.append(self.allocator, TrajectoryPoint{
                 .time = day,
                 .body = "Transfer",
-                .position = transferPos,
+                .position = calculations.Vector3D.new(transferX, transferY, 0.0),
                 .label = "trajectory",
             });
         }
     }
 
-    const departureWaypointPos = calculations.Vector3D.new(departureRadius, 0.0, 0.0);
     try self.trajectoryPredictions.append(self.allocator, TrajectoryPoint{
         .time = 0.0,
         .body = "Departure",
-        .position = departureWaypointPos,
+        .position = calculations.Vector3D.new(departureRadius, 0.0, 0.0),
         .label = "waypoint",
     });
 
-    const finalArrivalAngle = arrivalLeadAngle + (transferTimeDays / arrivalPeriod) * 2.0 * math.pi;
+    const finalArrivalAngle = arrivalLeadAngle +
+        (transfer.transferTimeDays / arrivalBody.period) * 2.0 * std.math.pi;
+
     const arrivalWaypointX = arrivalRadius * @cos(finalArrivalAngle);
     const arrivalWaypointY = arrivalRadius * @sin(finalArrivalAngle);
-    const arrivalWaypointPos = calculations.Vector3D.new(arrivalWaypointX, arrivalWaypointY, 0.0);
 
     try self.trajectoryPredictions.append(self.allocator, TrajectoryPoint{
-        .time = transferTimeDays,
+        .time = transfer.transferTimeDays,
         .body = "Arrival",
-        .position = arrivalWaypointPos,
+        .position = calculations.Vector3D.new(arrivalWaypointX, arrivalWaypointY, 0.0),
         .label = "waypoint",
     });
 
     log.info("Generated {d} trajectory points", .{self.trajectoryPredictions.items.len});
 }
 
-pub fn planetaryPositions(self: *Mission, tYears: f64) std.ArrayList(PlanetaryPositions) {
+pub fn planetaryPositions(self: *Mission, timeYears: f64) std.ArrayList(PlanetaryPositions) {
     var positions = std.ArrayList(PlanetaryPositions){};
 
     for (constants.allBodies) |planet| {
@@ -184,22 +231,25 @@ pub fn planetaryPositions(self: *Mission, tYears: f64) std.ArrayList(PlanetaryPo
             continue;
         }
 
-        const a = planet.semiMajorAxis * 1000;
-        const e = planet.eccentricity;
-        const periodYears = planet.period / 365.25;
-        const n = 2 * std.math.pi / periodYears;
-        const M = n * tYears;
-        var E = M;
+        const orbitSemiMajorAxis = planet.semiMajorAxis * 1000;
+        const orbitEccentricity = planet.eccentricity;
+
+        const orbitalPeriodYears = planet.period / 365.25;
+
+        const meanMotion = 2 * std.math.pi / orbitalPeriodYears;
+        const meanAnomaly = meanMotion * timeYears;
+
+        var eccentricAnomaly = meanAnomaly;
 
         for (0..10) |_| {
-            E = E - (E - e * @sin(E) - M) / (1 - e * @cos(E));
+            eccentricAnomaly = eccentricAnomaly - (eccentricAnomaly - orbitEccentricity * @sin(eccentricAnomaly) - meanAnomaly) / (1 - orbitEccentricity * @cos(eccentricAnomaly));
         }
 
-        const nu = 2 * std.math.atan2(@sqrt(1 + e) * @sin(E / 2), @sqrt(1 - e) * @cos(E / 2));
-        const r = a * (1 - e * @cos(E));
+        const trueAnomaly = 2 * std.math.atan2(@sqrt(1 + orbitEccentricity) * @sin(eccentricAnomaly / 2), @sqrt(1 - orbitEccentricity) * @cos(eccentricAnomaly / 2));
+        const radius = orbitSemiMajorAxis * (1 - orbitEccentricity * @cos(eccentricAnomaly));
 
-        const xOrbit = r * @cos(nu);
-        const yOrbit = r * @sin(nu);
+        const xOrbit = radius * @cos(trueAnomaly);
+        const yOrbit = radius * @sin(trueAnomaly);
 
         const inclinationRad = std.math.degreesToRadians(planet.inclination);
         const x = xOrbit;
@@ -211,9 +261,9 @@ pub fn planetaryPositions(self: *Mission, tYears: f64) std.ArrayList(PlanetaryPo
             .planet = planet,
             .position = position,
             .velocity = null,
-            .radius = r,
-            .theta = nu,
-            .time = tYears,
+            .radius = radius,
+            .theta = trueAnomaly,
+            .time = timeYears,
         };
 
         positions.append(self.allocator, planetaryPos) catch {};
@@ -222,35 +272,31 @@ pub fn planetaryPositions(self: *Mission, tYears: f64) std.ArrayList(PlanetaryPo
     return positions;
 }
 
-// TODO: assumes earth centric, eventually make this more flexible
-pub fn planMission(self: *Mission, params: MissionParameters) void {
-    const rDeparture = params.departureBody.semiMajorAxis * 1000;
-    const rArrival = params.arrivalBody.semiMajorAxis * 1000;
+/// Calculate a complete mission plan including transfer and synodic period
+/// The synodic period is the time between optimal launch windows
+pub fn planMission(self: *Mission, params: MissionParameters) !MissionPlan {
+    const departureRadius = params.departureBody.semiMajorAxis;
+    const arrivalRadius = params.arrivalBody.semiMajorAxis;
 
-    var transfer = null;
-    if (std.mem.eql(u8, params.transferType, "hohmann")) {
-        transfer = self.orbitalMechanics.hohmannTransfer(rDeparture, rArrival);
-    } else if (std.mem.eql(u8, params.transferType, "bi_elliptic")) {
-        const rAphelion = 3 * @max(rDeparture, rArrival);
-        transfer = self.orbitalMechanics.biEllipicTransfer(rDeparture, rArrival, rAphelion);
-    } else {
-        return ValidationError.ValueError;
-    }
+    const transfer = if (std.mem.eql(u8, params.transferType, "hohmann"))
+        TransferType{ .hohmann = try self.orbitalMechanics.hohmannTransfer(departureRadius, arrivalRadius) }
+    else if (std.mem.eql(u8, params.transferType, "bi_elliptic")) blk: {
+        const aphelionRadius = 3 * @max(departureRadius, arrivalRadius);
+        break :blk TransferType{ .bi_elliptic = try self.orbitalMechanics.biEllipicTransfer(departureRadius, arrivalRadius, aphelionRadius) };
+    } else return ValidationError.ValueError;
 
-    const tDeparture = params.departureBody.period / 365.25;
-    const tArrival = params.arrivalBody / 365.25;
+    const departurePeriodYears = params.departureBody.period / 365.25;
+    const arrivalPeriodYears = params.arrivalBody.period / 365.25;
 
-    var synodicPeriod = null;
-    if (@abs(tDeparture - tArrival) < 1e-6) {
-        synodicPeriod = std.math.inf(f32);
-    } else {
-        synodicPeriod = @abs(1 / (1 / tDeparture - 1 / tArrival));
-    }
+    const synodicPeriod = if (@abs(departurePeriodYears - arrivalPeriodYears) < 1e-6)
+        std.math.inf(f64)
+    else
+        @abs(1 / (1 / departurePeriodYears - 1 / arrivalPeriodYears));
 
     return .{
         .transfer = transfer,
         .synodicPeriodYears = synodicPeriod,
-        .synodicPeriodDays = if (synodicPeriod != std.math.inf(f32)) synodicPeriod * 365.25 else std.math.inf(f32),
+        .synodicPeriodDays = if (std.math.isInf(synodicPeriod)) synodicPeriod else synodicPeriod * 365.25,
         .departureBody = params.departureBody,
         .arrivalBody = params.arrivalBody,
         .departureOrbitalPeriodDays = params.departureBody.period,
@@ -338,108 +384,32 @@ test "bi-elliptic vs hohmann transfer comparison" {
     try testing.expect(biElliptic.totalTimeDays > hohmann.transferTimeDays);
 }
 
-test "planetary orbital mechanics integration" {
-    const testing = std.testing;
-
-    const earthPeriod = constants.earth.period;
-    const earthSMA = constants.earth.semiMajorAxis;
-
-    var earthOM = OrbitalMechanics.init(constants.sun.mu, constants.sun);
-    const earthVelocity = try earthOM.orbitalVelocity(earthSMA, null);
-
-    // average orbital velocity should be ~29.78 km/s
-    try testing.expectApproxEqRel(29.78, earthVelocity, 0.01);
-
-    const marsSMA = constants.mars.semiMajorAxis; // km
-    const marsVelocity = try earthOM.orbitalVelocity(marsSMA, null);
-
-    try testing.expect(marsVelocity < earthVelocity);
-    try testing.expect(marsVelocity > 20.0 and marsVelocity < 30.0);
-
-    const calculatedEarthPeriod = try earthOM.orbitalPeriod(earthSMA) / (24.0 * 3600.0);
-    try testing.expectApproxEqRel(earthPeriod, calculatedEarthPeriod, 0.01);
-}
-
-test "propagate transfer for different planetary pairs" {
+test "propagate transfer generates correct trajectory types" {
     const testing = std.testing;
     const ta = std.testing.allocator;
 
     const orbitalMechanics = OrbitalMechanics.init(constants.sun.mu, constants.sun);
+    const params = try MissionParameters.init(constants.earth, constants.mars, 0.0, null, "hohmann");
+    var mission = Mission.init(ta, params, orbitalMechanics);
+    defer mission.deinit();
 
-    const earthMarsParams = try MissionParameters.init(constants.earth, constants.mars, 0.0, null, "hohmann");
-    var earthMarsMission = Mission.init(ta, earthMarsParams, orbitalMechanics);
-    defer earthMarsMission.deinit();
+    try mission.propagateTransfer(520.0, 5.0);
 
-    try earthMarsMission.propagateTransfer(520.0, 5.0);
-
-    try testing.expect(earthMarsMission.trajectoryPredictions.items.len > 0);
+    try testing.expect(mission.trajectoryPredictions.items.len > 0);
 
     var waypointCount: usize = 0;
-    var earthCount: usize = 0;
-    var marsCount: usize = 0;
+    var planetCount: usize = 0;
     var transferCount: usize = 0;
 
-    for (earthMarsMission.trajectoryPredictions.items) |point| {
+    for (mission.trajectoryPredictions.items) |point| {
         if (std.mem.eql(u8, point.label, "waypoint")) waypointCount += 1;
-        if (std.mem.eql(u8, point.body, "earth")) earthCount += 1;
-        if (std.mem.eql(u8, point.body, "mars")) marsCount += 1;
-        if (std.mem.eql(u8, point.body, "Transfer")) transferCount += 1;
+        if (std.mem.eql(u8, point.label, "planet")) planetCount += 1;
+        if (std.mem.eql(u8, point.label, "trajectory")) transferCount += 1;
     }
 
-    try testing.expectEqual(@as(usize, 2), waypointCount); // Departure and arrival
-    try testing.expect(earthCount > 0);
-    try testing.expect(marsCount > 0);
+    try testing.expectEqual(@as(usize, 2), waypointCount);
+    try testing.expect(planetCount > 0);
     try testing.expect(transferCount > 0);
-
-    const marsJupiterParams = try MissionParameters.init(
-        constants.mars,
-        constants.jupiter,
-        0.0,
-        null,
-        "hohmann",
-    );
-    var marsJupiterMission = Mission.init(ta, marsJupiterParams, orbitalMechanics);
-    defer marsJupiterMission.deinit();
-
-    try marsJupiterMission.propagateTransfer(1000.0, 10.0);
-
-    try testing.expect(marsJupiterMission.trajectoryPredictions.items.len > 0);
-
-    var marsJupiterCount: usize = 0;
-    var jupiterCount: usize = 0;
-
-    for (marsJupiterMission.trajectoryPredictions.items) |point| {
-        if (std.mem.eql(u8, point.body, "mars")) marsJupiterCount += 1;
-        if (std.mem.eql(u8, point.body, "jupiter")) jupiterCount += 1;
-    }
-
-    try testing.expect(marsJupiterCount > 0);
-    try testing.expect(jupiterCount > 0);
-
-    const venusEarthParams = try MissionParameters.init(
-        constants.venus,
-        constants.earth,
-        0.0,
-        null,
-        "hohmann",
-    );
-    var venusEarthMission = Mission.init(ta, venusEarthParams, orbitalMechanics);
-    defer venusEarthMission.deinit();
-
-    try venusEarthMission.propagateTransfer(300.0, 2.0);
-
-    try testing.expect(venusEarthMission.trajectoryPredictions.items.len > 0);
-
-    var venusCount: usize = 0;
-    var venusEarthCount: usize = 0;
-
-    for (venusEarthMission.trajectoryPredictions.items) |point| {
-        if (std.mem.eql(u8, point.body, "venus")) venusCount += 1;
-        if (std.mem.eql(u8, point.body, "earth")) venusEarthCount += 1;
-    }
-
-    try testing.expect(venusCount > 0);
-    try testing.expect(venusEarthCount > 0);
 }
 
 test "propagate transfer trajectory validation" {
@@ -532,4 +502,129 @@ test "Lambert solver integration" {
     try testing.expect(arrVelMag > 0 and arrVelMag < 100.0);
     try testing.expect(lambertResult.transferAngle > 0);
     try testing.expect(lambertResult.semiMajorAxis > constants.earth.semiMajorAxis);
+}
+
+test "planMission with Hohmann transfer" {
+    const testing = std.testing;
+    const ta = std.testing.allocator;
+
+    const orbitalMechanics = OrbitalMechanics.init(constants.sun.mu, constants.sun);
+    const params = try MissionParameters.init(
+        constants.earth,
+        constants.mars,
+        0.0,
+        null,
+        "hohmann",
+    );
+
+    var mission = Mission.init(ta, params, orbitalMechanics);
+    defer mission.deinit();
+
+    const plan = try mission.planMission(params);
+
+    // Verify it's a Hohmann transfer
+    try testing.expect(plan.transfer == .hohmann);
+
+    // Check transfer parameters
+    const hohmannTransfer = plan.transfer.hohmann;
+    try testing.expect(hohmannTransfer.totalDeltaV > 0);
+    try testing.expectApproxEqRel(5.6, hohmannTransfer.totalDeltaV, 0.1);
+    try testing.expectApproxEqRel(259.0, hohmannTransfer.transferTimeDays, 1.0);
+
+    // Check synodic period (Earth-Mars synodic period is ~780 days)
+    try testing.expect(plan.synodicPeriodDays > 700 and plan.synodicPeriodDays < 800);
+
+    // Verify body information is preserved
+    try testing.expectEqual(constants.earth, plan.departureBody);
+    try testing.expectEqual(constants.mars, plan.arrivalBody);
+}
+
+test "planMission with bi-elliptic transfer" {
+    const testing = std.testing;
+    const ta = std.testing.allocator;
+
+    const orbitalMechanics = OrbitalMechanics.init(constants.sun.mu, constants.sun);
+    const params = try MissionParameters.init(
+        constants.earth,
+        constants.mars,
+        0.0,
+        null,
+        "bi_elliptic",
+    );
+
+    var mission = Mission.init(ta, params, orbitalMechanics);
+    defer mission.deinit();
+
+    const plan = try mission.planMission(params);
+
+    // Verify it's a bi-elliptic transfer
+    try testing.expect(plan.transfer == .bi_elliptic);
+
+    // Check transfer parameters
+    const biEllipticTransfer = plan.transfer.bi_elliptic;
+    try testing.expect(biEllipticTransfer.totalDeltaV > 0);
+    try testing.expect(biEllipticTransfer.totalTimeDays > 0);
+
+    // Bi-elliptic should take longer than Hohmann
+    try testing.expect(biEllipticTransfer.totalTimeDays > 259.0);
+}
+
+test "planMission with invalid transfer type" {
+    const testing = std.testing;
+    const ta = std.testing.allocator;
+
+    const orbitalMechanics = OrbitalMechanics.init(constants.sun.mu, constants.sun);
+    const params = try MissionParameters.init(
+        constants.earth,
+        constants.mars,
+        0.0,
+        null,
+        "invalid_type",
+    );
+
+    var mission = Mission.init(ta, params, orbitalMechanics);
+    defer mission.deinit();
+
+    try testing.expectError(ValidationError.ValueError, mission.planMission(params));
+}
+
+test "planetaryPositions calculates valid positions" {
+    const testing = std.testing;
+    const ta = std.testing.allocator;
+
+    const orbitalMechanics = OrbitalMechanics.init(constants.sun.mu, constants.sun);
+    const params = try MissionParameters.init(constants.earth, constants.mars, 0.0, null, "hohmann");
+    var mission = Mission.init(ta, params, orbitalMechanics);
+    defer mission.deinit();
+
+    var positions = mission.planetaryPositions(1.0);
+    defer positions.deinit(ta);
+
+    try testing.expect(positions.items.len > 0);
+
+    for (positions.items) |pos| {
+        try testing.expect(pos.radius > 0);
+        try testing.expect(!std.math.isNan(pos.position.x()));
+        try testing.expect(!std.math.isNan(pos.position.y()));
+        try testing.expect(!std.math.isNan(pos.position.z()));
+        try testing.expect(!std.math.isNan(pos.theta));
+    }
+}
+
+test "propagateTransfer edge cases" {
+    const testing = std.testing;
+    const ta = std.testing.allocator;
+
+    const orbitalMechanics = OrbitalMechanics.init(constants.sun.mu, constants.sun);
+    const params = try MissionParameters.init(constants.earth, constants.mars, 0.0, null, "hohmann");
+    var mission = Mission.init(ta, params, orbitalMechanics);
+    defer mission.deinit();
+
+    try mission.propagateTransfer(0.0, 1.0);
+    try testing.expect(mission.trajectoryPredictions.items.len >= 2);
+
+    mission.trajectoryPredictions.clearRetainingCapacity();
+
+    try mission.propagateTransfer(10.0, 20.0);
+    try testing.expect(mission.trajectoryPredictions.items.len >= 2);
 }

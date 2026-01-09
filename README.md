@@ -78,48 +78,54 @@ exe.root_module.addImport("astroz", astroz_mod);
 
 ### Examples
 
-- #### [Parse TLE](examples/parse_tle.zig)
+#### Orbital Mechanics
 
-- #### [Orbit Prop for Next 3 Days](examples/orbit_prop.zig)
-
-<img src="assets/orbit_prop.gif" width="450" height="400" alt="visualization of orbit prop"/>
-
-- #### [Orbit Prop for Next 3 Days with Impulse Maneuvers](examples/orbit_prop_impulse_manuevers.zig)
-
-<img src="assets/orbit_prop_impulse.gif" width="450" height="400" alt="visualization of orbit prop with impulse"/>
-
-- #### [Planet Tranfer](examples/transfer_propagation.zig)
+- #### [Planet Transfer & Mission Planning](examples/transfer_propagation.zig)
+  Demonstrates interplanetary transfers with mission planning (Hohmann vs Bi-Elliptic comparison) and trajectory propagation.
 
 <img src="assets/earth_mars_transfer.gif" width="300" height="300" alt="Earth-Mars transfer animation"/> <img src="assets/earth_mars_transfer_static.png" width="300" height="300" alt="Earth-Mars transfer trajectory"/> <img src="assets/earth_mars_transfer_analysis.png" width="300" height="300" alt="Earth-Mars transfer analysis"/>
 
+- #### [Orbit Maneuvers](examples/orbit_maneuvers.zig)
+  Comprehensive example showing TLE-based orbit propagation with various maneuver types: impulse, plane change, and phase change.
+
+<img src="assets/orbit_prop.gif" width="450" height="400" alt="visualization of orbit prop"/>
+
 - #### [Monte Carlo Simulation](examples/simple_monte_carlo.zig)
+  Statistical analysis for mission planning with uncertainty.
+
 <img src="assets/monte_carlo_analysis.png" width="450" height="400" alt="graphs showing monte carlo run analysis"/>
 
-- #### [Orbit Plane Change](examples/orbit_plane_change.zig)
+#### Spacecraft Operations
 
-- #### [Orbit Phase Change](examples/orbit_phase_change.zig)
+- #### [Parse TLE](examples/parse_tle.zig)
+  Parse Two-Line Element sets for satellite orbit information.
 
 - #### [Orbit Orientation Determination](examples/simple_spacecraft_orientation.zig)
+  Calculate spacecraft attitude and orientation.
 
-- #### [Parse Vita49](examples/parse_vita49.zig)
+#### Telemetry & Data Handling
 
-- #### [Parse Vita49 with Callback](examples/parse_vita49_callback.zig)
+- #### [Parse Vita49](examples/parse_vita49.zig) / [with Callback](examples/parse_vita49_callback.zig)
+  VITA Radio Transport (VRT) packet stream parsing.
 
-- #### [Parse CCSDS from File](examples/parse_ccsds.zig)
+- #### [Parse CCSDS](examples/parse_ccsds.zig) / [with File Sync](examples/parse_ccsds_file_sync.zig)
+  Parse CCSDS space packet protocol from files.
 
-- #### [Parse CCSDS from File with File Sync](examples/parse_ccsds_file_sync.zig)
+- #### [Create CCSDS Packet](examples/create_ccsds_packet.zig) / [with Config](examples/create_ccsds_packet_config.zig)
+  Generate CCSDS packets for telemetry.
 
-- #### [Create CCSDS Packet](examples/create_ccsds_packet.zig)
-
-- #### [Create CCSDS Packet with Config](examples/create_ccsds_packet_config.zig)
+#### Astronomy & Astrometry
 
 - #### [Generate Image from FITS File](examples/parse_fits_file.zig)
+  Parse and render FITS astronomical image data.
 
 <img src="test/test.png" width="450" height="400" alt="sample fits image as png"/>
 
-- #### [Precess star to July 30, 2005](examples/precess_star.zig)
+- #### [Precess Star Coordinates](examples/precess_star.zig)
+  Calculate stellar precession to a target epoch.
 
-- #### [Calculate WCS values from a TLE](examples/wcs.zig)
+- #### [Calculate WCS from TLE](examples/wcs.zig)
+  Compute World Coordinate System values from orbital elements.
 
 <!-- MARKDOWN LINKS -->
 
