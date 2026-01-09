@@ -1,12 +1,11 @@
 //! Base struct for mission planning
-
 const std = @import("std");
 const log = std.log;
 
+const calculations = @import("calculations.zig");
+const constants = @import("constants.zig");
 const OrbitalMechanics = @import("OrbitalMechanics.zig");
 const ValidationError = OrbitalMechanics.ValidationError;
-const constants = @import("constants.zig");
-const calculations = @import("calculations.zig");
 
 const Mission = @This();
 

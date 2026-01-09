@@ -2,9 +2,10 @@
 //! the position of the viewer. Allowing you to find what you're looking easily without conversion
 
 const std = @import("std");
-const Datetime = @import("Datetime.zig");
-const constants = @import("constants.zig");
+
 const calculations = @import("calculations.zig");
+const constants = @import("constants.zig");
+const Datetime = @import("Datetime.zig");
 
 const EquatorialCoordinateSystem = @This();
 
