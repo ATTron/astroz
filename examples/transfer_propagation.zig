@@ -10,9 +10,32 @@ pub fn main() !void {
     const allocator = gpa.allocator();
 
     const orbitalMechanics = OrbitalMechanics.init(constants.sun.mu, constants.sun);
-    std.debug.print("=== Earth to Mars Transfer ===\n", .{});
-    const earthMarsParams = try Mission.MissionParameters.init(constants.earth, constants.mars, 0.0, null, "hohmann");
 
+    // Example 1: Mission Planning - Compare Hohmann vs Bi-Elliptic
+    std.debug.print("=== Mission Planning: Hohmann vs Bi-Elliptic ===\n", .{});
+    const hohmannParams = try Mission.MissionParameters.init(constants.earth, constants.mars, 0.0, null, "hohmann");
+    var hohmannMission = Mission.init(allocator, hohmannParams, orbitalMechanics);
+    defer hohmannMission.deinit();
+
+    const hohmannPlan = try hohmannMission.planMission(hohmannParams);
+    std.debug.print("Hohmann Transfer:\n", .{});
+    std.debug.print("  Delta-V: {d:.2} km/s\n", .{hohmannPlan.transfer.hohmann.totalDeltaV});
+    std.debug.print("  Transfer Time: {d:.1} days\n", .{hohmannPlan.transfer.hohmann.transferTimeDays});
+    std.debug.print("  Synodic Period: {d:.1} days\n", .{hohmannPlan.synodicPeriodDays});
+
+    const biEllipticParams = try Mission.MissionParameters.init(constants.earth, constants.mars, 0.0, null, "bi_elliptic");
+    var biEllipticMission = Mission.init(allocator, biEllipticParams, orbitalMechanics);
+    defer biEllipticMission.deinit();
+
+    const biEllipticPlan = try biEllipticMission.planMission(biEllipticParams);
+    std.debug.print("\nBi-Elliptic Transfer:\n", .{});
+    std.debug.print("  Delta-V: {d:.2} km/s\n", .{biEllipticPlan.transfer.bi_elliptic.totalDeltaV});
+    std.debug.print("  Transfer Time: {d:.1} days\n", .{biEllipticPlan.transfer.bi_elliptic.totalTimeDays});
+    std.debug.print("  Synodic Period: {d:.1} days\n", .{biEllipticPlan.synodicPeriodDays});
+
+    // Example 2: Transfer Propagation - Earth to Mars
+    std.debug.print("\n=== Earth to Mars Transfer Propagation ===\n", .{});
+    const earthMarsParams = try Mission.MissionParameters.init(constants.earth, constants.mars, 0.0, null, "hohmann");
     var earthMarsMission = Mission.init(allocator, earthMarsParams, orbitalMechanics);
     defer earthMarsMission.deinit();
 
@@ -21,32 +44,8 @@ pub fn main() !void {
     std.debug.print("Waypoints:\n", .{});
     earthMarsMission.printWaypoints(null);
 
-    std.debug.print("\n=== Mars to Jupiter Transfer ===\n", .{});
-    const marsJupiterParams = try Mission.MissionParameters.init(constants.mars, constants.jupiter, 0.0, null, "hohmann");
-    var marsJupiterMission = Mission.init(allocator, marsJupiterParams, orbitalMechanics);
-    defer marsJupiterMission.deinit();
-
-    try marsJupiterMission.propagateTransfer(1200.0, 10.0);
-
-    std.debug.print("Generated {d} trajectory points\n", .{marsJupiterMission.trajectoryPredictions.items.len});
-    std.debug.print("Waypoints:\n", .{});
-    marsJupiterMission.printWaypoints(null);
-
-    std.debug.print("\n=== Venus to Earth Transfer ===\n", .{});
-    const venusEarthParams = try Mission.MissionParameters.init(constants.venus, constants.earth, 0.0, null, "hohmann");
-
-    var venusEarthMission = Mission.init(allocator, venusEarthParams, orbitalMechanics);
-    defer venusEarthMission.deinit();
-
-    try venusEarthMission.propagateTransfer(400.0, 2.0);
-    std.debug.print("Generated {d} trajectory points\n", .{venusEarthMission.trajectoryPredictions.items.len});
-    std.debug.print("Waypoints:\n", .{});
-    venusEarthMission.printWaypoints(null);
-
+    // Example 3: Programmatic Access to Trajectory Data
     std.debug.print("\n=== Programmatic Access Example ===\n", .{});
-    std.debug.print("First 5 Earth-Mars trajectory points:\n", .{});
-    std.debug.print("Time (days) | Body | X (km) | Y (km) | Label\n", .{});
-    std.debug.print("-----------|------|--------|--------|----------\n", .{});
-
+    std.debug.print("First 5 trajectory points:\n", .{});
     earthMarsMission.printTrajectories(5);
 }
