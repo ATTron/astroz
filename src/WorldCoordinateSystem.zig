@@ -1,9 +1,10 @@
 //! World Coordinate System is commonly used
 const std = @import("std");
-const constants = @import("constants.zig");
+
 const calculations = @import("calculations.zig");
-const Tle = @import("Tle.zig");
+const constants = @import("constants.zig");
 const Spacecraft = @import("Spacecraft.zig");
+const Tle = @import("Tle.zig");
 
 const Matrix3x3 = [3][3]f64;
 
