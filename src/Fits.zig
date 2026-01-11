@@ -1,8 +1,9 @@
 const std = @import("std");
-const zignal = @import("zignal");
-const Rgba = zignal.Rgba(u8);
-const cfitsio = @import("cfitsio").c;
 
+const cfitsio = @import("cfitsio").c;
+const zignal = @import("zignal");
+
+const Rgba = zignal.Rgba(u8);
 const Fits = @This();
 
 allocator: std.mem.Allocator,
