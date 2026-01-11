@@ -1,8 +1,9 @@
 //! Various functions to perform the astrodynamics calculations
 
 const std = @import("std");
-const Tle = @import("Tle.zig");
+
 const constants = @import("constants.zig");
+const Tle = @import("Tle.zig");
 
 pub const Vector3D = struct {
     data: @Vector(3, f64),

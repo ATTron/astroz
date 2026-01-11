@@ -1,12 +1,12 @@
 //! Base struct that takes the inputs needed to determine future orbit paths.
-
 const std = @import("std");
 const log = std.log;
-const Tle = @import("Tle.zig");
-const Datetime = @import("Datetime.zig");
-const constants = @import("constants.zig");
+
 const calculations = @import("calculations.zig");
+const constants = @import("constants.zig");
 const CelestialBody = constants.CelestialBody;
+const Datetime = @import("Datetime.zig");
+const Tle = @import("Tle.zig");
 
 const Spacecraft = @This();
 
