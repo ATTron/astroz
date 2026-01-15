@@ -208,7 +208,7 @@ pub fn propagate(self: *Spacecraft, t0: f64, days: f64, h: f64, impulseList: ?[]
         try self.orbitPredictions.append(self.allocator, .{ .time = t, .state = y });
 
         // check for abnormal orbit
-        const r = @sqrt(y[0] * y[0] + y[1] * y[1] + y[2] * y[2]);
+        const r = calculations.posMag(y);
         const energy = self.calculateEnergy(y);
         if (energy > 0 or std.math.isNan(energy) or r > 100_000) {
             log.warn("Abnormal orbit: r={d} km, energy={d}", .{ r, energy });
@@ -224,13 +224,13 @@ fn applyImpulse(self: *Spacecraft, state: [6]f64, impulse: Impulse, t: *f64, h: 
             y = calculations.impulse(y, impulse.deltaV);
         },
         .Prograde => {
-            const vMag = @sqrt(y[3] * y[3] + y[4] * y[4] + y[5] * y[5]);
+            const vMag = calculations.velMag(y);
             const dvMag = impulse.deltaV[0];
             y = calculations.impulse(y, .{ y[3] / vMag * dvMag, y[4] / vMag * dvMag, y[5] / vMag * dvMag });
         },
         .Phase => {
-            const r = @sqrt(y[0] * y[0] + y[1] * y[1] + y[2] * y[2]);
-            const vMag = @sqrt(y[3] * y[3] + y[4] * y[4] + y[5] * y[5]);
+            const r = calculations.posMag(y);
+            const vMag = calculations.velMag(y);
             const dvMag = self.calculatePhaseChange(r, impulse.phaseChange orelse 0, impulse.deltaV[0]);
             const dv = [3]f64{ y[3] / vMag * dvMag, y[4] / vMag * dvMag, y[5] / vMag * dvMag };
             y = calculations.impulse(y, dv);
@@ -252,9 +252,9 @@ fn applyImpulse(self: *Spacecraft, state: [6]f64, impulse: Impulse, t: *f64, h: 
 }
 
 fn calculateEnergy(self: Spacecraft, state: calculations.StateV) f64 {
-    const r = @sqrt(state[0] * state[0] + state[1] * state[1] + state[2] * state[2]);
-    const vSquared = state[3] * state[3] + state[4] * state[4] + state[5] * state[5];
-    return 0.5 * vSquared - self.orbitingObject.mu / r;
+    const r = calculations.posMag(state);
+    const v = calculations.velMag(state);
+    return 0.5 * v * v - self.orbitingObject.mu / r;
 }
 
 fn applyPlaneChange(self: *Spacecraft, y: [6]f64, plane_change: Impulse) [6]f64 {
@@ -304,7 +304,7 @@ test "init spacecraft" {
     );
 
     for (test_sc.orbitPredictions.items) |iter| {
-        const r = std.math.sqrt(iter.state[0] * iter.state[0] + iter.state[1] * iter.state[1] + iter.state[2] * iter.state[2]);
+        const r = calculations.posMag(iter.state);
 
         try std.testing.expect(r > test_sc.orbitingObject.eqRadius.?);
     }
@@ -355,7 +355,7 @@ test "prop spacecraft w/ impulse" {
     );
 
     for (test_sc.orbitPredictions.items) |iter| {
-        const r = std.math.sqrt(iter.state[0] * iter.state[0] + iter.state[1] * iter.state[1] + iter.state[2] * iter.state[2]);
+        const r = calculations.posMag(iter.state);
 
         try std.testing.expect(r > test_sc.orbitingObject.eqRadius.?);
     }
@@ -396,7 +396,7 @@ test "prop spacecraft w/ phase" {
     );
 
     for (test_sc.orbitPredictions.items) |iter| {
-        const r = std.math.sqrt(iter.state[0] * iter.state[0] + iter.state[1] * iter.state[1] + iter.state[2] * iter.state[2]);
+        const r = calculations.posMag(iter.state);
 
         try std.testing.expect(r > test_sc.orbitingObject.eqRadius.?);
     }
@@ -452,7 +452,7 @@ test "prop spacecraft w/ plane change" {
     );
 
     for (test_sc.orbitPredictions.items) |iter| {
-        const r = std.math.sqrt(iter.state[0] * iter.state[0] + iter.state[1] * iter.state[1] + iter.state[2] * iter.state[2]);
+        const r = calculations.posMag(iter.state);
 
         try std.testing.expect(r > test_sc.orbitingObject.eqRadius.?);
     }

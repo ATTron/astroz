@@ -201,7 +201,7 @@ pub fn stateVectorToOrbitalElements(r: [3]f64, v: [3]f64, mu: f64) OrbitalElemen
     };
 }
 
-fn solveKeplerEquation(mAnomaly: f64, eccentricity: f64) f64 {
+pub fn solveKeplerEquation(mAnomaly: f64, eccentricity: f64) f64 {
     var E = mAnomaly;
     const tolerance: f64 = 1e-6;
     var d: f64 = 1.0;
@@ -257,6 +257,16 @@ pub fn dot(a: [3]f64, b: [3]f64) f64 {
 
 pub fn mag(v: [3]f64) f64 {
     return @sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]);
+}
+
+/// Position magnitude from state vector [x, y, z, vx, vy, vz]
+pub fn posMag(state: StateV) f64 {
+    return @sqrt(state[0] * state[0] + state[1] * state[1] + state[2] * state[2]);
+}
+
+/// Velocity magnitude from state vector [x, y, z, vx, vy, vz]
+pub fn velMag(state: StateV) f64 {
+    return @sqrt(state[3] * state[3] + state[4] * state[4] + state[5] * state[5]);
 }
 
 pub fn transposeMatrix(m: [3][3]f64) [3][3]f64 {
