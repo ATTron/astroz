@@ -3,6 +3,7 @@
 
 const allocator = @import("allocator.zig");
 pub const err = @import("error.zig");
+const tle = @import("tle.zig");
 
 const version = .{ .major = 0, .minor = 3, .patch = 0 };
 
@@ -16,4 +17,27 @@ pub export fn astroz_init() callconv(.c) void {
 
 pub export fn astroz_deinit() callconv(.c) void {
     allocator.deinit();
+}
+
+// TLE
+pub export fn tle_parse(str: [*:0]const u8, out: *tle.Handle) callconv(.c) i32 {
+    return @intFromEnum(tle.parse(str, out));
+}
+pub export fn tle_free(handle: tle.Handle) callconv(.c) void {
+    tle.free(handle);
+}
+pub export fn tle_get_satellite_number(h: tle.Handle) callconv(.c) u32 {
+    return tle.getSatelliteNumber(h);
+}
+pub export fn tle_get_epoch(h: tle.Handle) callconv(.c) f64 {
+    return tle.getEpoch(h);
+}
+pub export fn tle_get_inclination(h: tle.Handle) callconv(.c) f32 {
+    return tle.getInclination(h);
+}
+pub export fn tle_get_eccentricity(h: tle.Handle) callconv(.c) f32 {
+    return tle.getEccentricity(h);
+}
+pub export fn tle_get_mean_motion(h: tle.Handle) callconv(.c) f64 {
+    return tle.getMeanMotion(h);
 }
