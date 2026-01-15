@@ -238,11 +238,7 @@ pub fn planetaryPositions(self: *Mission, timeYears: f64) std.ArrayList(Planetar
         const meanMotion = 2 * std.math.pi / orbitalPeriodYears;
         const meanAnomaly = meanMotion * timeYears;
 
-        var eccentricAnomaly = meanAnomaly;
-
-        for (0..10) |_| {
-            eccentricAnomaly = eccentricAnomaly - (eccentricAnomaly - orbitEccentricity * @sin(eccentricAnomaly) - meanAnomaly) / (1 - orbitEccentricity * @cos(eccentricAnomaly));
-        }
+        const eccentricAnomaly = calculations.solveKeplerEquation(meanAnomaly, orbitEccentricity);
 
         const trueAnomaly = 2 * std.math.atan2(@sqrt(1 + orbitEccentricity) * @sin(eccentricAnomaly / 2), @sqrt(1 - orbitEccentricity) * @cos(eccentricAnomaly / 2));
         const radius = orbitSemiMajorAxis * (1 - orbitEccentricity * @cos(eccentricAnomaly));
