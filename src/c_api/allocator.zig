@@ -3,21 +3,16 @@
 
 const std = @import("std");
 
-var gpa: ?std.heap.GeneralPurposeAllocator(.{}) = null;
+// the OS reclaims all memory on process exit anyway
 
 pub fn init() void {
-    if (gpa == null) {
-        gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    }
+    // no-op: page_allocator doesn't need initialization
 }
 
 pub fn deinit() void {
-    if (gpa) |*g| {
-        _ = g.deinit();
-        gpa = null;
-    }
+    // no-op: let OS reclaim on process exit
 }
 
 pub fn get() std.mem.Allocator {
-    return if (gpa) |*g| g.allocator() else @panic("astroz_init() not called");
+    return std.heap.page_allocator;
 }

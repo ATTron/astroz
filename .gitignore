@@ -3,5 +3,12 @@ zig-out/
 small/
 sample_fits/
 .venv
-*.py
 *.csv
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/

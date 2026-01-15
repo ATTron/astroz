@@ -5,6 +5,8 @@ pub const c = 299792458; // sol (m/s)
 pub const h = 6.62607015e-34; // planck constant
 pub const au = 1.49597871e+11;
 pub const j2k = 2000.0;
+pub const j2000_jd: f64 = 2451545.0; // julian date of J2000 epoch
+pub const julian_days_per_century: f64 = 36525.0;
 
 pub const twoPi: f64 = 2.0 * std.math.pi;
 pub const deg2rad: f64 = std.math.pi / 180.0;
@@ -42,6 +44,9 @@ pub const wgs72: Sgp4GravityModel = .{
     .tumin = 13.44683969695931,
     .j3oj2 = -0.00234506972242078,
 };
+
+pub const wgs84_flattening: f64 = 1.0 / 298.257223563;
+pub const wgs84_eccentricity_sq: f64 = 2.0 * wgs84_flattening - wgs84_flattening * wgs84_flattening;
 
 pub const wgs84: Sgp4GravityModel = .{
     .radiusEarthKm = 6378.137,

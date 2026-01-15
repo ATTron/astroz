@@ -9,6 +9,8 @@ pub const Code = enum(i32) {
     deep_space_not_supported = -10,
     invalid_eccentricity = -11,
     satellite_decayed = -12,
+    // Orbital mechanics errors
+    value_error = -20,
     // General errors
     alloc_failed = -100,
     null_pointer = -101,
