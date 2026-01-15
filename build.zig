@@ -85,6 +85,26 @@ pub fn build(b: *std.Build) void {
     tests_step.dependOn(&tests_run.step);
     // b.default_step.dependOn(tests_step);
 
+    // C API shared library (for Python/FFI bindings)
+    const c_api_step = b.step("c-api", "Build C API shared library");
+
+    const c_api_mod = b.createModule(.{
+        .target = target,
+        .optimize = optimize,
+        .root_source_file = b.path("src/c_api/root.zig"),
+    });
+    c_api_mod.addImport("astroz", astroz_mod);
+
+    const c_api_lib = b.addLibrary(.{
+        .linkage = .dynamic,
+        .name = "astroz_c",
+        .root_module = c_api_mod,
+        .use_llvm = use_llvm,
+    });
+
+    const c_api_install = b.addInstallArtifact(c_api_lib, .{});
+    c_api_step.dependOn(&c_api_install.step);
+
     // Formatting checks
     const fmt_step = b.step("fmt", "Run formatting checks");
 
