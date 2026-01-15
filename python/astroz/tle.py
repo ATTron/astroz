@@ -9,11 +9,7 @@ class Tle:
     """Two-Line Element set for satellite orbit data."""
 
     def __init__(self, tle_string: str):
-        """Parse a TLE string.
-
-        Args:
-            tle_string: Two-line element set (both lines)
-        """
+        """Parse a TLE string (both lines)."""
         self._handle = ctypes.c_void_p()
         check(_lib.tle_parse(tle_string.encode(), ctypes.byref(self._handle)))
 

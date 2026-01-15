@@ -35,7 +35,8 @@ def _find_library():
     # Standard search paths
     pkg_dir = os.path.dirname(__file__)
     search_paths = [
-        os.path.join(pkg_dir, name),  # installed package
+        os.path.join(pkg_dir, "lib", name),  # installed package (wheel)
+        os.path.join(pkg_dir, name),  # legacy location
         os.path.join(pkg_dir, "..", "..", "zig-out", "lib", name),  # dev
     ]
 
@@ -77,13 +78,16 @@ _sig(_lib.tle_parse, [_str, _out_ptr])
 _sig(_lib.tle_free, [_ptr], None)
 _sig(_lib.tle_get_satellite_number, [_ptr], _u32)
 _sig(_lib.tle_get_epoch, [_ptr], _f64)
-_sig(_lib.tle_get_inclination, [_ptr], _f32)
-_sig(_lib.tle_get_eccentricity, [_ptr], _f32)
+_sig(_lib.tle_get_inclination, [_ptr], _f64)
+_sig(_lib.tle_get_eccentricity, [_ptr], _f64)
 _sig(_lib.tle_get_mean_motion, [_ptr], _f64)
 
 _sig(_lib.sgp4_init, [_ptr, _i32, _out_ptr])
 _sig(_lib.sgp4_free, [_ptr], None)
 _sig(_lib.sgp4_propagate, [_ptr, _f64, _out_vec3, _out_vec3])
+_sig(
+    _lib.sgp4_propagate_batch, [_ptr, ctypes.POINTER(_f64), ctypes.POINTER(_f64), _u32]
+)
 
 
 class HohmannResult(ctypes.Structure):

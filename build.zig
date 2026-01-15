@@ -105,6 +105,22 @@ pub fn build(b: *std.Build) void {
     const c_api_install = b.addInstallArtifact(c_api_lib, .{});
     c_api_step.dependOn(&c_api_install.step);
 
+    // Benchmark
+    const bench_step = b.step("bench", "Run SGP4 benchmark");
+
+    const bench = b.addExecutable(.{
+        .name = "sgp4_bench",
+        .root_module = b.createModule(.{
+            .target = target,
+            .root_source_file = b.path("benchmarks/zig_sgp4_bench.zig"),
+            .optimize = .ReleaseFast,
+        }),
+    });
+    bench.root_module.addImport("astroz", astroz_mod);
+
+    const bench_run = b.addRunArtifact(bench);
+    bench_step.dependOn(&bench_run.step);
+
     // Formatting checks
     const fmt_step = b.step("fmt", "Run formatting checks");
 

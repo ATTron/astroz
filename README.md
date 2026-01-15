@@ -7,7 +7,7 @@
 [![DC][dc-shd]][dc-url]
 
 
-## Astronomical and Spacecraft Toolkit Written in Zig for Zig!
+## Astronomical and Spacecraft Toolkit Written in Zig
 
 ### Features / Plans
 
@@ -54,10 +54,32 @@
     - [x] MEF Parsing
   - [x] Table Parsing
 
-### Feature not listed ?
+### SGP4 Performance
 
-To request a feature, please create an issue for this project and I will try my
-best to be responsive.
+Fastest open-source SGP4 implementation available, with sub-meter accuracy
+
+| Implementation | Propagations/sec | vs python-sgp4 |
+|----------------|------------------|----------------|
+| astroz (Zig) | ~5M/s | 2x faster |
+| astroz (Python) | ~4M/s | 1.6x faster |
+| Rust sgp4 | ~4M/s | 1.6x faster |
+| python-sgp4 | ~2.5M/s | baseline |
+
+### Python Bindings
+
+```bash
+pip install astroz
+```
+
+```python
+from astroz import Tle, Sgp4, orbital, coords
+
+tle = Tle("1 25544U ...")
+sgp4 = Sgp4(tle)
+pos, vel = sgp4.propagate(30.0)  # 30 min after epoch
+```
+
+See [python/README.md](python/README.md) for full API documentation.
 
 ### Usage
 
@@ -101,7 +123,7 @@ exe.root_module.addImport("astroz", astroz_mod);
 
 - #### [SGP4 Propagation](examples/sgp4_propagation.zig)
 
-  Analytical orbit propagation using SGP4/SDP4 with TLE input. Demonstrates both direct SGP4 usage and the modular propagator interface.
+  Analytical orbit propagation using SGP4 with TLE input. Demonstrates both direct SGP4 usage and the modular propagator interface.
 
 #### Spacecraft Operations
 

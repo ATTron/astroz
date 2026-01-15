@@ -34,10 +34,10 @@ pub export fn tle_get_satellite_number(h: tle.Handle) callconv(.c) u32 {
 pub export fn tle_get_epoch(h: tle.Handle) callconv(.c) f64 {
     return tle.getEpoch(h);
 }
-pub export fn tle_get_inclination(h: tle.Handle) callconv(.c) f32 {
+pub export fn tle_get_inclination(h: tle.Handle) callconv(.c) f64 {
     return tle.getInclination(h);
 }
-pub export fn tle_get_eccentricity(h: tle.Handle) callconv(.c) f32 {
+pub export fn tle_get_eccentricity(h: tle.Handle) callconv(.c) f64 {
     return tle.getEccentricity(h);
 }
 pub export fn tle_get_mean_motion(h: tle.Handle) callconv(.c) f64 {
@@ -52,6 +52,9 @@ pub export fn sgp4_free(handle: sgp4.Handle) callconv(.c) void {
 }
 pub export fn sgp4_propagate(h: sgp4.Handle, tsince: f64, pos: *[3]f64, vel: *[3]f64) callconv(.c) i32 {
     return @intFromEnum(sgp4.propagate(h, tsince, pos, vel));
+}
+pub export fn sgp4_propagate_batch(h: sgp4.Handle, times: [*]const f64, results: [*]f64, count: u32) callconv(.c) i32 {
+    return @intFromEnum(sgp4.propagateBatch(h, times, results, count));
 }
 
 pub export fn orbital_hohmann(mu: f64, r1: f64, r2: f64, out: *orbital.HohmannResult) callconv(.c) i32 {
