@@ -8,7 +8,11 @@ const Tle = @import("Tle.zig");
 
 const Matrix3x3 = [3][3]f64;
 
-const Vector3 = [3]f64;
+pub const Vector3 = [3]f64;
+
+pub const wgs84_a = constants.wgs84.radiusEarthKm;
+pub const wgs84_f = constants.wgs84_flattening;
+pub const wgs84_e2 = constants.wgs84_eccentricity_sq;
 
 const WorldCoordinateSystem = @This();
 
@@ -66,6 +70,64 @@ fn eciToECEF(eci: Vector3, timeSinceEpoch: f64, celestialObject: constants.Celes
         -eci[0] * @sin(m) + eci[1] * @cos(m),
         eci[2],
     };
+}
+
+/// convert ECI to ECEF using GMST (Greenwich Mean Sidereal Time).
+pub fn eciToEcefGmst(eci: Vector3, gmst: f64) Vector3 {
+    const cos_gmst = @cos(gmst);
+    const sin_gmst = @sin(gmst);
+    return .{
+        eci[0] * cos_gmst + eci[1] * sin_gmst,
+        -eci[0] * sin_gmst + eci[1] * cos_gmst,
+        eci[2],
+    };
+}
+
+/// convert ECEF to geodetic coordinates (WGS84).
+pub fn ecefToGeodetic(ecef: Vector3) Vector3 {
+    const x = ecef[0];
+    const y = ecef[1];
+    const z = ecef[2];
+
+    const lon = std.math.atan2(y, x);
+    const p = @sqrt(x * x + y * y);
+
+    var lat = std.math.atan2(z, p * (1.0 - wgs84_e2));
+    for (0..10) |_| {
+        const lat_prev = lat;
+        const sin_lat = @sin(lat);
+        const N = wgs84_a / @sqrt(1.0 - wgs84_e2 * sin_lat * sin_lat);
+        lat = std.math.atan2(z + wgs84_e2 * N * sin_lat, p);
+        if (@abs(lat - lat_prev) < 1e-12) break;
+    }
+
+    const sin_lat = @sin(lat);
+    const cos_lat = @cos(lat);
+    const N = wgs84_a / @sqrt(1.0 - wgs84_e2 * sin_lat * sin_lat);
+    const alt = p / cos_lat - N;
+
+    return .{ lat, lon, alt };
+}
+
+/// convert ECEF to geodetic coordinates (WGS84) in degrees.
+pub fn ecefToGeodeticDeg(ecef: Vector3) Vector3 {
+    const lla = ecefToGeodetic(ecef);
+    return .{
+        lla[0] * constants.rad2deg,
+        lla[1] * constants.rad2deg,
+        lla[2],
+    };
+}
+
+/// Compute GMST (Greenwich Mean Sidereal Time) from Julian date.
+pub fn julianToGmst(jd: f64) f64 {
+    const jd_j2000 = jd - constants.j2000_jd;
+    const t = jd_j2000 / constants.julian_days_per_century;
+    var gmst = 280.46061837 + 360.98564736629 * jd_j2000 +
+        0.000387933 * t * t - t * t * t / 38710000.0;
+    gmst = @mod(gmst, 360.0);
+    if (gmst < 0) gmst += 360.0;
+    return gmst * constants.deg2rad;
 }
 
 test WorldCoordinateSystem {

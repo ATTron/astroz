@@ -6,6 +6,7 @@ pub const err = @import("error.zig");
 const tle = @import("tle.zig");
 const sgp4 = @import("sgp4.zig");
 const orbital = @import("orbital_mechanics.zig");
+const coords = @import("coordinates.zig");
 
 const version = .{ .major = 0, .minor = 3, .patch = 0 };
 
@@ -64,4 +65,14 @@ pub export fn orbital_period(mu: f64, sma: f64) callconv(.c) f64 {
 }
 pub export fn orbital_escape_velocity(mu: f64, radius: f64) callconv(.c) f64 {
     return orbital.escapeVelocity(mu, radius);
+}
+
+pub export fn coords_eci_to_ecef(eci: *const [3]f64, gmst: f64, ecef: *[3]f64) callconv(.c) void {
+    coords.eciToEcef(eci, gmst, ecef);
+}
+pub export fn coords_ecef_to_geodetic(ecef: *const [3]f64, lla: *[3]f64) callconv(.c) void {
+    coords.ecefToGeodetic(ecef, lla);
+}
+pub export fn coords_julian_to_gmst(jd: f64) callconv(.c) f64 {
+    return coords.julianToGmst(jd);
 }

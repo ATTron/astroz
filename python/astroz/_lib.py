@@ -101,3 +101,7 @@ _sig(_lib.orbital_hohmann, [_f64, _f64, _f64, ctypes.POINTER(HohmannResult)])
 _sig(_lib.orbital_velocity, [_f64, _f64, _f64], _f64)
 _sig(_lib.orbital_period, [_f64, _f64], _f64)
 _sig(_lib.orbital_escape_velocity, [_f64, _f64], _f64)
+
+_sig(_lib.coords_eci_to_ecef, [_out_vec3, _f64, _out_vec3], None)
+_sig(_lib.coords_ecef_to_geodetic, [_out_vec3, _out_vec3], None)
+_sig(_lib.coords_julian_to_gmst, [_f64], _f64)
