@@ -5,6 +5,7 @@ const allocator = @import("allocator.zig");
 pub const err = @import("error.zig");
 const tle = @import("tle.zig");
 const sgp4 = @import("sgp4.zig");
+const orbital = @import("orbital_mechanics.zig");
 
 const version = .{ .major = 0, .minor = 3, .patch = 0 };
 
@@ -50,4 +51,17 @@ pub export fn sgp4_free(handle: sgp4.Handle) callconv(.c) void {
 }
 pub export fn sgp4_propagate(h: sgp4.Handle, tsince: f64, pos: *[3]f64, vel: *[3]f64) callconv(.c) i32 {
     return @intFromEnum(sgp4.propagate(h, tsince, pos, vel));
+}
+
+pub export fn orbital_hohmann(mu: f64, r1: f64, r2: f64, out: *orbital.HohmannResult) callconv(.c) i32 {
+    return @intFromEnum(orbital.hohmann(mu, r1, r2, out));
+}
+pub export fn orbital_velocity(mu: f64, radius: f64, sma: f64) callconv(.c) f64 {
+    return orbital.orbitalVelocity(mu, radius, sma);
+}
+pub export fn orbital_period(mu: f64, sma: f64) callconv(.c) f64 {
+    return orbital.orbitalPeriod(mu, sma);
+}
+pub export fn orbital_escape_velocity(mu: f64, radius: f64) callconv(.c) f64 {
+    return orbital.escapeVelocity(mu, radius);
 }

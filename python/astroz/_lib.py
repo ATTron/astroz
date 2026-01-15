@@ -84,3 +84,20 @@ _sig(_lib.tle_get_mean_motion, [_ptr], _f64)
 _sig(_lib.sgp4_init, [_ptr, _i32, _out_ptr])
 _sig(_lib.sgp4_free, [_ptr], None)
 _sig(_lib.sgp4_propagate, [_ptr, _f64, _out_vec3, _out_vec3])
+
+
+class HohmannResult(ctypes.Structure):
+    _fields_ = [
+        ("semi_major_axis", _f64),
+        ("delta_v1", _f64),
+        ("delta_v2", _f64),
+        ("total_delta_v", _f64),
+        ("transfer_time", _f64),
+        ("transfer_time_days", _f64),
+    ]
+
+
+_sig(_lib.orbital_hohmann, [_f64, _f64, _f64, ctypes.POINTER(HohmannResult)])
+_sig(_lib.orbital_velocity, [_f64, _f64, _f64], _f64)
+_sig(_lib.orbital_period, [_f64, _f64], _f64)
+_sig(_lib.orbital_escape_velocity, [_f64, _f64], _f64)

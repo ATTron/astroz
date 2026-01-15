@@ -4,6 +4,7 @@ import atexit
 from ._lib import _lib
 from .tle import Tle
 from .sgp4 import Sgp4
+from . import orbital
 
 # initialize on import
 _lib.astroz_init()
@@ -16,4 +17,4 @@ def version() -> str:
     return f"{(v >> 16) & 0xFF}.{(v >> 8) & 0xFF}.{v & 0xFF}"
 
 
-__all__ = ["version", "Tle", "Sgp4"]
+__all__ = ["version", "Tle", "Sgp4", "orbital"]

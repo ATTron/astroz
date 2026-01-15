@@ -19,12 +19,19 @@ class Sgp4Error(AstrozError):
     pass
 
 
+class OrbitalError(AstrozError):
+    """Orbital mechanics calculation error."""
+
+    pass
+
+
 _ERROR_MAP = {
     -1: (TleParseError, "Bad TLE length"),
     -2: (TleParseError, "Bad checksum"),
     -10: (Sgp4Error, "Deep space not supported"),
     -11: (Sgp4Error, "Invalid eccentricity"),
     -12: (Sgp4Error, "Satellite decayed"),
+    -20: (OrbitalError, "Invalid orbital parameters"),
     -100: (AstrozError, "Allocation failed"),
     -101: (AstrozError, "Null pointer"),
     -102: (AstrozError, "Not initialized"),
