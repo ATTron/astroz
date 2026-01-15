@@ -15,6 +15,7 @@ pub const Mission = @import("Mission.zig");
 pub const MonteCarlo = @import("MonteCarlo.zig");
 pub const Fits = @import("Fits.zig");
 pub const Spice = @import("Spice.zig");
+pub const Sgp4 = @import("sgp4/sgp4.zig");
 
 test {
     std.testing.refAllDecls(@This());
