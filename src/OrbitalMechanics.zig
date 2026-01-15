@@ -157,7 +157,7 @@ pub fn hohmannTransfer(self: *OrbitalMechanics, initialRadius: f64, finalRadius:
         deltaVFinalBurn,
         totalDeltaV,
         transferTime,
-        transferTime / (24.0 * 3600.0),
+        transferTime / constants.seconds_per_day,
     );
 }
 
@@ -197,7 +197,7 @@ pub fn biEllipicTransfer(self: *OrbitalMechanics, initialRadius: f64, finalRadiu
         .deltaV3 = deltaVThirdBurn,
         .totalDeltaV = totalDeltaV,
         .totalTime = totalTime,
-        .totalTimeDays = totalTime / (24 * 3600),
+        .totalTimeDays = totalTime / constants.seconds_per_day,
     };
 }
 

@@ -131,7 +131,7 @@ fn logTransferInfo(
     log.info("Transfer Time: {d:.1} days", .{transfer.transferTimeDays});
     log.info("{s} lead angle required: {d:.1} degrees", .{
         arrivalName,
-        calculations.radiansToDegrees(arrivalLeadAngle),
+        arrivalLeadAngle * constants.rad2deg,
     });
 }
 
@@ -250,7 +250,7 @@ pub fn planetaryPositions(self: *Mission, timeYears: f64) std.ArrayList(Planetar
         const xOrbit = radius * @cos(trueAnomaly);
         const yOrbit = radius * @sin(trueAnomaly);
 
-        const inclinationRad = std.math.degreesToRadians(planet.inclination);
+        const inclinationRad = planet.inclination * constants.deg2rad;
         const x = xOrbit;
         const y = yOrbit * @cos(inclinationRad);
         const z = yOrbit * @sin(inclinationRad);
@@ -488,7 +488,7 @@ test "Lambert solver integration" {
     );
 
     // approximate transfer time for Hohmann transfer to Mars (~259 days)
-    const transferTime = 259.0 * 24.0 * 3600.0;
+    const transferTime = 259.0 * constants.seconds_per_day;
 
     const lambertResult = try orbitalMechanics.lambertSolverSimple(earthPos, marsPos, transferTime);
 

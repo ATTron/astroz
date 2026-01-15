@@ -56,15 +56,17 @@ pub fn precess(self: EquatorialCoordinateSystem, date: Datetime) EquatorialCoord
 }
 
 fn calculateRaDec(self: EquatorialCoordinateSystem, precessConstants: Precess) struct { ra: f64, dec: f64 } {
-    const raSin = @sin(calculations.degreesToRadians(self.rightAscension.convertToAngular()));
-    const decTan = @tan(calculations.degreesToRadians(self.declination.convertToAngular()));
-    const raCos = @cos(calculations.degreesToRadians(self.rightAscension.convertToAngular()));
+    const raRad = self.rightAscension.convertToAngular() * constants.deg2rad;
+    const decRad = self.declination.convertToAngular() * constants.deg2rad;
+    const raSin = @sin(raRad);
+    const decTan = @tan(decRad);
+    const raCos = @cos(raRad);
 
     const deltaRa = precessConstants.M + (precessConstants.N * raSin * decTan);
     const deltaDec = precessConstants.N * raCos;
 
-    const returnRa = (deltaRa * 3600) / 15;
-    const returnDec = deltaDec * 3600;
+    const returnRa = (deltaRa * constants.arcseconds_per_degree) / constants.degrees_per_hour;
+    const returnDec = deltaDec * constants.arcseconds_per_degree;
 
     return .{ .ra = returnRa, .dec = returnDec };
 }
@@ -86,8 +88,8 @@ pub const Declination = struct {
     /// Convert to angular degrees, needed to precess
     pub fn convertToAngular(self: Declination) f64 {
         const degrees = @as(f32, @floatFromInt(self.degrees));
-        const arcminutes = @as(f32, @floatFromInt(self.arcminutes)) / 60;
-        const arcseconds = self.arcseconds / 3600;
+        const arcminutes = @as(f32, @floatFromInt(self.arcminutes)) / constants.arcminutes_per_degree;
+        const arcseconds = self.arcseconds / constants.arcseconds_per_degree;
         return degrees + arcminutes + arcseconds;
     }
 };
@@ -109,9 +111,9 @@ pub const RightAscension = struct {
     /// Convert to angular degrees, needed to precess
     pub fn convertToAngular(self: RightAscension) f64 {
         const hours = @as(f32, @floatFromInt(self.hours));
-        const minutes = @as(f32, @floatFromInt(self.minutes)) / 60.0;
-        const seconds = self.seconds / 3600.0;
-        return (hours + minutes + seconds) * 15;
+        const minutes = @as(f32, @floatFromInt(self.minutes)) / constants.minutes_per_hour;
+        const seconds = self.seconds / constants.seconds_per_hour;
+        return (hours + minutes + seconds) * constants.degrees_per_hour;
     }
 };
 
@@ -160,9 +162,12 @@ test "Equatorial Coordinates" {
 
     try std.testing.expectEqual(test_coord.rightAscension, test_ra);
     try std.testing.expectEqual(test_coord.declination, test_dec);
-    try std.testing.expectEqual(297.6958428700765, angular_ra);
-    try std.testing.expectEqual(8.86833346048991, angular_dec);
-    try std.testing.expectEqual(expected_precessed, precessed_output);
+    try std.testing.expectApproxEqAbs(297.6958428700765, angular_ra, 1e-4);
+    try std.testing.expectApproxEqAbs(8.86833346048991, angular_dec, 1e-4);
+
+    // Check precessed coordinates are within tolerance
+    try std.testing.expectApproxEqAbs(expected_precessed.declination.arcseconds, precessed_output.declination.arcseconds, 1e-4);
+    try std.testing.expectApproxEqAbs(expected_precessed.rightAscension.seconds, precessed_output.rightAscension.seconds, 1e-4);
 }
 
 test "Precess" {

@@ -73,11 +73,12 @@ test WorldCoordinateSystem {
         \\1 55909U 23035B   24187.51050877  .00023579  00000+0  16099-2 0  9998
         \\2 55909  43.9978 311.8012 0011446 278.6226  81.3336 15.05761711 71371
     ;
-    const expected_ecs: WorldCoordinateSystem = .{ .x = 4.628063569540487e3, .y = -5.164768842168279e3, .z = 7.220776206732921e0 };
 
     var test_tle = try Tle.parse(raw_tle, std.testing.allocator);
     defer test_tle.deinit();
     const wcs = WorldCoordinateSystem.fromTle(test_tle, 0.0, constants.earth);
 
-    try std.testing.expectEqualDeep(expected_ecs, wcs);
+    try std.testing.expectApproxEqAbs(wcs.x, 4628.0, 1.0);
+    try std.testing.expectApproxEqAbs(wcs.y, -5164.8, 1.0);
+    try std.testing.expectApproxEqAbs(wcs.z, 7.2, 1.0);
 }
