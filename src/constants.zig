@@ -9,7 +9,17 @@ pub const j2k = 2000.0;
 pub const twoPi: f64 = 2.0 * std.math.pi;
 pub const deg2rad: f64 = std.math.pi / 180.0;
 pub const rad2deg: f64 = 180.0 / std.math.pi;
+
+pub const seconds_per_minute: f64 = 60.0;
+pub const minutes_per_hour: f64 = 60.0;
+pub const hours_per_day: f64 = 24.0;
+pub const seconds_per_hour: f64 = 3600.0;
+pub const seconds_per_day: f64 = 86400.0;
 pub const minutes_per_day: f64 = 1440.0;
+
+pub const arcminutes_per_degree: f64 = 60.0;
+pub const arcseconds_per_degree: f64 = 3600.0;
+pub const degrees_per_hour: f64 = 15.0; // for right ascension (360/24)
 
 pub const Sgp4GravityModel = struct {
     radiusEarthKm: f64, // km
@@ -44,8 +54,8 @@ pub const wgs84: Sgp4GravityModel = .{
     .j3oj2 = -0.00233899967218727,
 };
 
-/// Deep space threshold: orbital period > 225 minutes.
-/// Satellites with mean motion < 6.4 rev/day need SDP4 (not yet implemented).
+/// deep space threshold: orbital period > 225 minutes.
+/// satellites with mean motion < 6.4 rev/day need SDP4 (not yet implemented).
 pub const sgp4DeepSpaceThresholdMinutes: f64 = 225.0;
 
 pub const CelestialBody = struct {
