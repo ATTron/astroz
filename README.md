@@ -19,7 +19,11 @@
   - [x] Vita49 Stream Parser
 - [x] TLE Support
   - [x] Orbital Propagation
-    - [x] RK4
+    - [x] RK4 Numerical Integration
+    - [x] SGP4 Analytical Propagation
+  - [x] Modular Propagator System
+    - [x] Composable Force Models (TwoBody, J2, Drag)
+    - [x] Swappable Integrators
   - [x] Orbital Maneuvers
     - [x] Impulse Maneuvers
     - [x] Phase Maneuvers
@@ -95,10 +99,11 @@ exe.root_module.addImport("astroz", astroz_mod);
 
 <img src="assets/monte_carlo_analysis.png" width="450" height="400" alt="graphs showing monte carlo run analysis"/>
 
-#### Spacecraft Operations
+- #### [SGP4 Propagation](examples/sgp4_propagation.zig)
 
-- #### [Parse TLE](examples/parse_tle.zig)
-  Parse Two-Line Element sets for satellite orbit information.
+  Analytical orbit propagation using SGP4/SDP4 with TLE input. Demonstrates both direct SGP4 usage and the modular propagator interface.
+
+#### Spacecraft Operations
 
 - #### [Orbit Orientation Determination](examples/simple_spacecraft_orientation.zig)
   Calculate spacecraft attitude and orientation.
