@@ -339,6 +339,42 @@ pub fn addScaledAttitudeState(state: AttitudeState, delta: AttitudeState, scalar
     return addAttitudeStates(state, scaleAttitudeState(delta, scalar));
 }
 
+/// propagate attitude state using RK4 integration
+pub fn propagateAttitude(state: AttitudeState, inertiaTensor: [3][3]f64, dt: f64) AttitudeState {
+    const k1 = attitudeDerivative(state, inertiaTensor);
+    const k2 = attitudeDerivative(addScaledAttitudeState(state, k1, 0.5 * dt), inertiaTensor);
+    const k3 = attitudeDerivative(addScaledAttitudeState(state, k2, 0.5 * dt), inertiaTensor);
+    const k4 = attitudeDerivative(addScaledAttitudeState(state, k3, dt), inertiaTensor);
+
+    return addScaledAttitudeState(
+        state,
+        addAttitudeStates(
+            addAttitudeStates(k1, scaleAttitudeState(k2, 2)),
+            addAttitudeStates(scaleAttitudeState(k3, 2), k4),
+        ),
+        dt / 6.0,
+    );
+}
+
+fn attitudeDerivative(state: AttitudeState, I: [3][3]f64) AttitudeState {
+    const q = state.quaternion;
+    const w = state.angularVelocity;
+
+    return .{
+        .quaternion = .{
+            0.5 * (-q[1] * w[0] - q[2] * w[1] - q[3] * w[2]),
+            0.5 * (q[0] * w[0] + q[2] * w[2] - q[3] * w[1]),
+            0.5 * (q[0] * w[1] - q[1] * w[2] + q[3] * w[0]),
+            0.5 * (q[0] * w[2] + q[1] * w[1] - q[2] * w[0]),
+        },
+        .angularVelocity = .{
+            (I[1][1] - I[2][2]) / I[0][0] * w[1] * w[2],
+            (I[2][2] - I[0][0]) / I[1][1] * w[2] * w[0],
+            (I[0][0] - I[1][1]) / I[2][2] * w[0] * w[1],
+        },
+    };
+}
+
 pub fn vectorAdd(a: StateV, b: StateV) StateV {
     var result: StateV = undefined;
     for (0..6) |i| {
