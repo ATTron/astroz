@@ -75,22 +75,15 @@ pub const OrbitalElements = struct {
     trueAnomaly: f64,
 };
 
-pub fn degreesToRadians(degrees: f64) f64 {
-    return (degrees * std.math.pi) / 180.0;
-}
-
-pub fn radiansToDegrees(degrees: f64) f64 {
-    return (degrees * 180.0) / std.math.pi;
-}
-
 pub fn meanMotionToRadiansPerMinute(mMotion: f64) f64 {
-    return mMotion * 2.0 * std.math.pi / (24.0 * 60.0);
+    return mMotion * constants.twoPi / constants.minutes_per_day;
 }
 
 pub fn meanMotionToSemiMajorAxis(mMotion: f64) f64 {
+    const seconds_per_day = constants.minutes_per_day * 60.0;
     return std.math.pow(
         f64,
-        (constants.earth.mu / (mMotion * 2.0 * std.math.pi / (24.0 * 3600.0)) * 2.0 * 2.0),
+        (constants.earth.mu / (mMotion * constants.twoPi / seconds_per_day) * 2.0 * 2.0),
         1.0 / 3.0,
     );
 }
@@ -110,11 +103,11 @@ pub fn multiplyMatrices(a: [3][3]f64, b: [3][3]f64) [3][3]f64 {
 
 /// convert tle to orbital elements
 pub fn tleToOrbitalElements(tle: Tle) OrbitalElements {
-    const inclination = degreesToRadians(tle.secondLine.inclination);
-    const raan = degreesToRadians(tle.secondLine.rightAscension);
+    const inclination = tle.secondLine.inclination * constants.deg2rad;
+    const raan = tle.secondLine.rightAscension * constants.deg2rad;
     const eccentricity = tle.secondLine.eccentricity;
-    const ArgumentOfPerigee = degreesToRadians(tle.secondLine.perigee);
-    const mAnomaly = degreesToRadians(tle.secondLine.mAnomaly);
+    const argPeriapsis = tle.secondLine.perigee * constants.deg2rad;
+    const mAnomaly = tle.secondLine.mAnomaly * constants.deg2rad;
     const mMotion = meanMotionToRadiansPerMinute(tle.secondLine.mMotion);
 
     const a = meanMotionToSemiMajorAxis(mMotion);
@@ -127,7 +120,7 @@ pub fn tleToOrbitalElements(tle: Tle) OrbitalElements {
         .e = eccentricity,
         .i = inclination,
         .raan = raan,
-        .argPeriapsis = ArgumentOfPerigee,
+        .argPeriapsis = argPeriapsis,
         .trueAnomaly = trueAnomaly,
     };
 }
@@ -176,51 +169,36 @@ pub fn orbitalElementsToStateVector(elements: OrbitalElements, mu: f64) [6]f64 {
 }
 
 pub fn stateVectorToOrbitalElements(r: [3]f64, v: [3]f64, mu: f64) OrbitalElements {
-    const rMag = magnitude(r);
-    const vMag = magnitude(v);
-    const h = crossProduct(r, v);
-    const hMag = magnitude(h);
-    const n = crossProduct(.{ 0, 0, 1 }, h);
-    const nMag = magnitude(n);
+    const rMag = mag(r);
+    const vMag = mag(v);
+    const h = cross(r, v);
+    const hMag = mag(h);
+    const n = cross(.{ 0, 0, 1 }, h);
+    const nMag = mag(n);
 
+    const rv = dot(r, v);
     const eVec = .{
-        (vMag * vMag - mu / rMag) * r[0] / mu - dotProduct(r, v) * v[0] / mu,
-        (vMag * vMag - mu / rMag) * r[1] / mu - dotProduct(r, v) * v[1] / mu,
-        (vMag * vMag - mu / rMag) * r[2] / mu - dotProduct(r, v) * v[2] / mu,
+        (vMag * vMag - mu / rMag) * r[0] / mu - rv * v[0] / mu,
+        (vMag * vMag - mu / rMag) * r[1] / mu - rv * v[1] / mu,
+        (vMag * vMag - mu / rMag) * r[2] / mu - rv * v[2] / mu,
     };
-    const e = magnitude(eVec);
+    const e = mag(eVec);
 
     const eps = vMag * vMag / 2.0 - mu / rMag;
     const a = if (@abs(e - 1.0) > 1e-10) -mu / (2.0 * eps) else std.math.inf(f64);
     const i = std.math.acos(h[2] / hMag);
     const raan = std.math.atan2(n[1], n[0]);
-    const argPeriapsis = std.math.acos(dotProduct(n, eVec) / (nMag * e));
-    const trueAnomaly = std.math.acos(dotProduct(eVec, r) / (e * rMag));
+    const argPeriapsis = std.math.acos(dot(n, eVec) / (nMag * e));
+    const trueAnomaly = std.math.acos(dot(eVec, r) / (e * rMag));
 
     return .{
         .a = a,
         .e = e,
         .i = i,
         .raan = raan,
-        .argPeriapsis = if (r[2] >= 0) argPeriapsis else 2 * std.math.pi - argPeriapsis,
-        .trueAnomaly = if (dotProduct(r, v) >= 0) trueAnomaly else 2 * std.math.pi - trueAnomaly,
+        .argPeriapsis = if (r[2] >= 0) argPeriapsis else constants.twoPi - argPeriapsis,
+        .trueAnomaly = if (rv >= 0) trueAnomaly else constants.twoPi - trueAnomaly,
     };
-}
-
-fn dotProduct(a: [3]f64, b: [3]f64) f64 {
-    return a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
-}
-
-fn crossProduct(a: [3]f64, b: [3]f64) [3]f64 {
-    return .{
-        a[1] * b[2] - a[2] * b[1],
-        a[2] * b[0] - a[0] * b[2],
-        a[0] * b[1] - a[1] * b[0],
-    };
-}
-
-fn magnitude(v: [3]f64) f64 {
-    return std.math.sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]);
 }
 
 fn solveKeplerEquation(mAnomaly: f64, eccentricity: f64) f64 {
@@ -261,8 +239,8 @@ pub fn triad(v1_body: [3]f64, v2_body: [3]f64, v1_ref: [3]f64, v2_ref: [3]f64) [
 }
 
 pub fn normalize(v: [3]f64) [3]f64 {
-    const magni = @sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]);
-    return .{ v[0] / magni, v[1] / magni, v[2] / magni };
+    const m = mag(v);
+    return .{ v[0] / m, v[1] / m, v[2] / m };
 }
 
 pub fn cross(a: [3]f64, b: [3]f64) [3]f64 {
@@ -271,6 +249,14 @@ pub fn cross(a: [3]f64, b: [3]f64) [3]f64 {
         a[2] * b[0] - a[0] * b[2],
         a[0] * b[1] - a[1] * b[0],
     };
+}
+
+pub fn dot(a: [3]f64, b: [3]f64) f64 {
+    return a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+}
+
+pub fn mag(v: [3]f64) f64 {
+    return @sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]);
 }
 
 pub fn transposeMatrix(m: [3][3]f64) [3][3]f64 {
@@ -399,17 +385,17 @@ test "Vector3D integration tests" {
     const rVec = Vector3D.new(1000.0, 2000.0, 3000.0);
     const vVec = Vector3D.new(5.0, -2.0, 1.0);
 
-    const hMag = crossProduct(.{ rVec.x(), rVec.y(), rVec.z() }, .{ vVec.x(), vVec.y(), vVec.z() });
-    const hMagnitude = magnitude(hMag);
+    const hVec = cross(.{ rVec.x(), rVec.y(), rVec.z() }, .{ vVec.x(), vVec.y(), vVec.z() });
+    const hMagnitude = mag(hVec);
     try testing.expect(hMagnitude > 0);
 
     const testElements = OrbitalElements{
         .a = 6700.0,
         .e = 0.001,
-        .i = degreesToRadians(51.6),
-        .raan = degreesToRadians(339.7),
-        .argPeriapsis = degreesToRadians(92.8),
-        .trueAnomaly = degreesToRadians(267.1),
+        .i = 51.6 * constants.deg2rad,
+        .raan = 339.7 * constants.deg2rad,
+        .argPeriapsis = 92.8 * constants.deg2rad,
+        .trueAnomaly = 267.1 * constants.deg2rad,
     };
 
     const stateVector = orbitalElementsToStateVector(testElements, constants.earth.mu);
@@ -417,8 +403,8 @@ test "Vector3D integration tests" {
     const position = [3]f64{ stateVector[0], stateVector[1], stateVector[2] };
     const velocity = [3]f64{ stateVector[3], stateVector[4], stateVector[5] };
 
-    const positionMag = magnitude(position);
-    const velocityMag = magnitude(velocity);
+    const positionMag = mag(position);
+    const velocityMag = mag(velocity);
 
     try testing.expect(positionMag > 6000.0 and positionMag < 8000.0);
     try testing.expect(velocityMag > 6.0 and velocityMag < 8.0);

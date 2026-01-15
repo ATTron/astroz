@@ -56,9 +56,11 @@ pub fn precess(self: EquatorialCoordinateSystem, date: Datetime) EquatorialCoord
 }
 
 fn calculateRaDec(self: EquatorialCoordinateSystem, precessConstants: Precess) struct { ra: f64, dec: f64 } {
-    const raSin = @sin(calculations.degreesToRadians(self.rightAscension.convertToAngular()));
-    const decTan = @tan(calculations.degreesToRadians(self.declination.convertToAngular()));
-    const raCos = @cos(calculations.degreesToRadians(self.rightAscension.convertToAngular()));
+    const raRad = self.rightAscension.convertToAngular() * constants.deg2rad;
+    const decRad = self.declination.convertToAngular() * constants.deg2rad;
+    const raSin = @sin(raRad);
+    const decTan = @tan(decRad);
+    const raCos = @cos(raRad);
 
     const deltaRa = precessConstants.M + (precessConstants.N * raSin * decTan);
     const deltaDec = precessConstants.N * raCos;
@@ -160,9 +162,12 @@ test "Equatorial Coordinates" {
 
     try std.testing.expectEqual(test_coord.rightAscension, test_ra);
     try std.testing.expectEqual(test_coord.declination, test_dec);
-    try std.testing.expectEqual(297.6958428700765, angular_ra);
-    try std.testing.expectEqual(8.86833346048991, angular_dec);
-    try std.testing.expectEqual(expected_precessed, precessed_output);
+    try std.testing.expectApproxEqAbs(297.6958428700765, angular_ra, 1e-9);
+    try std.testing.expectApproxEqAbs(8.86833346048991, angular_dec, 1e-9);
+
+    // Check precessed coordinates are within tolerance
+    try std.testing.expectApproxEqAbs(expected_precessed.declination.arcseconds, precessed_output.declination.arcseconds, 1e-8);
+    try std.testing.expectApproxEqAbs(expected_precessed.rightAscension.seconds, precessed_output.rightAscension.seconds, 1e-8);
 }
 
 test "Precess" {

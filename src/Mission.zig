@@ -131,7 +131,7 @@ fn logTransferInfo(
     log.info("Transfer Time: {d:.1} days", .{transfer.transferTimeDays});
     log.info("{s} lead angle required: {d:.1} degrees", .{
         arrivalName,
-        calculations.radiansToDegrees(arrivalLeadAngle),
+        arrivalLeadAngle * constants.rad2deg,
     });
 }
 
@@ -250,7 +250,7 @@ pub fn planetaryPositions(self: *Mission, timeYears: f64) std.ArrayList(Planetar
         const xOrbit = radius * @cos(trueAnomaly);
         const yOrbit = radius * @sin(trueAnomaly);
 
-        const inclinationRad = std.math.degreesToRadians(planet.inclination);
+        const inclinationRad = planet.inclination * constants.deg2rad;
         const x = xOrbit;
         const y = yOrbit * @cos(inclinationRad);
         const z = yOrbit * @sin(inclinationRad);
