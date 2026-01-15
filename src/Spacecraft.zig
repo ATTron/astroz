@@ -19,16 +19,23 @@ pub const SatelliteParameters = struct {
     depth: f64,
 };
 
-/// The impulse maneuver type
+/// impulse maneuver types with clearer semantics
 pub const Impulse = struct {
     time: f64,
-    deltaV: [3]f64,
-    mode: enum { Absolute, Prograde, Phase, PlaneChange },
-    phaseChange: ?f64 = null,
-    planeChange: ?struct {
-        deltaInclination: f64,
-        deltaRaan: f64,
-    } = null,
+    maneuver: Maneuver,
+
+    pub const Maneuver = union(enum) {
+        absolute: [3]f64,
+        prograde: f64,
+        phase: struct {
+            angle: f64, // radians
+            orbits: f64 = 1.0, // transfer orbits
+        },
+        planeChange: struct {
+            deltaInclination: f64, // radians
+            deltaRaan: f64, // radians
+        },
+    };
 };
 
 /// Determines the values in the SatelliteParameters struct
@@ -195,7 +202,7 @@ pub fn propagate(self: *Spacecraft, t0: f64, days: f64, h: f64, impulseList: ?[]
                     t += dt;
                     try self.orbitPredictions.append(self.allocator, .{ .time = t, .state = y });
                 }
-                y = self.applyImpulse(y, impulses[impulseIndex], &t, h, integrator, force);
+                y = try self.applyImpulse(y, impulses[impulseIndex], &t, h, integrator, force);
                 try self.orbitPredictions.append(self.allocator, .{ .time = t, .state = y });
                 impulseIndex += 1;
             }
@@ -217,35 +224,36 @@ pub fn propagate(self: *Spacecraft, t0: f64, days: f64, h: f64, impulseList: ?[]
     }
 }
 
-fn applyImpulse(self: *Spacecraft, state: [6]f64, impulse: Impulse, t: *f64, h: f64, integrator: propagators.Integrator, force: propagators.ForceModel) [6]f64 {
+fn applyImpulse(self: *Spacecraft, state: [6]f64, impulse: Impulse, t: *f64, h: f64, integrator: propagators.Integrator, force: propagators.ForceModel) ![6]f64 {
     var y = state;
-    switch (impulse.mode) {
-        .Absolute => {
-            y = calculations.impulse(y, impulse.deltaV);
+    switch (impulse.maneuver) {
+        .absolute => |dv| {
+            y = calculations.impulse(y, dv);
         },
-        .Prograde => {
+        .prograde => |dvMag| {
             const vMag = calculations.velMag(y);
-            const dvMag = impulse.deltaV[0];
-            y = calculations.impulse(y, .{ y[3] / vMag * dvMag, y[4] / vMag * dvMag, y[5] / vMag * dvMag });
+            const dv = [3]f64{ y[3] / vMag * dvMag, y[4] / vMag * dvMag, y[5] / vMag * dvMag };
+            y = calculations.impulse(y, dv);
         },
-        .Phase => {
+        .phase => |phase| {
             const r = calculations.posMag(y);
             const vMag = calculations.velMag(y);
-            const dvMag = self.calculatePhaseChange(r, impulse.phaseChange orelse 0, impulse.deltaV[0]);
+            const dvMag = self.calculatePhaseChange(r, phase.angle, phase.orbits);
             const dv = [3]f64{ y[3] / vMag * dvMag, y[4] / vMag * dvMag, y[5] / vMag * dvMag };
             y = calculations.impulse(y, dv);
 
-            // Propagate through transfer orbit
+            // Propagate through transfer orbit(s)
             const period = 2 * std.math.pi * @sqrt(std.math.pow(f64, r, 3) / self.orbitingObject.mu);
-            const tEnd = t.* + period * impulse.deltaV[0];
+            const tEnd = t.* + period * phase.orbits;
             while (t.* < tEnd) : (t.* += h) {
-                y = integrator.step(y, t.*, h, force) catch y;
-                self.orbitPredictions.append(self.allocator, .{ .time = t.* + h, .state = y }) catch {};
+                y = try integrator.step(y, t.*, h, force);
+                try self.orbitPredictions.append(self.allocator, .{ .time = t.* + h, .state = y });
             }
+            // Return burn to circularize
             y = calculations.impulse(y, .{ -dv[0], -dv[1], -dv[2] });
         },
-        .PlaneChange => {
-            y = self.applyPlaneChange(y, impulse);
+        .planeChange => |pc| {
+            y = self.applyPlaneChange(y, pc.deltaInclination, pc.deltaRaan);
         },
     }
     return y;
@@ -257,25 +265,58 @@ fn calculateEnergy(self: Spacecraft, state: calculations.StateV) f64 {
     return 0.5 * v * v - self.orbitingObject.mu / r;
 }
 
-fn applyPlaneChange(self: *Spacecraft, y: [6]f64, plane_change: Impulse) [6]f64 {
-    const mu = self.orbitingObject.mu;
+/// apply plane change maneuver using actual delta-V
+fn applyPlaneChange(_: *Spacecraft, y: [6]f64, deltaInclination: f64, deltaRaan: f64) [6]f64 {
+    const vMag = calculations.velMag(y);
+
+    // combined plane change angle (assumes optimal geo)
+    const totalAngle = @sqrt(deltaInclination * deltaInclination + deltaRaan * deltaRaan);
+    if (totalAngle < 1e-10) return y;
+
+    // delta-v magnitude for plane change: dv = 2 * v * sin(angle/2)
+    const dvMag = 2.0 * vMag * @sin(totalAngle / 2.0);
+
+    // compute normal to orbital plane (r x v)
     const r = [3]f64{ y[0], y[1], y[2] };
     const v = [3]f64{ y[3], y[4], y[5] };
+    const h = [3]f64{
+        r[1] * v[2] - r[2] * v[1],
+        r[2] * v[0] - r[0] * v[2],
+        r[0] * v[1] - r[1] * v[0],
+    };
+    const hMag = @sqrt(h[0] * h[0] + h[1] * h[1] + h[2] * h[2]);
 
-    var elements = calculations.stateVectorToOrbitalElements(r, v, mu);
-    elements.i += plane_change.planeChange.?.deltaInclination;
-    elements.raan += plane_change.planeChange.?.deltaRaan;
+    // apply delta-V in direction of angular momentum change (simplified)
+    const dv = [3]f64{
+        h[0] / hMag * dvMag * @sin(deltaInclination),
+        h[1] / hMag * dvMag * @sin(deltaInclination),
+        h[2] / hMag * dvMag * @cos(deltaInclination),
+    };
 
-    return calculations.orbitalElementsToStateVector(elements, mu);
+    // log the delta-V cost for user awareness
+    log.debug("Plane change: di={d:.2}°, dΩ={d:.2}°, Δv={d:.4} km/s", .{
+        deltaInclination * 180.0 / std.math.pi,
+        deltaRaan * 180.0 / std.math.pi,
+        dvMag,
+    });
+
+    return calculations.impulse(y, dv);
 }
 
-fn calculatePhaseChange(self: Spacecraft, radius: f64, phase_change: f64, transfer_orbits: f64) f64 {
-    const vCircular = @sqrt(self.orbitingObject.mu / radius);
-    const period = 2 * std.math.pi * @sqrt(std.math.pow(f64, radius, 3) / self.orbitingObject.mu);
-    const deltaT = phase_change * period / (2 * std.math.pi);
-    const aTransfer = std.math.pow(f64, (period + deltaT) / (2 * std.math.pi) * @sqrt(self.orbitingObject.mu), 2.0 / 3.0);
-    const vTransfer = @sqrt(self.orbitingObject.mu * (2 / radius - 1 / aTransfer));
-    return (vTransfer - vCircular) * 2 / transfer_orbits;
+/// calculate delta-V for a phasing maneuver
+fn calculatePhaseChange(self: Spacecraft, radius: f64, phaseAngle: f64, transferOrbits: f64) f64 {
+    const mu = self.orbitingObject.mu;
+    const vCircular = @sqrt(mu / radius);
+    const period = 2.0 * std.math.pi * @sqrt(std.math.pow(f64, radius, 3) / mu);
+
+    const deltaT = phaseAngle * period / (2.0 * std.math.pi * transferOrbits);
+
+    const transferPeriod = period + deltaT;
+    const aTransfer = std.math.pow(f64, transferPeriod * @sqrt(mu) / (2.0 * std.math.pi), 2.0 / 3.0);
+
+    const vTransfer = @sqrt(mu * (2.0 / radius - 1.0 / aTransfer));
+
+    return vTransfer - vCircular;
 }
 
 test "init spacecraft" {
@@ -342,9 +383,9 @@ test "prop spacecraft w/ impulse" {
     defer test_sc.deinit();
 
     const impulses = [_]Impulse{
-        .{ .time = 2635014.50, .deltaV = .{ 0.2, 0.0, 0.0 }, .mode = .Prograde },
-        .{ .time = 2638026.50, .deltaV = .{ 0.2, 0.0, 0.0 }, .mode = .Prograde },
-        .{ .time = 2638103.50, .deltaV = .{ 0.2, 0.0, 0.0 }, .mode = .Prograde },
+        .{ .time = 2635014.50, .maneuver = .{ .prograde = 0.2 } },
+        .{ .time = 2638026.50, .maneuver = .{ .prograde = 0.2 } },
+        .{ .time = 2638103.50, .maneuver = .{ .prograde = 0.2 } },
     };
 
     try test_sc.propagate(
@@ -381,9 +422,7 @@ test "prop spacecraft w/ phase" {
 
     const phase_maneuver = Impulse{
         .time = 2500000.0,
-        .deltaV = .{ 1.0, 0.0, 0.0 },
-        .mode = .Phase,
-        .phaseChange = std.math.pi / 2.0,
+        .maneuver = .{ .phase = .{ .angle = std.math.pi / 2.0, .orbits = 1.0 } },
     };
 
     const impulses = [_]Impulse{phase_maneuver};
@@ -434,11 +473,11 @@ test "prop spacecraft w/ plane change" {
 
     const plane_change_maneuver = Impulse{
         .time = 2500000.0,
-        .deltaV = .{ 0.0, 0.0, 0.0 }, // Not used for plane changes
-        .mode = .PlaneChange,
-        .planeChange = .{
-            .deltaInclination = std.math.pi / 18.0, // 10-degree inclination change
-            .deltaRaan = std.math.pi / 36.0, // 5-degree RAAN change
+        .maneuver = .{
+            .planeChange = .{
+                .deltaInclination = std.math.pi / 18.0, // 10-degree inclination change
+                .deltaRaan = std.math.pi / 36.0, // 5-degree RAAN change
+            },
         },
     };
 

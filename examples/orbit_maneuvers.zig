@@ -37,9 +37,9 @@ pub fn main() !void {
     defer sc2.deinit();
 
     const impulses = [_]Impulse{
-        .{ .time = 3600.0, .deltaV = .{ 0.05, 0.03, 0.01 }, .mode = .Absolute },
-        .{ .time = 7200.0, .deltaV = .{ 1.1, -0.05, 0.02 }, .mode = .Absolute },
-        .{ .time = 10800.0, .deltaV = .{ -0.03, 0.08, -0.01 }, .mode = .Absolute },
+        .{ .time = 3600.0, .maneuver = .{ .absolute = .{ 0.05, 0.03, 0.01 } } },
+        .{ .time = 7200.0, .maneuver = .{ .absolute = .{ 1.1, -0.05, 0.02 } } },
+        .{ .time = 10800.0, .maneuver = .{ .absolute = .{ -0.03, 0.08, -0.01 } } },
     };
 
     try sc2.propagate(sc2.tle.firstLine.epoch, 3, 1, &impulses);
@@ -55,11 +55,11 @@ pub fn main() !void {
 
     const planeChangeManeuver = Impulse{
         .time = 2500000.0,
-        .deltaV = .{ 0.0, 0.0, 0.0 },
-        .mode = .PlaneChange,
-        .planeChange = .{
-            .deltaInclination = math.pi / 18.0, // 10-degree inclination change
-            .deltaRaan = math.pi / 36.0, // 5-degree RAAN change
+        .maneuver = .{
+            .planeChange = .{
+                .deltaInclination = math.pi / 18.0, // 10-degree inclination change
+                .deltaRaan = math.pi / 36.0, // 5-degree RAAN change
+            },
         },
     };
 
@@ -80,9 +80,12 @@ pub fn main() !void {
 
     const phaseManeuver = Impulse{
         .time = 2500000.0,
-        .deltaV = .{ 1.0, 0.0, 0.0 },
-        .mode = .Phase,
-        .phaseChange = math.pi / 2.0, // 90-degree phase change
+        .maneuver = .{
+            .phase = .{
+                .angle = math.pi / 2.0, // 90-degree phase change
+                .orbits = 1.0, // complete in 1 transfer orbit
+            },
+        },
     };
 
     const phaseImpulses = [_]Impulse{phaseManeuver};
