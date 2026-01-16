@@ -27,13 +27,8 @@ jobs:
         with:
           version: master
 
-      - name: Build C API library (Linux)
-        if: runner.os == 'Linux'
+      - name: Build C API library
         run: zig build c-api
-
-      - name: Build C API library (macOS)
-        if: runner.os == 'macOS'
-        run: zig build c-api -Dtarget=aarch64-macos.11.0
 
       - name: Upload library artifact
         uses: actions/upload-artifact@v4
@@ -98,13 +93,9 @@ jobs:
           rm python/dist/*.whl
           mv python/dist/repaired/*.whl python/dist/
 
-      - name: Repair wheel (macOS)
-        if: runner.os == 'macOS'
-        run: |
-          pip install delocate
-          delocate-wheel -w python/dist/repaired/ -v python/dist/*.whl
-          rm python/dist/*.whl
-          mv python/dist/repaired/*.whl python/dist/
+      # Note: skipping delocate for macOS - the Zig-built library is self-contained
+      # and delocate fails due to minimum macOS version mismatch. The wheel will
+      # require macOS 15+ which matches the build environment.
 
       - name: Upload wheels
         uses: actions/upload-artifact@v4
