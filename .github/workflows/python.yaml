@@ -6,14 +6,18 @@ on:
   workflow_dispatch:
 
 jobs:
-  build_wheels:
-    name: Build wheels on ${{ matrix.os }}
+  build_libs:
+    name: Build native library (${{ matrix.target }})
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
         include:
           - os: ubuntu-latest
+            target: linux-x86_64
+            lib_name: libastroz_c.so
           - os: macos-latest
+            target: macos-arm64
+            lib_name: libastroz_c.dylib
 
     steps:
       - uses: actions/checkout@v4
@@ -23,28 +27,90 @@ jobs:
         with:
           version: master
 
-      - name: Set version from tag (Unix)
-        if: runner.os != 'Windows'
+      - name: Build C API library (Linux)
+        if: runner.os == 'Linux'
+        run: zig build c-api
+
+      - name: Build C API library (macOS)
+        if: runner.os == 'macOS'
+        run: zig build c-api -Dtarget=aarch64-macos.11.0
+
+      - name: Upload library artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: lib-${{ matrix.target }}
+          path: zig-out/lib/${{ matrix.lib_name }}
+
+  build_wheels:
+    name: Build wheels (${{ matrix.target }})
+    needs: build_libs
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: linux-x86_64
+            lib_name: libastroz_c.so
+          - os: macos-latest
+            target: macos-arm64
+            lib_name: libastroz_c.dylib
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Set version from tag
         run: |
-          VERSION=${GITHUB_REF#refs/tags/v}
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            VERSION=${GITHUB_REF#refs/tags/v}
+          else
+            VERSION="0.0.0.dev"
+          fi
           echo "__version__ = \"$VERSION\"" > python/astroz/__version__.py
+          echo "VERSION=$VERSION" >> $GITHUB_ENV
 
-      - name: Set version from tag (Windows)
-        if: runner.os == 'Windows'
-        shell: pwsh
+      - name: Download native library
+        uses: actions/download-artifact@v4
+        with:
+          name: lib-${{ matrix.target }}
+          path: python/astroz/lib/
+
+      - name: Verify library exists
+        run: ls -la python/astroz/lib/
+
+      - name: Install build tools
+        run: pip install build wheel auditwheel
+
+      - name: Build wheel
         run: |
-          $version = "$env:GITHUB_REF" -replace "refs/tags/v", ""
-          Set-Content -Path "python/astroz/__version__.py" -Value "__version__ = `"$version`""
+          cd python
+          python -m build --wheel
 
-      - name: Build wheels
-        uses: pypa/cibuildwheel@v2.22.0
-        with:
-          package-dir: python
+      - name: Repair wheel (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          pip install patchelf
+          auditwheel repair python/dist/*.whl -w python/dist/repaired/
+          rm python/dist/*.whl
+          mv python/dist/repaired/*.whl python/dist/
 
-      - uses: actions/upload-artifact@v4
+      - name: Repair wheel (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          pip install delocate
+          delocate-wheel -w python/dist/repaired/ -v python/dist/*.whl
+          rm python/dist/*.whl
+          mv python/dist/repaired/*.whl python/dist/
+
+      - name: Upload wheels
+        uses: actions/upload-artifact@v4
         with:
-          name: wheels-${{ matrix.os }}-${{ strategy.job-index }}
-          path: ./wheelhouse/*.whl
+          name: wheels-${{ matrix.target }}
+          path: python/dist/*.whl
 
   build_sdist:
     name: Build source distribution
@@ -52,9 +118,18 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
       - name: Set version from tag
         run: |
-          VERSION=${GITHUB_REF#refs/tags/v}
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            VERSION=${GITHUB_REF#refs/tags/v}
+          else
+            VERSION="0.0.0.dev"
+          fi
           echo "__version__ = \"$VERSION\"" > python/astroz/__version__.py
 
       - name: Build sdist
@@ -63,7 +138,8 @@ jobs:
           pip install build
           python -m build --sdist
 
-      - uses: actions/upload-artifact@v4
+      - name: Upload sdist
+        uses: actions/upload-artifact@v4
         with:
           name: sdist
           path: python/dist/*.tar.gz
