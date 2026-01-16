@@ -1,6 +1,7 @@
 """astroz - High-performance astrodynamics library."""
 
 import atexit
+from .__version__ import __version__
 from ._lib import _lib
 from .tle import Tle
 from .sgp4 import Sgp4
@@ -18,4 +19,4 @@ def version() -> str:
     return f"{(v >> 16) & 0xFF}.{(v >> 8) & 0xFF}.{v & 0xFF}"
 
 
-__all__ = ["version", "Tle", "Sgp4", "orbital", "coords"]
+__all__ = ["__version__", "version", "Tle", "Sgp4", "orbital", "coords"]

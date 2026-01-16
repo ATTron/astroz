@@ -38,17 +38,12 @@ pub fn getEpoch(handle: Handle) f64 {
     return ptr.firstLine.epoch;
 }
 
-pub fn getInclination(handle: Handle) f32 {
+pub fn getInclination(handle: Handle) f64 {
     const ptr: *Tle = @ptrCast(@alignCast(handle));
     return ptr.secondLine.inclination;
 }
 
-pub fn getRightAscension(handle: Handle) f32 {
-    const ptr: *Tle = @ptrCast(@alignCast(handle));
-    return ptr.secondLine.rightAscension;
-}
-
-pub fn getEccentricity(handle: Handle) f32 {
+pub fn getEccentricity(handle: Handle) f64 {
     const ptr: *Tle = @ptrCast(@alignCast(handle));
     return ptr.secondLine.eccentricity;
 }
@@ -56,9 +51,4 @@ pub fn getEccentricity(handle: Handle) f32 {
 pub fn getMeanMotion(handle: Handle) f64 {
     const ptr: *Tle = @ptrCast(@alignCast(handle));
     return ptr.secondLine.mMotion;
-}
-
-pub fn getBstar(handle: Handle) f32 {
-    const ptr: *Tle = @ptrCast(@alignCast(handle));
-    return ptr.firstLine.bstarDrag;
 }

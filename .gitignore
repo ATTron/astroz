@@ -5,6 +5,9 @@ sample_fits/
 .venv
 *.csv
 
+# Rust
+target/
+
 # Python
 __pycache__/
 *.pyc
@@ -12,3 +15,9 @@ __pycache__/
 *.egg-info/
 dist/
 build/
+wheelhouse/
+
+# Bundled native libs (built by CI)
+python/astroz/lib/*.so
+python/astroz/lib/*.dylib
+python/astroz/lib/*.dll

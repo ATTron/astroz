@@ -1,12 +1,10 @@
 //! Base struct that provides various orbital mechanic functions
 
 const std = @import("std");
-const log = std.log;
 
 const calculations = @import("calculations.zig");
 const Vector3D = calculations.Vector3D;
 const constants = @import("constants.zig");
-const CelestialBody = constants.CelestialBody;
 
 pub const ValidationError = error{ InvalidDeltaV, InvalidDistance, InvalidSMA, ValueError };
 
@@ -27,22 +25,6 @@ pub const TransferResult = struct {
     totalDeltaV: f64,
     transferTime: f64,
     transferTimeDays: f64,
-
-    pub fn init(semiMajorAxis: f64, deltaV1: f64, deltaV2: f64, totalDeltaV: f64, transferTime: f64, transferTimeDays: f64) !TransferResult {
-        const expectedTotal = @abs(deltaV1) + @abs(deltaV2);
-        if (@abs(totalDeltaV - expectedTotal) > 1e-6) {
-            return ValidationError.InvalidDeltaV;
-        }
-
-        return .{
-            .semiMajorAxis = semiMajorAxis,
-            .deltaV1 = deltaV1,
-            .deltaV2 = deltaV2,
-            .totalDeltaV = totalDeltaV,
-            .transferTime = transferTime,
-            .transferTimeDays = transferTimeDays,
-        };
-    }
 };
 
 pub const BiEllipticTransferResult = struct {
@@ -53,112 +35,47 @@ pub const BiEllipticTransferResult = struct {
     totalDeltaV: f64,
     totalTime: f64,
     totalTimeDays: f64,
-
-    pub fn init(
-        semiMajorAxis: f64,
-        deltaV1: f64,
-        deltaV2: f64,
-        deltaV3: f64,
-        totalDeltaV: f64,
-        totalTime: f64,
-        totalTimeDays: f64,
-    ) !BiEllipticTransferResult {
-        return .{
-            .semiMajorAxis = semiMajorAxis,
-            .deltaV1 = deltaV1,
-            .deltaV2 = deltaV2,
-            .deltaV3 = deltaV3,
-            .totalDeltaV = totalDeltaV,
-            .totalTime = totalTime,
-            .totalTimeDays = totalTimeDays,
-        };
-    }
 };
 
-centralBody: CelestialBody,
 mu: f64,
 
-pub fn init(mu: f64, centralBody: CelestialBody) OrbitalMechanics {
-    return .{
-        .centralBody = centralBody,
-        .mu = mu,
-    };
+pub fn init(mu: f64) OrbitalMechanics {
+    return .{ .mu = mu };
 }
 
 /// calculate orbital velocity
 pub fn orbitalVelocity(self: *OrbitalMechanics, radius: f64, semiMajorAxis: ?f64) ValidationError!f64 {
-    if (radius <= 0) {
-        log.warn("Distance cannot be negative: {d}", .{radius});
-        return ValidationError.InvalidDistance;
-    }
-
-    if (semiMajorAxis == null) {
-        return @sqrt(self.mu / radius);
-    } else {
-        const sma = semiMajorAxis.?;
-        if (sma <= 0) {
-            log.warn("Semi major axis cannot be negative: {d}", .{sma});
-            return ValidationError.InvalidSMA;
-        }
-        return @sqrt(self.mu * (2.0 / radius - 1.0 / sma));
-    }
+    if (radius <= 0) return ValidationError.InvalidDistance;
+    if (semiMajorAxis) |sma| if (sma <= 0) return ValidationError.InvalidSMA;
+    return calculations.orbitalVelocity(self.mu, radius, semiMajorAxis);
 }
 
 /// calculate orbital period
 pub fn orbitalPeriod(self: *OrbitalMechanics, semiMajorAxis: f64) ValidationError!f64 {
-    if (semiMajorAxis <= 0) {
-        log.warn("Semi major axis cannot be negative: {d}", .{semiMajorAxis});
-        return ValidationError.InvalidSMA;
-    }
-
-    return 2.0 * std.math.pi * @sqrt((semiMajorAxis * semiMajorAxis * semiMajorAxis) / self.mu);
+    if (semiMajorAxis <= 0) return ValidationError.InvalidSMA;
+    return calculations.orbitalPeriod(self.mu, semiMajorAxis);
 }
 
 /// calculate escape velocity from a given radius
 pub fn escapeVelocity(self: *OrbitalMechanics, radius: f64) ValidationError!f64 {
-    if (radius <= 0) {
-        log.warn("Distance cannot be negative: {d}", .{radius});
-        return ValidationError.InvalidDistance;
-    }
-    return @sqrt(2 * self.mu / radius);
+    if (radius <= 0) return ValidationError.InvalidDistance;
+    return calculations.escapeVelocity(self.mu, radius);
 }
 
 /// calculate hohmann transfer parameters between two circular orbits
-/// note: this calculates heliocentric transfer delta-v
-/// ex. earth - mars
-/// heliocentric delta-v: ~5.6 km/s (this calculation)
-/// LEO to mars transfer: ~3.6 km/s (includes earth's orbital velocity advantage)
-pub fn hohmannTransfer(self: *OrbitalMechanics, initialRadius: f64, finalRadius: f64) !TransferResult {
-    if (initialRadius <= 0 or finalRadius <= 0) {
-        return ValidationError.ValueError;
-    }
-    if (@abs(initialRadius - finalRadius) < 1000) {
-        return ValidationError.ValueError;
-    }
+pub fn hohmannTransfer(self: *OrbitalMechanics, initialRadius: f64, finalRadius: f64) ValidationError!TransferResult {
+    if (initialRadius <= 0 or finalRadius <= 0) return ValidationError.ValueError;
+    if (@abs(initialRadius - finalRadius) < 1000) return ValidationError.ValueError;
 
-    const transferSemiMajorAxis = (initialRadius + finalRadius) / 2.0;
-
-    const velocityInitialCircular = @sqrt(self.mu / initialRadius);
-    const velocityFinalCircular = @sqrt(self.mu / finalRadius);
-
-    const velocityInitialTransfer = @sqrt(self.mu / initialRadius) * @sqrt(2.0 * finalRadius / (initialRadius + finalRadius));
-    const velocityFinalTransfer = @sqrt(self.mu / finalRadius) * @sqrt(2.0 * initialRadius / (initialRadius + finalRadius));
-
-    const deltaVInitialBurn = velocityInitialTransfer - velocityInitialCircular;
-    const deltaVFinalBurn = velocityFinalCircular - velocityFinalTransfer;
-
-    const totalDeltaV = @abs(deltaVInitialBurn) + @abs(deltaVFinalBurn);
-
-    const transferTime = std.math.pi * @sqrt((transferSemiMajorAxis * transferSemiMajorAxis * transferSemiMajorAxis) / self.mu);
-
-    return TransferResult.init(
-        transferSemiMajorAxis,
-        deltaVInitialBurn,
-        deltaVFinalBurn,
-        totalDeltaV,
-        transferTime,
-        transferTime / constants.seconds_per_day,
-    );
+    const r = calculations.hohmannTransfer(self.mu, initialRadius, finalRadius);
+    return .{
+        .semiMajorAxis = r.semi_major_axis,
+        .deltaV1 = r.delta_v1,
+        .deltaV2 = r.delta_v2,
+        .totalDeltaV = r.total_delta_v,
+        .transferTime = r.transfer_time,
+        .transferTimeDays = r.transfer_time / constants.seconds_per_day,
+    };
 }
 
 pub fn biEllipicTransfer(self: *OrbitalMechanics, initialRadius: f64, finalRadius: f64, aphelionRadius: f64) !BiEllipticTransferResult {

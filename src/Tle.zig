@@ -69,11 +69,11 @@ pub const FirstLine = struct {
     classification: u8,
     intlDesignator: []u8,
     epochYear: u16,
-    epochDay: f32,
+    epochDay: f64,
     epoch: f64,
-    firstDerMeanMotion: f32,
+    firstDerMeanMotion: f64,
     secondDerMeanMotion: [7]u8,
-    bstarDrag: f32,
+    bstarDrag: f64,
     ephemType: u8,
     elemNumber: u32,
     checksum: u8,
@@ -93,23 +93,12 @@ pub const FirstLine = struct {
             .{ intlYear, intlDesignator, intlDesignatorLaunch },
         );
 
-        const drag = try std.fmt.parseFloat(f32, line[54..59]);
-        const leading = try std.fmt.parseInt(i32, line[59..61], 10);
-        var bstarDrag: f32 = undefined;
-        var power: u32 = undefined;
+        const mantissa = try std.fmt.parseFloat(f64, line[54..59]);
+        const exponent = try std.fmt.parseInt(i32, line[59..61], 10);
+        const bstarDrag = (mantissa * 1e-5) * std.math.pow(f64, 10.0, @as(f64, @floatFromInt(exponent)));
 
-        if (leading < 0) {
-            power = @as(u32, @intCast(-leading));
-        } else {
-            power = @as(u32, @intCast(leading));
-        }
-        var result: f32 = 1.0;
-        for (0..power) |_| {
-            result *= 10.0;
-        }
-        bstarDrag = @abs(-result / drag);
         const epochYear = try std.fmt.parseInt(u16, line[18..20], 10);
-        const epochDay = try std.fmt.parseFloat(f32, line[20..32]);
+        const epochDay = try std.fmt.parseFloat(f64, line[20..32]);
         const epoch = tleEpochToEpoch(epochYear, epochDay);
 
         return .{
@@ -120,7 +109,7 @@ pub const FirstLine = struct {
             .epochYear = epochYear,
             .epochDay = epochDay,
             .epoch = epoch,
-            .firstDerMeanMotion = try std.fmt.parseFloat(f32, line[34..43]),
+            .firstDerMeanMotion = try std.fmt.parseFloat(f64, line[34..43]),
             .secondDerMeanMotion = line[45..52].*,
             .bstarDrag = bstarDrag,
             .ephemType = line[62],
@@ -129,7 +118,7 @@ pub const FirstLine = struct {
         };
     }
 
-    fn tleEpochToEpoch(year: u16, doy: f64) f32 {
+    fn tleEpochToEpoch(year: u16, doy: f64) f64 {
         const epochYear = 2000 + year;
         const monthDay = DateTime.doyToMonthDay(epochYear, doy);
 
@@ -143,13 +132,13 @@ pub const FirstLine = struct {
 pub const SecondLine = struct {
     lineNumber: u8,
     satelliteNumber: u32,
-    inclination: f32,
-    rightAscension: f32,
-    eccentricity: f32,
-    perigee: f32,
-    mAnomaly: f32,
+    inclination: f64,
+    rightAscension: f64,
+    eccentricity: f64,
+    perigee: f64,
+    mAnomaly: f64,
     mMotion: f64,
-    revNum: f32,
+    revNum: u32,
     checksum: u8,
     cleanLine: []const u8,
 
@@ -158,24 +147,25 @@ pub const SecondLine = struct {
             return Error.BadTleLength;
         }
 
-        const cleanLine = try std.mem.replaceOwned(u8, allocator, line, " ", "");
+        // store a copy for potential later use
+        const lineCopy = try allocator.dupe(u8, line);
 
-        const value = try std.fmt.parseFloat(f32, cleanLine[21..28]);
-        const divisor = std.math.pow(f32, 10, 7);
-        const eccentricity: f32 = @as(f32, value) / divisor;
+        const eccStr = std.mem.trim(u8, line[26..33], " ");
+        const eccValue = try std.fmt.parseFloat(f64, eccStr);
+        const eccentricity: f64 = eccValue / 1e7;
 
         return .{
             .lineNumber = line[0],
-            .satelliteNumber = try std.fmt.parseInt(u32, cleanLine[1..6], 10),
-            .inclination = try std.fmt.parseFloat(f32, cleanLine[6..13]),
-            .rightAscension = try std.fmt.parseFloat(f32, cleanLine[13..21]),
+            .satelliteNumber = try std.fmt.parseInt(u32, std.mem.trim(u8, line[2..7], " "), 10),
+            .inclination = try std.fmt.parseFloat(f64, std.mem.trim(u8, line[8..16], " ")),
+            .rightAscension = try std.fmt.parseFloat(f64, std.mem.trim(u8, line[17..25], " ")),
             .eccentricity = eccentricity,
-            .perigee = try std.fmt.parseFloat(f32, cleanLine[28..36]),
-            .mAnomaly = try std.fmt.parseFloat(f32, cleanLine[36..43]),
-            .mMotion = try std.fmt.parseFloat(f64, cleanLine[43..54]),
-            .revNum = try std.fmt.parseFloat(f32, cleanLine[54..58]),
-            .checksum = cleanLine[58],
-            .cleanLine = cleanLine,
+            .perigee = try std.fmt.parseFloat(f64, std.mem.trim(u8, line[34..42], " ")),
+            .mAnomaly = try std.fmt.parseFloat(f64, std.mem.trim(u8, line[43..51], " ")),
+            .mMotion = try std.fmt.parseFloat(f64, std.mem.trim(u8, line[52..63], " ")),
+            .revNum = try std.fmt.parseInt(u32, std.mem.trim(u8, line[63..68], " "), 10),
+            .checksum = line[68],
+            .cleanLine = lineCopy,
         };
     }
 };
@@ -190,11 +180,11 @@ test "test tle parsing" {
     defer tle.deinit();
 
     try std.testing.expectEqual(55909, tle.firstLine.satelliteNumber);
-    try std.testing.expectEqual(0.006211566, tle.firstLine.bstarDrag);
-    try std.testing.expectEqual(0.00023579, tle.firstLine.firstDerMeanMotion);
+    try std.testing.expectApproxEqAbs(@as(f64, 0.0016099), tle.firstLine.bstarDrag, 1e-10);
+    try std.testing.expectApproxEqAbs(@as(f64, 0.00023579), tle.firstLine.firstDerMeanMotion, 1e-10);
 
-    try std.testing.expectEqual(43.9978, tle.secondLine.inclination);
-    try std.testing.expectEqual(311.8012, tle.secondLine.rightAscension);
-    try std.testing.expectEqual(0.0011446, tle.secondLine.eccentricity);
-    try std.testing.expectEqual(15.05761711, tle.secondLine.mMotion);
+    try std.testing.expectApproxEqAbs(@as(f64, 43.9978), tle.secondLine.inclination, 1e-6);
+    try std.testing.expectApproxEqAbs(@as(f64, 311.8012), tle.secondLine.rightAscension, 1e-6);
+    try std.testing.expectApproxEqAbs(@as(f64, 0.0011446), tle.secondLine.eccentricity, 1e-10);
+    try std.testing.expectApproxEqAbs(@as(f64, 15.05761711), tle.secondLine.mMotion, 1e-10);
 }

@@ -114,7 +114,7 @@ pub fn runHohmannSimulation(self: *MonteCarlo) !void {
         const safeR1 = @max(r1, baseR1 * 0.5);
         const safeR2 = @max(r2, baseR2 * 0.5);
 
-        var orbitalMechanics = OrbitalMechanics.init(mu, self.config.departureBody);
+        var orbitalMechanics = OrbitalMechanics.init(mu);
 
         const appliedUncertainty = UncertaintyParams{
             .departureRadiusUncertainty = (safeR1 - baseR1) / baseR1,
