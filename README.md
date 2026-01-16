@@ -56,14 +56,39 @@
 
 ### SGP4 Performance
 
-Fastest open-source SGP4 implementation available, with sub-meter accuracy
+Fastest general-purpose open-source SGP4 implementation, with sub-meter accuracy validated against reference implementations.
 
-| Implementation | Propagations/sec | vs python-sgp4 |
-|----------------|------------------|----------------|
-| astroz (Zig) | ~5M/s | 2x faster |
-| astroz (Python) | ~4M/s | 1.6x faster |
-| Rust sgp4 | ~4M/s | 1.6x faster |
-| python-sgp4 | ~2.5M/s | baseline |
+#### Native Performance (2 weeks @ second resolution)
+
+| Implementation | Props/sec | Language |
+|----------------|-----------|----------|
+| **astroz** | 5.6M | Zig |
+| sgp4 | 5.3M | Rust |
+
+#### Python Bindings (2 weeks @ second resolution)
+
+| Implementation | Props/sec | Backend |
+|----------------|-----------|---------|
+| **astroz** | 4.8M | Zig |
+| satkit | 3.4M | Rust |
+| python-sgp4 | 2.8M | C++ |
+
+#### Python Bindings (1 month @ minute resolution)
+
+| Implementation | Props/sec | Backend |
+|----------------|-----------|---------|
+| **astroz** | 5.2M | Zig |
+| satkit | 3.9M | Rust |
+| python-sgp4 | 2.8M | C++ |
+
+#### Other Toolkits
+
+| Implementation | Props/sec | Notes |
+|----------------|-----------|-------|
+| Skyfield | 121K | Wraps sgp4 + coordinate transforms |
+| OSTk | 56K | Full astrodynamics toolkit overhead |
+
+*python-sgp4 uses the official Vallado C++ implementation. satkit uses Rust with PyO3 bindings. Skyfield and OSTk are slower due to additional coordinate frame transformations, not SGP4 itself.*
 
 ### Python Bindings
 
