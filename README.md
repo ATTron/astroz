@@ -56,7 +56,7 @@
 
 ### SGP4 Performance
 
-Fastest general-purpose open-source SGP4 implementation, with sub-meter accuracy validated against reference implementations.
+The fastest general-purpose, open source SGP4 implementation, with sub-meter accuracy validated against reference implementations.
 
 #### Native Performance (2 weeks @ second resolution)
 
