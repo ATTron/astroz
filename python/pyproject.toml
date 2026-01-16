@@ -25,7 +25,7 @@ Repository = "https://github.com/ATTron/astroz"
 where = ["."]
 
 [tool.setuptools.dynamic]
-version = {attr = "astroz.__version__"}
+version = {attr = "astroz.__version__.__version__"}
 
 [tool.setuptools.package-data]
 astroz = ["lib/*"]
@@ -40,6 +40,6 @@ before-all = "curl -L https://ziglang.org/download/index.json | python3 -c \"imp
 before-build = "cd {project} && zig build c-api && mkdir -p python/astroz/lib && cp zig-out/lib/libastroz_c.so python/astroz/lib/"
 
 [tool.cibuildwheel.macos]
-before-all = "curl -L https://ziglang.org/download/index.json | python3 -c \"import sys,json; print(json.load(sys.stdin)['master']['aarch64-macos']['tarball'])\" | xargs curl -L | tar -xJ -C /usr/local && ln -sf /usr/local/zig-macos-aarch64-*/zig /usr/local/bin/zig"
+# macOS doesn't use containers, so zig from setup-zig action is available
 before-build = "cd {project} && zig build c-api && mkdir -p python/astroz/lib && cp zig-out/lib/libastroz_c.dylib python/astroz/lib/"
 
