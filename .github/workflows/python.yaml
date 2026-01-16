@@ -13,8 +13,7 @@ jobs:
       matrix:
         include:
           - os: ubuntu-latest
-          - os: macos-latest    # arm64 (x86_64 runners no longer available)
-          - os: windows-latest
+          - os: macos-latest
 
     steps:
       - uses: actions/checkout@v4

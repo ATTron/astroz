@@ -36,10 +36,10 @@ skip = "*-musllinux_* *-manylinux_i686"
 archs = ["native"]
 
 [tool.cibuildwheel.linux]
+before-all = "curl -L https://ziglang.org/download/index.json | python3 -c \"import sys,json; print(json.load(sys.stdin)['master']['x86_64-linux']['tarball'])\" | xargs curl -L | tar -xJ -C /usr/local && ln -sf /usr/local/zig-linux-x86_64-*/zig /usr/local/bin/zig"
 before-build = "cd {project} && zig build c-api && mkdir -p python/astroz/lib && cp zig-out/lib/libastroz_c.so python/astroz/lib/"
 
 [tool.cibuildwheel.macos]
+before-all = "curl -L https://ziglang.org/download/index.json | python3 -c \"import sys,json; print(json.load(sys.stdin)['master']['aarch64-macos']['tarball'])\" | xargs curl -L | tar -xJ -C /usr/local && ln -sf /usr/local/zig-macos-aarch64-*/zig /usr/local/bin/zig"
 before-build = "cd {project} && zig build c-api && mkdir -p python/astroz/lib && cp zig-out/lib/libastroz_c.dylib python/astroz/lib/"
 
-[tool.cibuildwheel.windows]
-before-build = "cd /d {project} && zig build c-api && if not exist python\\astroz\\lib mkdir python\\astroz\\lib && copy zig-out\\lib\\astroz_c.dll python\\astroz\\lib\\"
