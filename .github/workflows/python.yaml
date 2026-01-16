@@ -13,8 +13,7 @@ jobs:
       matrix:
         include:
           - os: ubuntu-latest
-          - os: macos-13        # x86_64
-          - os: macos-latest    # arm64
+          - os: macos-latest    # arm64 (x86_64 runners no longer available)
           - os: windows-latest
 
     steps:
