@@ -37,10 +37,10 @@ archs = ["native"]
 
 [tool.cibuildwheel.linux]
 before-all = "curl -sL https://ziglang.org/download/index.json | python -c \"import sys,json; print(json.load(sys.stdin)['master']['x86_64-linux']['tarball'])\" | xargs curl -L | tar -xJ -C /usr/local && ZIG_DIR=$(ls -d /usr/local/zig-x86_64-linux-*) && ln -s $ZIG_DIR/zig /usr/local/bin/zig"
-before-build = "cd {project} && zig build c-api && mkdir -p python/astroz/lib && cp zig-out/lib/libastroz_c.so python/astroz/lib/"
+before-build = "cd {project}/.. && zig build c-api && mkdir -p python/astroz/lib && cp zig-out/lib/libastroz_c.so python/astroz/lib/"
 environment = { PATH = "/usr/local/bin:$PATH" }
 
 [tool.cibuildwheel.macos]
 # macOS doesn't use containers, so zig from setup-zig action is available
-before-build = "cd {project} && zig build c-api && mkdir -p python/astroz/lib && cp zig-out/lib/libastroz_c.dylib python/astroz/lib/"
+before-build = "cd {project}/.. && zig build c-api && mkdir -p python/astroz/lib && cp zig-out/lib/libastroz_c.dylib python/astroz/lib/"
 
