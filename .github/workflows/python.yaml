@@ -28,7 +28,7 @@ jobs:
           version: master
 
       - name: Build C API library
-        run: zig build c-api
+        run: zig build c-api -Doptimize=ReleaseFast
 
       - name: Upload library artifact
         uses: actions/upload-artifact@v4
