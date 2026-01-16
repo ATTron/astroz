@@ -36,8 +36,8 @@ skip = "*-musllinux_* *-manylinux_i686"
 archs = ["native"]
 
 [tool.cibuildwheel.linux]
-before-all = "curl -sL https://ziglang.org/download/index.json | python3 -c \"import sys,json; print(json.load(sys.stdin)['master']['x86_64-linux']['tarball'])\" | xargs curl -L | tar -xJ -C /opt && ls /opt/ && ln -sf $(find /opt -maxdepth 1 -name 'zig-linux-*' -type d)/zig /usr/local/bin/zig"
-before-build = "cd {project} && /usr/local/bin/zig build c-api && mkdir -p python/astroz/lib && cp zig-out/lib/libastroz_c.so python/astroz/lib/"
+before-all = "curl -sL https://ziglang.org/download/index.json | python3 -c \"import sys,json; print(json.load(sys.stdin)['master']['x86_64-linux']['tarball'])\" | xargs curl -L | tar -xJ -C /opt"
+before-build = "cd {project} && /opt/zig-linux-x86_64-*/zig build c-api && mkdir -p python/astroz/lib && cp zig-out/lib/libastroz_c.so python/astroz/lib/"
 
 [tool.cibuildwheel.macos]
 # macOS doesn't use containers, so zig from setup-zig action is available
