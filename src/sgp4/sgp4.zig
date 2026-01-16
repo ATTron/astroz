@@ -32,7 +32,7 @@ pub const Elements = struct {
     grav: constants.Sgp4GravityModel,
     epoch_jd: f64,
 
-    // Mean elements from TLE (radians where applicable)
+    // Mean elements from TLE
     no_kozai: f64,
     ecco: f64,
     inclo: f64,
@@ -207,7 +207,7 @@ fn extractMeanElements(tle: Tle) MeanElements {
 const RecoveredElements = struct { no_unkozai: f64, a: f64 };
 
 fn recoverMeanMotion(el: MeanElements, grav: constants.Sgp4GravityModel) RecoveredElements {
-    // Un-Kozai the mean motion to get Brouwer mean motion
+    // unkozai the mean motion
     const cosio = @cos(el.inclo);
     const theta2 = cosio * cosio;
     const x3thm1 = 3.0 * theta2 - 1.0;

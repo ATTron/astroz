@@ -22,7 +22,7 @@ def bench_astroz():
     try:
         from astroz import Tle, Sgp4
     except ImportError:
-        print("astroz not installed - run: zig build c-api && pip install -e python/")
+        print("astroz not installed... run: zig build c-api && pip install -e python/")
         return None
 
     tle = Tle(f"{ISS_TLE_LINE1}\n{ISS_TLE_LINE2}")
