@@ -79,6 +79,51 @@ pub fn meanMotionToRadiansPerMinute(mMotion: f64) f64 {
     return mMotion * constants.twoPi / constants.minutes_per_day;
 }
 
+/// Orbital velocity at given radius. Use sma=null for circular orbit.
+pub fn orbitalVelocity(mu: f64, radius: f64, sma: ?f64) f64 {
+    if (sma) |a| {
+        return @sqrt(mu * (2.0 / radius - 1.0 / a));
+    }
+    return @sqrt(mu / radius);
+}
+
+/// Orbital period from semi-major axis.
+pub fn orbitalPeriod(mu: f64, sma: f64) f64 {
+    return 2.0 * std.math.pi * @sqrt(sma * sma * sma / mu);
+}
+
+/// Escape velocity at given radius.
+pub fn escapeVelocity(mu: f64, radius: f64) f64 {
+    return @sqrt(2.0 * mu / radius);
+}
+
+/// Hohmann transfer result.
+pub const HohmannTransfer = struct {
+    semi_major_axis: f64,
+    delta_v1: f64,
+    delta_v2: f64,
+    total_delta_v: f64,
+    transfer_time: f64,
+};
+
+/// Calculate Hohmann transfer between two circular orbits.
+pub fn hohmannTransfer(mu: f64, r1: f64, r2: f64) HohmannTransfer {
+    const sma = (r1 + r2) / 2.0;
+    const v1_circ = @sqrt(mu / r1);
+    const v2_circ = @sqrt(mu / r2);
+    const v1_trans = @sqrt(mu / r1) * @sqrt(2.0 * r2 / (r1 + r2));
+    const v2_trans = @sqrt(mu / r2) * @sqrt(2.0 * r1 / (r1 + r2));
+    const dv1 = v1_trans - v1_circ;
+    const dv2 = v2_circ - v2_trans;
+    return .{
+        .semi_major_axis = sma,
+        .delta_v1 = dv1,
+        .delta_v2 = dv2,
+        .total_delta_v = @abs(dv1) + @abs(dv2),
+        .transfer_time = std.math.pi * @sqrt(sma * sma * sma / mu),
+    };
+}
+
 pub fn meanMotionToSemiMajorAxis(mMotion: f64) f64 {
     const seconds_per_day = constants.minutes_per_day * 60.0;
     return std.math.pow(
@@ -201,14 +246,35 @@ pub fn stateVectorToOrbitalElements(r: [3]f64, v: [3]f64, mu: f64) OrbitalElemen
     };
 }
 
-pub fn solveKeplerEquation(mAnomaly: f64, eccentricity: f64) f64 {
-    var E = mAnomaly;
-    const tolerance: f64 = 1e-6;
-    var d: f64 = 1.0;
+/// Solve Kepler's equation: E - e*sin(E) = M
+/// Returns eccentric anomaly E given mean anomaly M and eccentricity e
+/// Uses Newton-Raphson iteration with optional damping for high eccentricity
+pub fn solveKeplerEquation(M: f64, e: f64) f64 {
+    return solveKeplerNewton(M, e, 1e-6, 50, null);
+}
 
-    while (@abs(d) > tolerance) {
-        d = E - eccentricity * @sin(E) - mAnomaly;
-        E -= d / (1 - eccentricity * @cos(E));
+/// Newton-Raphson solver for Kepler's equation with configurable tolerance and damping.
+/// - M: mean anomaly (radians)
+/// - e: eccentricity
+/// - tol: convergence tolerance
+/// - max_iter: maximum iterations
+/// - damp: optional damping factor (clamps correction magnitude), null for no damping
+pub fn solveKeplerNewton(M: f64, e: f64, tol: f64, max_iter: u32, damp: ?f64) f64 {
+    var E = M;
+    var iter: u32 = 0;
+
+    while (iter < max_iter) {
+        const sinE = @sin(E);
+        const cosE = @cos(E);
+        const f = E - e * sinE - M;
+        if (@abs(f) < tol) break;
+
+        var dE = f / (1.0 - e * cosE);
+        if (damp) |d| {
+            if (@abs(dE) >= d) dE = if (dE > 0) d else -d;
+        }
+        E -= dE;
+        iter += 1;
     }
 
     return E;

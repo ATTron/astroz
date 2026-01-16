@@ -305,7 +305,7 @@ test "mission planning Earth-Mars transfer" {
     const testing = std.testing;
     const ta = std.testing.allocator;
 
-    const orbitalMechanics = OrbitalMechanics.init(constants.sun.mu, constants.sun);
+    const orbitalMechanics = OrbitalMechanics.init(constants.sun.mu);
 
     const params = try MissionParameters.init(
         constants.earth,
@@ -360,7 +360,7 @@ test "mission planning parameter validation" {
 test "bi-elliptic vs hohmann transfer comparison" {
     const testing = std.testing;
 
-    var orbitalMechanics = OrbitalMechanics.init(constants.earth.mu, constants.earth);
+    var orbitalMechanics = OrbitalMechanics.init(constants.earth.mu);
 
     // test transfers from LEO to GEO
     const rLEO = 6700.0; // ~300km altitude
@@ -383,7 +383,7 @@ test "propagate transfer generates correct trajectory types" {
     const testing = std.testing;
     const ta = std.testing.allocator;
 
-    const orbitalMechanics = OrbitalMechanics.init(constants.sun.mu, constants.sun);
+    const orbitalMechanics = OrbitalMechanics.init(constants.sun.mu);
     const params = try MissionParameters.init(constants.earth, constants.mars, 0.0, null, "hohmann");
     var mission = Mission.init(ta, params, orbitalMechanics);
     defer mission.deinit();
@@ -411,7 +411,7 @@ test "propagate transfer trajectory validation" {
     const testing = std.testing;
     const ta = std.testing.allocator;
 
-    const orbitalMechanics = OrbitalMechanics.init(constants.sun.mu, constants.sun);
+    const orbitalMechanics = OrbitalMechanics.init(constants.sun.mu);
     const params = try MissionParameters.init(
         constants.earth,
         constants.mars,
@@ -471,7 +471,7 @@ test "propagate transfer trajectory validation" {
 test "Lambert solver integration" {
     const testing = std.testing;
 
-    const orbitalMechanics = OrbitalMechanics.init(constants.sun.mu, constants.sun);
+    const orbitalMechanics = OrbitalMechanics.init(constants.sun.mu);
 
     const earthPos = calculations.Vector3D.new(constants.earth.semiMajorAxis, 0.0, 0.0);
 
@@ -503,7 +503,7 @@ test "planMission with Hohmann transfer" {
     const testing = std.testing;
     const ta = std.testing.allocator;
 
-    const orbitalMechanics = OrbitalMechanics.init(constants.sun.mu, constants.sun);
+    const orbitalMechanics = OrbitalMechanics.init(constants.sun.mu);
     const params = try MissionParameters.init(
         constants.earth,
         constants.mars,
@@ -538,7 +538,7 @@ test "planMission with bi-elliptic transfer" {
     const testing = std.testing;
     const ta = std.testing.allocator;
 
-    const orbitalMechanics = OrbitalMechanics.init(constants.sun.mu, constants.sun);
+    const orbitalMechanics = OrbitalMechanics.init(constants.sun.mu);
     const params = try MissionParameters.init(
         constants.earth,
         constants.mars,
@@ -568,7 +568,7 @@ test "planMission with invalid transfer type" {
     const testing = std.testing;
     const ta = std.testing.allocator;
 
-    const orbitalMechanics = OrbitalMechanics.init(constants.sun.mu, constants.sun);
+    const orbitalMechanics = OrbitalMechanics.init(constants.sun.mu);
     const params = try MissionParameters.init(
         constants.earth,
         constants.mars,
@@ -587,7 +587,7 @@ test "planetaryPositions calculates valid positions" {
     const testing = std.testing;
     const ta = std.testing.allocator;
 
-    const orbitalMechanics = OrbitalMechanics.init(constants.sun.mu, constants.sun);
+    const orbitalMechanics = OrbitalMechanics.init(constants.sun.mu);
     const params = try MissionParameters.init(constants.earth, constants.mars, 0.0, null, "hohmann");
     var mission = Mission.init(ta, params, orbitalMechanics);
     defer mission.deinit();
@@ -610,7 +610,7 @@ test "propagateTransfer edge cases" {
     const testing = std.testing;
     const ta = std.testing.allocator;
 
-    const orbitalMechanics = OrbitalMechanics.init(constants.sun.mu, constants.sun);
+    const orbitalMechanics = OrbitalMechanics.init(constants.sun.mu);
     const params = try MissionParameters.init(constants.earth, constants.mars, 0.0, null, "hohmann");
     var mission = Mission.init(ta, params, orbitalMechanics);
     defer mission.deinit();

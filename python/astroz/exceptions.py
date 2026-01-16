@@ -1,28 +1,20 @@
-"""Exception classes for astroz errors."""
+"""Exception handling for astroz errors."""
 
 
 class AstrozError(Exception):
     """Base exception for astroz errors."""
 
-    pass
-
 
 class TleParseError(AstrozError):
     """TLE parsing failed."""
-
-    pass
 
 
 class Sgp4Error(AstrozError):
     """SGP4 propagation error."""
 
-    pass
-
 
 class OrbitalError(AstrozError):
     """Orbital mechanics calculation error."""
-
-    pass
 
 
 _ERROR_MAP = {

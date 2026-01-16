@@ -21,7 +21,6 @@ pub fn init(tle_handle: tle_api.Handle, grav_model: i32, out: *Handle) err.Code 
             Sgp4.Error.DeepSpaceNotSupported => .deep_space_not_supported,
             Sgp4.Error.InvalidEccentricity => .invalid_eccentricity,
             Sgp4.Error.SatelliteDecayed => .satellite_decayed,
-            else => err.fromError(e),
         };
     };
 
@@ -47,5 +46,29 @@ pub fn propagate(handle: Handle, tsince: f64, pos: *[3]f64, vel: *[3]f64) err.Co
     };
     pos.* = result[0];
     vel.* = result[1];
+    return .ok;
+}
+
+/// Batch propagation - single FFI call for multiple time steps
+/// times: array of tsince values (minutes since epoch)
+/// results: output array of [pos_x, pos_y, pos_z, vel_x, vel_y, vel_z] for each time
+/// count: number of time steps
+pub fn propagateBatch(handle: Handle, times: [*]const f64, results: [*]f64, count: u32) err.Code {
+    const ptr: *Sgp4 = @ptrCast(@alignCast(handle));
+    for (0..count) |i| {
+        const result = ptr.propagate(times[i]) catch |e| {
+            return switch (e) {
+                Sgp4.Error.SatelliteDecayed => .satellite_decayed,
+                else => err.fromError(e),
+            };
+        };
+        const base = i * 6;
+        results[base + 0] = result[0][0];
+        results[base + 1] = result[0][1];
+        results[base + 2] = result[0][2];
+        results[base + 3] = result[1][0];
+        results[base + 4] = result[1][1];
+        results[base + 5] = result[1][2];
+    }
     return .ok;
 }
