@@ -444,14 +444,6 @@ const SecularState = struct {
     a: f64,
 };
 
-const SecularStateV4 = struct {
-    mm: Vec4,
-    argpm: Vec4,
-    nodem: Vec4,
-    em: Vec4,
-    a: Vec4,
-};
-
 fn updateSecular(el: *const Elements, tsince: f64) SecularState {
     const t2 = tsince * tsince;
 
@@ -494,6 +486,183 @@ fn updateSecular(el: *const Elements, tsince: f64) SecularState {
     mm = @mod(xlm - argpm - nodem, constants.twoPi);
 
     return .{ .mm = mm, .argpm = argpm, .nodem = nodem, .em = em, .a = am };
+}
+
+const KeplerState = struct {
+    u: f64,
+    r: f64,
+    rdot: f64,
+    rvdot: f64,
+    betal: f64,
+    sin2u: f64,
+    cos2u: f64,
+    nodem: f64,
+    pl: f64,
+};
+
+/// Solve Kepler's equation in equinoctial form and compute orbital state.
+/// Note: This uses SGP4's equinoctial formulation (axnl, aynl) rather than
+/// the standard E - e*sin(E) = M form. See calculations.solveKeplerEquation
+/// for the standard formulation.
+fn solveKepler(el: *const Elements, sec: SecularState) KeplerState {
+    const temp = 1.0 / (sec.a * (1.0 - sec.em * sec.em));
+    const axnl = sec.em * @cos(sec.argpm);
+    const aynl = sec.em * @sin(sec.argpm) + temp * el.aycof;
+    const xl = @mod(sec.mm + sec.argpm + sec.nodem + temp * el.xlcof * axnl, constants.twoPi);
+
+    var u = @mod(xl - sec.nodem, constants.twoPi);
+    var eo1 = u;
+    var sineo1: f64 = 0.0;
+    var coseo1: f64 = 1.0;
+
+    var tem5: f64 = 9999.9;
+    var ktr: u32 = 1;
+    while (@abs(tem5) >= 1.0e-12 and ktr <= 10) {
+        sineo1 = @sin(eo1);
+        coseo1 = @cos(eo1);
+        tem5 = 1.0 - coseo1 * axnl - sineo1 * aynl;
+        tem5 = (u - aynl * coseo1 + axnl * sineo1 - eo1) / tem5;
+        if (@abs(tem5) >= 0.95) {
+            tem5 = if (tem5 > 0.0) 0.95 else -0.95;
+        }
+        eo1 = eo1 + tem5;
+        ktr += 1;
+    }
+
+    const ecose = axnl * coseo1 + aynl * sineo1;
+    const esine = axnl * sineo1 - aynl * coseo1;
+    const el2 = axnl * axnl + aynl * aynl;
+    const pl = sec.a * (1.0 - el2);
+    const betal = @sqrt(1.0 - el2);
+    const rl = sec.a * (1.0 - ecose);
+    const rdotl = @sqrt(sec.a) * esine / rl;
+    const rvdotl = @sqrt(pl) / rl;
+
+    const a_over_r = sec.a / rl;
+    const esine_term = esine / (1.0 + betal);
+    const sinu = a_over_r * (sineo1 - aynl - axnl * esine_term);
+    const cosu = a_over_r * (coseo1 - axnl + aynl * esine_term);
+    u = std.math.atan2(sinu, cosu);
+
+    return .{
+        .u = u,
+        .r = rl,
+        .rdot = rdotl,
+        .rvdot = rvdotl,
+        .betal = betal,
+        .sin2u = 2.0 * sinu * cosu,
+        .cos2u = 1.0 - 2.0 * sinu * sinu,
+        .nodem = sec.nodem,
+        .pl = pl,
+    };
+}
+
+const CorrectedState = struct {
+    r: f64,
+    rdot: f64,
+    rvdot: f64,
+    u: f64,
+    xnode: f64,
+    xinc: f64,
+};
+
+fn applyShortPeriodCorrections(el: *const Elements, kep: KeplerState, nm: f64) CorrectedState {
+    const temp = 1.0 / kep.pl;
+    const temp1 = 0.5 * el.grav.j2 * temp;
+    const temp2 = temp1 * temp;
+
+    // short period corrections to position, velocity, and orbital elements
+    const mrt = kep.r * (1.0 - 1.5 * temp2 * kep.betal * el.con41) + 0.5 * temp1 * el.x1mth2 * kep.cos2u;
+    const su = kep.u - 0.25 * temp2 * el.x7thm1 * kep.sin2u;
+    const xnode = kep.nodem + 1.5 * temp2 * el.cosio * kep.sin2u;
+    const xinc = el.inclo + 1.5 * temp2 * el.cosio * el.sinio * kep.cos2u;
+    const mvt = kep.rdot - nm * temp1 * el.x1mth2 * kep.sin2u / el.grav.xke;
+    const rvdot = kep.rvdot + nm * temp1 * (el.x1mth2 * kep.cos2u + 1.5 * el.con41) / el.grav.xke;
+
+    return .{ .r = mrt, .rdot = mvt, .rvdot = rvdot, .u = su, .xnode = xnode, .xinc = xinc };
+}
+
+fn computePositionVelocity(el: *const Elements, state: CorrectedState) [2][3]f64 {
+    const sinsu = @sin(state.u);
+    const cossu = @cos(state.u);
+    const snod = @sin(state.xnode);
+    const cnod = @cos(state.xnode);
+    const sini = @sin(state.xinc);
+    const cosi = @cos(state.xinc);
+
+    const xmx = -snod * cosi;
+    const xmy = cnod * cosi;
+    const ux = xmx * sinsu + cnod * cossu;
+    const uy = xmy * sinsu + snod * cossu;
+    const uz = sini * sinsu;
+    const vx = xmx * cossu - cnod * sinsu;
+    const vy = xmy * cossu - snod * sinsu;
+    const vz = sini * cossu;
+
+    const r_scaled = state.r * el.grav.radiusEarthKm;
+    const r: [3]f64 = .{
+        r_scaled * ux,
+        r_scaled * uy,
+        r_scaled * uz,
+    };
+    const v: [3]f64 = .{
+        (state.rdot * ux + state.rvdot * vx) * el.vkmpersec,
+        (state.rdot * uy + state.rvdot * vy) * el.vkmpersec,
+        (state.rdot * uz + state.rvdot * vz) * el.vkmpersec,
+    };
+
+    return .{ r, v };
+}
+
+// SIMD FUNCTIONS
+// keeping the scalar functions to compare as they are gonna be
+// easier to debug if shit breaks
+
+const SecularStateV4 = struct {
+    mm: Vec4,
+    argpm: Vec4,
+    nodem: Vec4,
+    em: Vec4,
+    a: Vec4,
+};
+
+const KeplerStateV4 = struct {
+    u: Vec4,
+    r: Vec4,
+    rdot: Vec4,
+    rvdot: Vec4,
+    betal: Vec4,
+    sin2u: Vec4,
+    cos2u: Vec4,
+    nodem: Vec4,
+    pl: Vec4,
+};
+
+const CorrectedStateV4 = struct {
+    r: Vec4,
+    rdot: Vec4,
+    rvdot: Vec4,
+    u: Vec4,
+    xnode: Vec4,
+    xinc: Vec4,
+};
+
+fn propagateV4(self: *const Sgp4, times: [4]f64) Error![4][2][3]f64 {
+    const el = &self.elements;
+    const timeV4 = Vec4{ times[0], times[1], times[2], times[3] };
+
+    const secular = updateSecularV4(el, timeV4);
+
+    const emFloor: Vec4 = @splat(eccentricity_floor);
+    const decayed = secular.em < emFloor;
+    if (@reduce(.Or, decayed)) {
+        return Error.SatelliteDecayed;
+    }
+
+    const nm: Vec4 = @as(Vec4, @splat(el.grav.xke)) / simdMath.pow15V4(secular.a);
+    const kepler = solveKeplerV4(el, secular);
+    const corrected = applyShortPeriodCorrectionsV4(el, kepler, nm);
+    return computePositionVelocityV4(el, corrected);
 }
 
 fn updateSecularV4(el: *const Elements, tsince: Vec4) SecularStateV4 {
@@ -578,87 +747,6 @@ fn updateSecularV4(el: *const Elements, tsince: Vec4) SecularStateV4 {
     };
 }
 
-const KeplerState = struct {
-    u: f64,
-    r: f64,
-    rdot: f64,
-    rvdot: f64,
-    betal: f64,
-    sin2u: f64,
-    cos2u: f64,
-    nodem: f64,
-    pl: f64,
-};
-
-const KeplerStateV4 = struct {
-    u: Vec4,
-    r: Vec4,
-    rdot: Vec4,
-    rvdot: Vec4,
-    betal: Vec4,
-    sin2u: Vec4,
-    cos2u: Vec4,
-    nodem: Vec4,
-    pl: Vec4,
-};
-
-/// Solve Kepler's equation in equinoctial form and compute orbital state.
-/// Note: This uses SGP4's equinoctial formulation (axnl, aynl) rather than
-/// the standard E - e*sin(E) = M form. See calculations.solveKeplerEquation
-/// for the standard formulation.
-fn solveKepler(el: *const Elements, sec: SecularState) KeplerState {
-    const temp = 1.0 / (sec.a * (1.0 - sec.em * sec.em));
-    const axnl = sec.em * @cos(sec.argpm);
-    const aynl = sec.em * @sin(sec.argpm) + temp * el.aycof;
-    const xl = @mod(sec.mm + sec.argpm + sec.nodem + temp * el.xlcof * axnl, constants.twoPi);
-
-    var u = @mod(xl - sec.nodem, constants.twoPi);
-    var eo1 = u;
-    var sineo1: f64 = 0.0;
-    var coseo1: f64 = 1.0;
-
-    var tem5: f64 = 9999.9;
-    var ktr: u32 = 1;
-    while (@abs(tem5) >= 1.0e-12 and ktr <= 10) {
-        sineo1 = @sin(eo1);
-        coseo1 = @cos(eo1);
-        tem5 = 1.0 - coseo1 * axnl - sineo1 * aynl;
-        tem5 = (u - aynl * coseo1 + axnl * sineo1 - eo1) / tem5;
-        if (@abs(tem5) >= 0.95) {
-            tem5 = if (tem5 > 0.0) 0.95 else -0.95;
-        }
-        eo1 = eo1 + tem5;
-        ktr += 1;
-    }
-
-    const ecose = axnl * coseo1 + aynl * sineo1;
-    const esine = axnl * sineo1 - aynl * coseo1;
-    const el2 = axnl * axnl + aynl * aynl;
-    const pl = sec.a * (1.0 - el2);
-    const betal = @sqrt(1.0 - el2);
-    const rl = sec.a * (1.0 - ecose);
-    const rdotl = @sqrt(sec.a) * esine / rl;
-    const rvdotl = @sqrt(pl) / rl;
-
-    const a_over_r = sec.a / rl;
-    const esine_term = esine / (1.0 + betal);
-    const sinu = a_over_r * (sineo1 - aynl - axnl * esine_term);
-    const cosu = a_over_r * (coseo1 - axnl + aynl * esine_term);
-    u = std.math.atan2(sinu, cosu);
-
-    return .{
-        .u = u,
-        .r = rl,
-        .rdot = rdotl,
-        .rvdot = rvdotl,
-        .betal = betal,
-        .sin2u = 2.0 * sinu * cosu,
-        .cos2u = 1.0 - 2.0 * sinu * sinu,
-        .nodem = sec.nodem,
-        .pl = pl,
-    };
-}
-
 fn solveKeplerV4(el: *const Elements, sec: SecularStateV4) KeplerStateV4 {
     const one: Vec4 = @splat(1.0);
 
@@ -724,40 +812,6 @@ fn solveKeplerV4(el: *const Elements, sec: SecularStateV4) KeplerStateV4 {
     };
 }
 
-const CorrectedState = struct {
-    r: f64,
-    rdot: f64,
-    rvdot: f64,
-    u: f64,
-    xnode: f64,
-    xinc: f64,
-};
-
-const CorrectedStateV4 = struct {
-    r: Vec4,
-    rdot: Vec4,
-    rvdot: Vec4,
-    u: Vec4,
-    xnode: Vec4,
-    xinc: Vec4,
-};
-
-fn applyShortPeriodCorrections(el: *const Elements, kep: KeplerState, nm: f64) CorrectedState {
-    const temp = 1.0 / kep.pl;
-    const temp1 = 0.5 * el.grav.j2 * temp;
-    const temp2 = temp1 * temp;
-
-    // short period corrections to position, velocity, and orbital elements
-    const mrt = kep.r * (1.0 - 1.5 * temp2 * kep.betal * el.con41) + 0.5 * temp1 * el.x1mth2 * kep.cos2u;
-    const su = kep.u - 0.25 * temp2 * el.x7thm1 * kep.sin2u;
-    const xnode = kep.nodem + 1.5 * temp2 * el.cosio * kep.sin2u;
-    const xinc = el.inclo + 1.5 * temp2 * el.cosio * el.sinio * kep.cos2u;
-    const mvt = kep.rdot - nm * temp1 * el.x1mth2 * kep.sin2u / el.grav.xke;
-    const rvdot = kep.rvdot + nm * temp1 * (el.x1mth2 * kep.cos2u + 1.5 * el.con41) / el.grav.xke;
-
-    return .{ .r = mrt, .rdot = mvt, .rvdot = rvdot, .u = su, .xnode = xnode, .xinc = xinc };
-}
-
 fn applyShortPeriodCorrectionsV4(el: *const Elements, kep: KeplerStateV4, nm: Vec4) CorrectedStateV4 {
     const quarter: Vec4 = @splat(0.25);
     const half: Vec4 = @splat(0.5);
@@ -786,13 +840,16 @@ fn applyShortPeriodCorrectionsV4(el: *const Elements, kep: KeplerStateV4, nm: Ve
     return .{ .r = mrt, .rdot = mvt, .rvdot = rvdot, .u = su, .xnode = xnode, .xinc = xinc };
 }
 
-fn computePositionVelocity(el: *const Elements, state: CorrectedState) [2][3]f64 {
-    const sinsu = @sin(state.u);
-    const cossu = @cos(state.u);
-    const snod = @sin(state.xnode);
-    const cnod = @cos(state.xnode);
-    const sini = @sin(state.xinc);
-    const cosi = @cos(state.xinc);
+fn computePositionVelocityV4(el: *const Elements, state: CorrectedStateV4) [4][2][3]f64 {
+    const radiusV4: Vec4 = @splat(el.grav.radiusEarthKm);
+    const vkmpersecV4: Vec4 = @splat(el.vkmpersec);
+
+    const sinsu = simdMath.sinSIMD(state.u);
+    const cossu = simdMath.cosSIMD(state.u);
+    const snod = simdMath.sinSIMD(state.xnode);
+    const cnod = simdMath.cosSIMD(state.xnode);
+    const sini = simdMath.sinSIMD(state.xinc);
+    const cosi = simdMath.cosSIMD(state.xinc);
 
     const xmx = -snod * cosi;
     const xmy = cnod * cosi;
@@ -803,19 +860,27 @@ fn computePositionVelocity(el: *const Elements, state: CorrectedState) [2][3]f64
     const vy = xmy * cossu - snod * sinsu;
     const vz = sini * cossu;
 
-    const r_scaled = state.r * el.grav.radiusEarthKm;
-    const r: [3]f64 = .{
-        r_scaled * ux,
-        r_scaled * uy,
-        r_scaled * uz,
-    };
-    const v: [3]f64 = .{
-        (state.rdot * ux + state.rvdot * vx) * el.vkmpersec,
-        (state.rdot * uy + state.rvdot * vy) * el.vkmpersec,
-        (state.rdot * uz + state.rvdot * vz) * el.vkmpersec,
-    };
+    const rScaled = state.r * radiusV4;
+    const rx = rScaled * ux;
+    const ry = rScaled * uy;
+    const rz = rScaled * uz;
 
-    return .{ r, v };
+    const vxOut = (state.rdot * ux + state.rvdot * vx) * vkmpersecV4;
+    const vyOut = (state.rdot * uy + state.rvdot * vy) * vkmpersecV4;
+    const vzOut = (state.rdot * uz + state.rvdot * vz) * vkmpersecV4;
+
+    // need to extract the return from the SIMD vectors
+    var results: [4][2][3]f64 = undefined;
+    inline for (0..4) |i| {
+        results[i][0][0] = rx[i];
+        results[i][0][1] = ry[i];
+        results[i][0][2] = rz[i];
+        results[i][1][0] = vxOut[i];
+        results[i][1][1] = vyOut[i];
+        results[i][1][2] = vzOut[i];
+    }
+
+    return results;
 }
 
 test "sgp4 basic init" {
@@ -899,40 +964,39 @@ test "sgp4 vallado reference ISS" {
     try std.testing.expect(vel_err < 0.00001);
 }
 
-test "applyShortPeriodCorrectionsV4 matches scalar" {
-    const test_tle =
+test "SIMD matches scalar" {
+    const allocator = std.testing.allocator;
+
+    // Parse ISS TLE
+    const tle_str =
         \\1 25544U 98067A   24127.82853009  .00015698  00000+0  27310-3 0  9995
         \\2 25544  51.6393 160.4574 0003580 140.6673 205.7250 15.50957674452123
     ;
 
-    var tle = try Tle.parse(test_tle, std.testing.allocator);
+    var tle = try Tle.parse(tle_str, allocator);
     defer tle.deinit();
 
-    const sgp4 = try Sgp4.init(tle, constants.wgs84);
-    const el = &sgp4.elements;
+    var sgp4 = try Sgp4.init(tle, constants.wgs84);
 
-    const test_times = Vec4{ 0.0, 1440.0, 10080.0, 20160.0 };
+    const times = [4]f64{ 0.0, 10.0, 60.0, 1440.0 };
 
-    // Build up the SIMD pipeline
-    const secular_simd = updateSecularV4(el, test_times);
-    const nm_simd = @as(Vec4, @splat(el.grav.xke)) / (secular_simd.a * @sqrt(secular_simd.a));
-    const kepler_simd = solveKeplerV4(el, secular_simd);
-    const corrected_simd = applyShortPeriodCorrectionsV4(el, kepler_simd, nm_simd);
+    // Get scalar results
+    var scalar_results: [4][2][3]f64 = undefined;
+    for (0..4) |i| {
+        const result = try sgp4.propagate(times[i]);
+        scalar_results[i][0] = result[0];
+        scalar_results[i][1] = result[1];
+    }
 
-    const tol = 1e-10;
+    // Get SIMD results
+    const simd_results = try sgp4.propagateV4(times);
 
-    inline for (0..4) |i| {
-        // Scalar pipeline
-        const secular_scalar = updateSecular(el, test_times[i]);
-        const nm_scalar = el.grav.xke / std.math.pow(f64, secular_scalar.a, 1.5);
-        const kepler_scalar = solveKepler(el, secular_scalar);
-        const corrected_scalar = applyShortPeriodCorrections(el, kepler_scalar, nm_scalar);
-
-        try std.testing.expectApproxEqAbs(corrected_scalar.r, corrected_simd.r[i], tol);
-        try std.testing.expectApproxEqAbs(corrected_scalar.rdot, corrected_simd.rdot[i], tol);
-        try std.testing.expectApproxEqAbs(corrected_scalar.rvdot, corrected_simd.rvdot[i], tol);
-        try std.testing.expectApproxEqAbs(corrected_scalar.u, corrected_simd.u[i], tol);
-        try std.testing.expectApproxEqAbs(corrected_scalar.xnode, corrected_simd.xnode[i], tol);
-        try std.testing.expectApproxEqAbs(corrected_scalar.xinc, corrected_simd.xinc[i], tol);
+    // Compare
+    const tol = 1e-9;
+    for (0..4) |i| {
+        for (0..3) |j| {
+            try std.testing.expectApproxEqAbs(scalar_results[i][0][j], simd_results[i][0][j], tol);
+            try std.testing.expectApproxEqAbs(scalar_results[i][1][j], simd_results[i][1][j], tol);
+        }
     }
 }

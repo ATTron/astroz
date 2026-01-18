@@ -39,3 +39,7 @@ pub fn atan2SIMD(y: Vec4, x: Vec4) Vec4 {
         std.math.atan2(y[3], x[3]),
     };
 }
+
+pub fn pow15V4(x: Vec4) Vec4 {
+    return x * @sqrt(x);
+}
