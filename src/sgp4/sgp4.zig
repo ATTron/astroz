@@ -590,6 +590,18 @@ const KeplerState = struct {
     pl: f64,
 };
 
+const KeplerStateV4 = struct {
+    u: Vec4,
+    r: Vec4,
+    rdot: Vec4,
+    rvdot: Vec4,
+    betal: Vec4,
+    sin2u: Vec4,
+    cos2u: Vec4,
+    nodem: Vec4,
+    pl: Vec4,
+};
+
 /// Solve Kepler's equation in equinoctial form and compute orbital state.
 /// Note: This uses SGP4's equinoctial formulation (axnl, aynl) rather than
 /// the standard E - e*sin(E) = M form. See calculations.solveKeplerEquation
@@ -642,6 +654,71 @@ fn solveKepler(el: *const Elements, sec: SecularState) KeplerState {
         .betal = betal,
         .sin2u = 2.0 * sinu * cosu,
         .cos2u = 1.0 - 2.0 * sinu * sinu,
+        .nodem = sec.nodem,
+        .pl = pl,
+    };
+}
+
+fn solveKeplerV4(el: *const Elements, sec: SecularStateV4) KeplerStateV4 {
+    const one: Vec4 = @splat(1.0);
+
+    const aycofV4: Vec4 = @splat(el.aycof);
+    const xlcofV4: Vec4 = @splat(el.xlcof);
+
+    const temp = one / (sec.a * (one - sec.em * sec.em));
+    const axnl = sec.em * simdMath.cosSIMD(sec.argpm);
+    const aynl = sec.em * simdMath.sinSIMD(sec.argpm) + temp * aycofV4;
+    const xl = @mod(sec.mm + sec.argpm + sec.nodem + temp * xlcofV4 * axnl, simdMath.twoPiVec);
+
+    var u = @mod(xl - sec.nodem, simdMath.twoPiVec);
+    var eo1 = u;
+    var sineo1: Vec4 = @splat(0.0);
+    var coseo1: Vec4 = @splat(1.0);
+
+    const tolerance: Vec4 = @splat(1.0e-12);
+    const clampVal: Vec4 = @splat(0.95);
+
+    var ktr: u32 = 0;
+    while (ktr < 10) : (ktr += 1) {
+        sineo1 = simdMath.sinSIMD(eo1);
+        coseo1 = simdMath.cosSIMD(eo1);
+        var tem5 = one - coseo1 * axnl - sineo1 * aynl;
+        tem5 = (u - aynl * coseo1 + axnl * sineo1 - eo1) / tem5;
+        // branch setup
+        const positive = tem5 > clampVal;
+        const negative = tem5 < -clampVal;
+        tem5 = @select(f64, positive, clampVal, tem5);
+        tem5 = @select(f64, negative, -clampVal, tem5);
+        eo1 = eo1 + tem5;
+
+        // simd convergence checking
+        const converged = @abs(tem5) < tolerance;
+        if (@reduce(.And, converged)) break;
+    }
+
+    const ecose = axnl * coseo1 + aynl * sineo1;
+    const esine = axnl * sineo1 - aynl * coseo1;
+    const el2 = axnl * axnl + aynl * aynl;
+    const pl = sec.a * (one - el2);
+    const betal = @sqrt(one - el2);
+    const rl = sec.a * (one - ecose);
+    const rdotl = @sqrt(sec.a) * esine / rl;
+    const rvdotl = @sqrt(pl) / rl;
+
+    const aOverR = sec.a / rl;
+    const esineTerm = esine / (one + betal);
+    const sinu = aOverR * (sineo1 - aynl - axnl * esineTerm);
+    const cosu = aOverR * (coseo1 - axnl + aynl * esineTerm);
+    u = simdMath.atan2SIMD(sinu, cosu);
+
+    return .{
+        .u = u,
+        .r = rl,
+        .rdot = rdotl,
+        .rvdot = rvdotl,
+        .betal = betal,
+        .sin2u = @as(Vec4, @splat(2.0)) * sinu * cosu,
+        .cos2u = one - @as(Vec4, @splat(2.0)) * sinu * sinu,
         .nodem = sec.nodem,
         .pl = pl,
     };
@@ -785,7 +862,7 @@ test "sgp4 vallado reference ISS" {
     try std.testing.expect(vel_err < 0.00001);
 }
 
-test "updateSecularV4 matches scalar" {
+test "solveKeplerV4 matches scalar" {
     const test_tle =
         \\1 25544U 98067A   24127.82853009  .00015698  00000+0  27310-3 0  9995
         \\2 25544  51.6393 160.4574 0003580 140.6673 205.7250 15.50957674452123
@@ -797,19 +874,30 @@ test "updateSecularV4 matches scalar" {
     const sgp4 = try Sgp4.init(tle, constants.wgs84);
     const el = &sgp4.elements;
 
+    // Test at various times
     const test_times = Vec4{ 0.0, 1440.0, 10080.0, 20160.0 };
 
-    const simd_result = updateSecularV4(el, test_times);
+    // First get secular state using SIMD
+    const secular_simd = updateSecularV4(el, test_times);
 
-    const tol = 1e-12;
+    // Then solve Kepler using SIMD
+    const kepler_simd = solveKeplerV4(el, secular_simd);
 
+    const tol = 1e-10;
+
+    // Compare each lane against scalar version
     inline for (0..4) |i| {
-        const scalar_result = updateSecular(el, test_times[i]);
+        const secular_scalar = updateSecular(el, test_times[i]);
+        const kepler_scalar = solveKepler(el, secular_scalar);
 
-        try std.testing.expectApproxEqAbs(scalar_result.mm, simd_result.mm[i], tol);
-        try std.testing.expectApproxEqAbs(scalar_result.argpm, simd_result.argpm[i], tol);
-        try std.testing.expectApproxEqAbs(scalar_result.nodem, simd_result.nodem[i], tol);
-        try std.testing.expectApproxEqAbs(scalar_result.em, simd_result.em[i], tol);
-        try std.testing.expectApproxEqAbs(scalar_result.a, simd_result.a[i], tol);
+        try std.testing.expectApproxEqAbs(kepler_scalar.u, kepler_simd.u[i], tol);
+        try std.testing.expectApproxEqAbs(kepler_scalar.r, kepler_simd.r[i], tol);
+        try std.testing.expectApproxEqAbs(kepler_scalar.rdot, kepler_simd.rdot[i], tol);
+        try std.testing.expectApproxEqAbs(kepler_scalar.rvdot, kepler_simd.rvdot[i], tol);
+        try std.testing.expectApproxEqAbs(kepler_scalar.betal, kepler_simd.betal[i], tol);
+        try std.testing.expectApproxEqAbs(kepler_scalar.sin2u, kepler_simd.sin2u[i], tol);
+        try std.testing.expectApproxEqAbs(kepler_scalar.cos2u, kepler_simd.cos2u[i], tol);
+        try std.testing.expectApproxEqAbs(kepler_scalar.nodem, kepler_simd.nodem[i], tol);
+        try std.testing.expectApproxEqAbs(kepler_scalar.pl, kepler_simd.pl[i], tol);
     }
 }
