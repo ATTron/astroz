@@ -29,6 +29,36 @@ Sub-meter accuracy validated against reference implementations. Uses SIMD (AVX2/
 | **astroz (scalar)** | 5.3M |
 | sgp4 (Rust) | 4.8M |
 
+#### Python (2 weeks @ second resolution)
+
+| Implementation | Props/sec |
+|----------------|-----------|
+| **astroz** | 7.6M |
+| python-sgp4 | 2.6M |
+
+### Python
+
+```bash
+pip install astroz
+```
+
+```python
+from astroz import Tle, Sgp4
+import numpy as np
+
+tle = Tle("1 25544U 98067A   24127.82853009 ...\n2 25544  51.6393 ...")
+sgp4 = Sgp4(tle)
+
+# Single propagation
+pos, vel = sgp4.propagate(30.0)  # 30 min after epoch
+
+# Batch propagation (fastest - zero-copy with SIMD)
+times = np.arange(1209600, dtype=np.float64) / 60.0  # 2 weeks in minutes
+positions = np.empty((len(times), 3), dtype=np.float64)
+velocities = np.empty((len(times), 3), dtype=np.float64)
+sgp4.propagate_into(times, positions, velocities)
+```
+
 ### Usage
 
 - Add `astroz` as a dependency in your `build.zig.zon`.

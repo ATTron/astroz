@@ -1,8 +1,10 @@
+# Zig
 .zig-cache/
 zig-out/
+
+# Data/samples
 small/
 sample_fits/
-.venv
 *.csv
 
 # Rust
@@ -16,8 +18,16 @@ __pycache__/
 dist/
 build/
 wheelhouse/
+.venv/
+*.so
+*.dylib
+*.pyd
+uv.lock
 
-# Bundled native libs (built by CI)
-python/astroz/lib/*.so
-python/astroz/lib/*.dylib
-python/astroz/lib/*.dll
+# Python bindings - built native extensions
+bindings/python/astroz/*.so
+bindings/python/astroz/*.dylib
+bindings/python/astroz/*.pyd
+
+# Legacy paths (old ctypes bindings - removed)
+python/
