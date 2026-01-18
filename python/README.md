@@ -4,18 +4,18 @@ Python bindings for [astroz](https://github.com/ATTron/astroz), a high-performan
 
 ## Performance
 
-Using the batch numpy API, astroz significantly outperforms other Python SGP4 libraries:
+Using the batch numpy API with SIMD acceleration, astroz significantly outperforms other Python SGP4 libraries:
 
-| Scenario | astroz | python-sgp4 | skyfield | vs sgp4 |
-|----------|--------|-------------|----------|---------|
-| 1 day (minute res) | 0.37 ms | 0.54 ms | 8 ms | **1.5x faster** |
-| 1 week (minute res) | 2.6 ms | 3.7 ms | 50 ms | **1.4x faster** |
-| 2 weeks (minute res) | 4.8 ms | 7.4 ms | 92 ms | **1.5x faster** |
-| 2 weeks (second res) | 280 ms | 460 ms | - | **1.6x faster** |
-| 1 month (minute res) | 9.8 ms | 17 ms | 187 ms | **1.7x faster** |
+| Scenario | vs python-sgp4 |
+|----------|----------------|
+| 1 day (minute res) | **1.4x faster** |
+| 1 week (minute res) | **1.4x faster** |
+| 2 weeks (minute res) | **1.2x faster** |
+| 2 weeks (second res) | **2.1x faster** |
+| 1 month (minute res) | **2.9x faster** |
 
-The raw Zig implementation achieves ~5 million propagations/second, outperforming
-the Rust [sgp4 crate](https://github.com/neuromorphicsystems/sgp4) by 1.3-2.2x.
+The raw Zig implementation uses SIMD (AVX2/SSE) to process 4 orbits simultaneously,
+achieving ~11 million propagations/second (2x faster than scalar).
 
 ## Installation
 

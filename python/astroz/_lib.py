@@ -17,8 +17,8 @@ def _find_library():
 
     Search order:
     1. ASTROZ_LIB env var (explicit override)
-    2. Next to this package (installed via pip)
-    3. zig-out/lib/ (development)
+    2. zig-out/lib/ (development - prefer fresh builds)
+    3. Next to this package (installed via pip)
     """
     system = platform.system()
     name = _LIB_NAMES.get(system)
@@ -32,12 +32,12 @@ def _find_library():
             return env_path
         raise OSError(f"ASTROZ_LIB set but file not found: {env_path}")
 
-    # Standard search paths
+    # Standard search paths - prefer zig-out for development
     pkg_dir = os.path.dirname(__file__)
     search_paths = [
+        os.path.join(pkg_dir, "..", "..", "zig-out", "lib", name),  # dev (fresh build)
         os.path.join(pkg_dir, "lib", name),  # installed package (wheel)
         os.path.join(pkg_dir, name),  # legacy location
-        os.path.join(pkg_dir, "..", "..", "zig-out", "lib", name),  # dev
     ]
 
     for path in search_paths:
