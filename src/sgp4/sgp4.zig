@@ -4,10 +4,14 @@
 const std = @import("std");
 const constants = @import("../constants.zig");
 const calculations = @import("../calculations.zig");
+const simdMath = @import("simdMath.zig");
 const Datetime = @import("../Datetime.zig");
 const Tle = @import("../Tle.zig");
 
 const Sgp4 = @This();
+
+// i am speed . . .
+const Vec4 = @Vector(4, f64);
 
 // Atmospheric drag model parameters (km)
 const perigee_s_adjustment = 156.0; // adjust s parameter if below this value
@@ -440,6 +444,14 @@ const SecularState = struct {
     a: f64,
 };
 
+const SecularStateV4 = struct {
+    mm: Vec4,
+    argpm: Vec4,
+    nodem: Vec4,
+    em: Vec4,
+    a: Vec4,
+};
+
 fn updateSecular(el: *const Elements, tsince: f64) SecularState {
     const t2 = tsince * tsince;
 
@@ -472,7 +484,7 @@ fn updateSecular(el: *const Elements, tsince: f64) SecularState {
 
     const am = el.a_base * tempa * tempa;
     var em = el.ecco - tempe;
-    if (em < eccentricity_floor) em = eccentricity_floor;
+    em = @max(em, eccentricity_floor);
 
     mm = mm + el.no_unkozai * templ;
     const xlm = mm + argpm + nodem;
@@ -482,6 +494,88 @@ fn updateSecular(el: *const Elements, tsince: f64) SecularState {
     mm = @mod(xlm - argpm - nodem, constants.twoPi);
 
     return .{ .mm = mm, .argpm = argpm, .nodem = nodem, .em = em, .a = am };
+}
+
+fn updateSecularV4(el: *const Elements, tsince: Vec4) SecularStateV4 {
+    const t2 = tsince * tsince;
+
+    const one: Vec4 = @splat(1.0);
+    const cc1V4: Vec4 = @splat(el.cc1);
+    const cc4V4: Vec4 = @splat(el.cc4);
+    const bstarV4: Vec4 = @splat(el.bstar);
+    const t2cofV4: Vec4 = @splat(el.t2cof);
+
+    var tempa = one - cc1V4 * tsince;
+    var tempe = bstarV4 * cc4V4 * tsince;
+    var templ = t2cofV4 * t2;
+
+    const moV4: Vec4 = @splat(el.mo);
+    const mdotV4: Vec4 = @splat(el.mdot);
+    const argpoV4: Vec4 = @splat(el.argpo);
+    const argpdotV4: Vec4 = @splat(el.argpdot);
+    const nodeoV4: Vec4 = @splat(el.nodeo);
+    const nodedotV4: Vec4 = @splat(el.nodedot);
+    const xnodcfV4: Vec4 = @splat(el.xnodcf);
+
+    const xmdf = moV4 + mdotV4 * tsince;
+    const argpdf = argpoV4 + argpdotV4 * tsince;
+    const nodedf = nodeoV4 + nodedotV4 * tsince;
+    var argpm = argpdf;
+    var mm = xmdf;
+    var nodem = nodedf + xnodcfV4 * t2;
+
+    if (!el.isimp) {
+        const omgcofV4: Vec4 = @splat(el.omgcof);
+        const etaV4: Vec4 = @splat(el.eta);
+        const xmcofV4: Vec4 = @splat(el.xmcof);
+        const delmoV4: Vec4 = @splat(el.delmo);
+        const d2V4: Vec4 = @splat(el.d2);
+        const d3V4: Vec4 = @splat(el.d3);
+        const d4V4: Vec4 = @splat(el.d4);
+        const cc5V4: Vec4 = @splat(el.cc5);
+        const t3cofV4: Vec4 = @splat(el.t3cof);
+        const t4cofV4: Vec4 = @splat(el.t4cof);
+        const t5cofV4: Vec4 = @splat(el.t5cof);
+        const sinmaoV4: Vec4 = @splat(el.sinmao);
+
+        const delomg = omgcofV4 * tsince;
+        const delmtemp = one + etaV4 * simdMath.cosSIMD(xmdf);
+        // seems weird but it seems like just std multiply instead of cubing is WAY faster
+        const delm = xmcofV4 * (delmtemp * delmtemp * delmtemp - delmoV4);
+        const temp = delomg + delm;
+        mm = xmdf + temp;
+        argpm = argpdf - temp;
+
+        const t3 = t2 * tsince;
+        const t4 = t3 * tsince;
+        tempa = tempa - d2V4 * t2 - d3V4 * t3 - d4V4 * t4;
+        tempe = tempe + bstarV4 * cc5V4 * (simdMath.sinSIMD(mm) - sinmaoV4);
+        templ = templ + t3cofV4 * t3 + t4 * (t4cofV4 + tsince * t5cofV4);
+    }
+
+    const aBaseV4: Vec4 = @splat(el.a_base);
+    const eccoV4: Vec4 = @splat(el.ecco);
+    const noUnkozaiV4: Vec4 = @splat(el.no_unkozai);
+
+    const am = aBaseV4 * tempa * tempa;
+    const eccFloorV4: Vec4 = @splat(eccentricity_floor);
+    var em = eccoV4 - tempe;
+    em = @max(em, eccFloorV4);
+
+    mm = mm + noUnkozaiV4 * templ;
+    const xlm = mm + argpm + nodem;
+
+    nodem = @mod(nodem, simdMath.twoPiVec);
+    argpm = @mod(argpm, simdMath.twoPiVec);
+    mm = @mod(xlm - argpm - nodem, simdMath.twoPiVec);
+
+    return .{
+        .mm = mm,
+        .argpm = argpm,
+        .nodem = nodem,
+        .em = em,
+        .a = am,
+    };
 }
 
 const KeplerState = struct {
@@ -689,4 +783,33 @@ test "sgp4 vallado reference ISS" {
     try std.testing.expect(pos_err < 0.001);
     // velocity error should be < 10 mm/s = 0.00001 km/s
     try std.testing.expect(vel_err < 0.00001);
+}
+
+test "updateSecularV4 matches scalar" {
+    const test_tle =
+        \\1 25544U 98067A   24127.82853009  .00015698  00000+0  27310-3 0  9995
+        \\2 25544  51.6393 160.4574 0003580 140.6673 205.7250 15.50957674452123
+    ;
+
+    var tle = try Tle.parse(test_tle, std.testing.allocator);
+    defer tle.deinit();
+
+    const sgp4 = try Sgp4.init(tle, constants.wgs84);
+    const el = &sgp4.elements;
+
+    const test_times = Vec4{ 0.0, 1440.0, 10080.0, 20160.0 };
+
+    const simd_result = updateSecularV4(el, test_times);
+
+    const tol = 1e-12;
+
+    inline for (0..4) |i| {
+        const scalar_result = updateSecular(el, test_times[i]);
+
+        try std.testing.expectApproxEqAbs(scalar_result.mm, simd_result.mm[i], tol);
+        try std.testing.expectApproxEqAbs(scalar_result.argpm, simd_result.argpm[i], tol);
+        try std.testing.expectApproxEqAbs(scalar_result.nodem, simd_result.nodem[i], tol);
+        try std.testing.expectApproxEqAbs(scalar_result.em, simd_result.em[i], tol);
+        try std.testing.expectApproxEqAbs(scalar_result.a, simd_result.a[i], tol);
+    }
 }
