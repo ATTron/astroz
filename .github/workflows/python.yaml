@@ -6,49 +6,34 @@ on:
   workflow_dispatch:
 
 jobs:
-  build_libs:
-    name: Build native library (${{ matrix.target }})
-    runs-on: ${{ matrix.os }}
-    strategy:
-      matrix:
-        include:
-          - os: ubuntu-latest
-            target: linux-x86_64
-            lib_name: libastroz_c.so
-          - os: macos-latest
-            target: macos-arm64
-            lib_name: libastroz_c.dylib
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Zig
-        uses: mlugg/setup-zig@v2
-        with:
-          version: master
-
-      - name: Build C API library
-        run: zig build c-api -Doptimize=ReleaseFast
-
-      - name: Upload library artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: lib-${{ matrix.target }}
-          path: zig-out/lib/${{ matrix.lib_name }}
-
   build_wheels:
-    name: Build wheels (${{ matrix.target }})
-    needs: build_libs
+    name: Build wheels (${{ matrix.os }}, Python ${{ matrix.python }})
     runs-on: ${{ matrix.os }}
     strategy:
+      fail-fast: false
       matrix:
         include:
+          # Linux x86_64
           - os: ubuntu-latest
+            python: '3.12'
             target: linux-x86_64
-            lib_name: libastroz_c.so
+          - os: ubuntu-latest
+            python: '3.11'
+            target: linux-x86_64
+          - os: ubuntu-latest
+            python: '3.10'
+            target: linux-x86_64
+          # macOS ARM64
           - os: macos-latest
+            python: '3.12'
             target: macos-arm64
-            lib_name: libastroz_c.dylib
+          - os: macos-latest
+            python: '3.11'
+            target: macos-arm64
+          # macOS x86_64
+          - os: macos-13
+            python: '3.12'
+            target: macos-x86_64
 
     steps:
       - uses: actions/checkout@v4
@@ -56,7 +41,12 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.12'
+          python-version: ${{ matrix.python }}
+
+      - name: Set up Zig
+        uses: mlugg/setup-zig@v2
+        with:
+          version: master
 
       - name: Set version from tag
         run: |
@@ -65,43 +55,65 @@ jobs:
           else
             VERSION="0.0.0.dev"
           fi
-          echo "__version__ = \"$VERSION\"" > python/astroz/__version__.py
+          sed -i.bak "s/version = \".*\"/version = \"$VERSION\"/" bindings/python/pyproject.toml
+          sed -i.bak "s/__version__ = \".*\"/__version__ = \"$VERSION\"/" bindings/python/astroz/__init__.py
           echo "VERSION=$VERSION" >> $GITHUB_ENV
 
-      - name: Download native library
-        uses: actions/download-artifact@v4
-        with:
-          name: lib-${{ matrix.target }}
-          path: python/astroz/lib/
+      - name: Build Python bindings
+        run: |
+          PYTHON_INCLUDE=$(python -c "import sysconfig; print(sysconfig.get_path('include'))")
+          PYTHON_LIBDIR=$(python -c "import sysconfig; print(sysconfig.get_config_var('LIBDIR'))")
+          PYTHON_LIB=$(python -c "import sys; print(f'python{sys.version_info.major}.{sys.version_info.minor}')")
+          echo "Python include: $PYTHON_INCLUDE"
+          echo "Python libdir: $PYTHON_LIBDIR"
+          echo "Python lib: $PYTHON_LIB"
+          zig build python-bindings \
+            -Dpython-include="$PYTHON_INCLUDE" \
+            -Dpython-lib="$PYTHON_LIB" \
+            -Dpython-lib-path="$PYTHON_LIBDIR" \
+            -Doptimize=ReleaseFast
 
-      - name: Verify library exists
-        run: ls -la python/astroz/lib/
+      - name: Copy built library
+        run: |
+          ls -la zig-out/bindings/python/astroz/
+          # Zig builds lib_astroz.so, but Python expects _astroz.so
+          cp zig-out/bindings/python/astroz/lib_astroz.so bindings/python/astroz/_astroz.so
 
       - name: Install build tools
-        run: pip install build wheel auditwheel
+        run: pip install build wheel
 
       - name: Build wheel
         run: |
-          cd python
+          cd bindings/python
           python -m build --wheel
 
       - name: Repair wheel (Linux)
         if: runner.os == 'Linux'
         run: |
-          pip install patchelf
-          auditwheel repair python/dist/*.whl -w python/dist/repaired/
-          rm python/dist/*.whl
-          mv python/dist/repaired/*.whl python/dist/
+          pip install auditwheel patchelf
+          auditwheel repair bindings/python/dist/*.whl -w bindings/python/dist/repaired/ || true
+          if [ -d "bindings/python/dist/repaired" ] && [ "$(ls -A bindings/python/dist/repaired/)" ]; then
+            rm bindings/python/dist/*.whl
+            mv bindings/python/dist/repaired/*.whl bindings/python/dist/
+          fi
 
-      # Note: skipping delocate for macOS - the Zig-built library is self-contained
-      # and delocate fails due to minimum macOS version mismatch. The wheel will
-      # require macOS 15+ which matches the build environment.
+      - name: Test wheel
+        run: |
+          pip install bindings/python/dist/*.whl
+          python -c "from astroz import Tle, Sgp4, version; print(f'astroz {version()}')"
+          python -c "
+          from astroz import Tle, Sgp4
+          tle = Tle('1 25544U 98067A   24127.82853009  .00015698  00000+0  27310-3 0  9995\n2 25544  51.6393 160.4574 0003580 140.6673 205.7250 15.50957674452123')
+          sgp4 = Sgp4(tle)
+          pos, vel = sgp4.propagate(30.0)
+          print(f'Position: {pos}')
+          "
 
       - name: Upload wheels
         uses: actions/upload-artifact@v4
         with:
-          name: wheels-${{ matrix.target }}
-          path: python/dist/*.whl
+          name: wheel-${{ matrix.target }}-py${{ matrix.python }}
+          path: bindings/python/dist/*.whl
 
   build_sdist:
     name: Build source distribution
@@ -121,11 +133,12 @@ jobs:
           else
             VERSION="0.0.0.dev"
           fi
-          echo "__version__ = \"$VERSION\"" > python/astroz/__version__.py
+          sed -i "s/version = \".*\"/version = \"$VERSION\"/" bindings/python/pyproject.toml
+          sed -i "s/__version__ = \".*\"/__version__ = \"$VERSION\"/" bindings/python/astroz/__init__.py
 
       - name: Build sdist
         run: |
-          cd python
+          cd bindings/python
           pip install build
           python -m build --sdist
 
@@ -133,7 +146,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: sdist
-          path: python/dist/*.tar.gz
+          path: bindings/python/dist/*.tar.gz
 
   publish:
     name: Publish to PyPI
@@ -147,7 +160,7 @@ jobs:
     steps:
       - uses: actions/download-artifact@v4
         with:
-          pattern: wheels-*
+          pattern: wheel-*
           path: dist
           merge-multiple: true
 

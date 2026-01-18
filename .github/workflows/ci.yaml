@@ -23,7 +23,7 @@ jobs:
       - name: Set up Zig
         uses: mlugg/setup-zig@v2
         with:
-          version: master 
+          version: master
           use-cache: false
 
       - name: Download FITS file
@@ -50,3 +50,71 @@ jobs:
 
       - name: Run `fmt`
         run: zig build fmt
+
+  python:
+    name: Python bindings
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Set up Zig
+        uses: mlugg/setup-zig@v2
+        with:
+          version: master
+          use-cache: false
+
+      - name: Build Python bindings
+        run: |
+          PYTHON_INCLUDE=$(python -c "import sysconfig; print(sysconfig.get_path('include'))")
+          PYTHON_LIBDIR=$(python -c "import sysconfig; print(sysconfig.get_config_var('LIBDIR'))")
+          echo "Python include: $PYTHON_INCLUDE"
+          echo "Python libdir: $PYTHON_LIBDIR"
+          zig build python-bindings \
+            -Dpython-include="$PYTHON_INCLUDE" \
+            -Dpython-lib=python3.12 \
+            -Dpython-lib-path="$PYTHON_LIBDIR" \
+            -Doptimize=ReleaseFast
+
+      - name: Copy built library
+        run: |
+          # Zig builds lib_astroz.so, but Python expects _astroz.so
+          cp zig-out/bindings/python/astroz/lib_astroz.so bindings/python/astroz/_astroz.so
+
+      - name: Install package
+        run: |
+          pip install numpy
+          pip install -e bindings/python
+
+      - name: Test import and basic functionality
+        run: |
+          python -c "from astroz import Tle, Sgp4, version; print(f'astroz {version()}')"
+          python -c "
+          from astroz import Tle, Sgp4
+          import numpy as np
+
+          # Test TLE parsing
+          tle = Tle('1 25544U 98067A   24127.82853009  .00015698  00000+0  27310-3 0  9995\n2 25544  51.6393 160.4574 0003580 140.6673 205.7250 15.50957674452123')
+          print(f'Satellite: {tle.satellite_number}')
+
+          # Test single propagation
+          sgp4 = Sgp4(tle)
+          pos, vel = sgp4.propagate(30.0)
+          print(f'Position: {pos}')
+
+          # Test batch propagation
+          times = np.arange(100, dtype=np.float64)
+          positions = np.empty((100, 3), dtype=np.float64)
+          velocities = np.empty((100, 3), dtype=np.float64)
+          sgp4.propagate_into(times, positions, velocities)
+          print(f'Batch: {len(positions)} points')
+          "
+
+      - name: Run Python example
+        run: python examples/python_sgp4.py
