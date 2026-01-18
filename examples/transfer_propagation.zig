@@ -24,14 +24,14 @@ pub fn main() !void {
     std.debug.print("  Transfer Time: {d:.1} days\n", .{hohmannPlan.transfer.hohmann.transferTimeDays});
     std.debug.print("  Synodic Period: {d:.1} days\n", .{hohmannPlan.synodicPeriodDays});
 
-    const biEllipticParams = try Mission.MissionParameters.init(constants.earth, constants.mars, 0.0, null, "bi_elliptic");
+    const biEllipticParams = try Mission.MissionParameters.init(constants.earth, constants.mars, 0.0, null, "biElliptic");
     var biEllipticMission = Mission.init(allocator, biEllipticParams, orbitalMechanics);
     defer biEllipticMission.deinit();
 
     const biEllipticPlan = try biEllipticMission.planMission(biEllipticParams);
     std.debug.print("\nBi-Elliptic Transfer:\n", .{});
-    std.debug.print("  Delta-V: {d:.2} km/s\n", .{biEllipticPlan.transfer.bi_elliptic.totalDeltaV});
-    std.debug.print("  Transfer Time: {d:.1} days\n", .{biEllipticPlan.transfer.bi_elliptic.totalTimeDays});
+    std.debug.print("  Delta-V: {d:.2} km/s\n", .{biEllipticPlan.transfer.biElliptic.totalDeltaV});
+    std.debug.print("  Transfer Time: {d:.1} days\n", .{biEllipticPlan.transfer.biElliptic.totalTimeDays});
     std.debug.print("  Synodic Period: {d:.1} days\n", .{biEllipticPlan.synodicPeriodDays});
 
     // Example 2: Transfer Propagation - Earth to Mars

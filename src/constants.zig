@@ -5,23 +5,23 @@ pub const c = 299792458; // sol (m/s)
 pub const h = 6.62607015e-34; // planck constant
 pub const au = 1.49597871e+11;
 pub const j2k = 2000.0;
-pub const j2000_jd: f64 = 2451545.0; // julian date of J2000 epoch
-pub const julian_days_per_century: f64 = 36525.0;
+pub const j2000Jd: f64 = 2451545.0; // julian date of J2000 epoch
+pub const julianDaysPerCentury: f64 = 36525.0;
 
 pub const twoPi: f64 = 2.0 * std.math.pi;
 pub const deg2rad: f64 = std.math.pi / 180.0;
 pub const rad2deg: f64 = 180.0 / std.math.pi;
 
-pub const seconds_per_minute: f64 = 60.0;
-pub const minutes_per_hour: f64 = 60.0;
-pub const hours_per_day: f64 = 24.0;
-pub const seconds_per_hour: f64 = 3600.0;
-pub const seconds_per_day: f64 = 86400.0;
-pub const minutes_per_day: f64 = 1440.0;
+pub const secondsPerMinute: f64 = 60.0;
+pub const minutesPerHour: f64 = 60.0;
+pub const hoursPerDay: f64 = 24.0;
+pub const secondsPerHour: f64 = 3600.0;
+pub const secondsPerDay: f64 = 86400.0;
+pub const minutesPerDay: f64 = 1440.0;
 
-pub const arcminutes_per_degree: f64 = 60.0;
-pub const arcseconds_per_degree: f64 = 3600.0;
-pub const degrees_per_hour: f64 = 15.0; // for right ascension (360/24)
+pub const arcminutesPerDegree: f64 = 60.0;
+pub const arcsecondsPerDegree: f64 = 3600.0;
+pub const degreesPerHour: f64 = 15.0; // for right ascension (360/24)
 
 pub const Sgp4GravityModel = struct {
     radiusEarthKm: f64, // km
@@ -45,8 +45,8 @@ pub const wgs72: Sgp4GravityModel = .{
     .j3oj2 = -0.00234506972242078,
 };
 
-pub const wgs84_flattening: f64 = 1.0 / 298.257223563;
-pub const wgs84_eccentricity_sq: f64 = 2.0 * wgs84_flattening - wgs84_flattening * wgs84_flattening;
+pub const wgs84Flattening: f64 = 1.0 / 298.257223563;
+pub const wgs84EccentricitySq: f64 = 2.0 * wgs84Flattening - wgs84Flattening * wgs84Flattening;
 
 pub const wgs84: Sgp4GravityModel = .{
     .radiusEarthKm = 6378.137,

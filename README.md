@@ -19,22 +19,26 @@
 
 ### Performance
 
-Sub-meter accuracy validated against reference implementations. Uses SIMD (AVX2/SSE) to process 4 orbits simultaneously.
+Sub-meter accuracy validated against reference implementations. Uses SIMD (AVX2/SSE) to process 4 satellites simultaneously.
 
-#### Native (2 weeks @ second resolution)
+#### Single Satellite (Python)
 
-| Implementation | Props/sec |
-|----------------|-----------|
-| **astroz (SIMD)** | 10.8M |
-| **astroz (scalar)** | 5.3M |
-| sgp4 (Rust) | 4.8M |
+| Scenario | astroz | python-sgp4 | Speedup |
+|----------|--------|-------------|---------|
+| 1 day (minute res) | 0.24 ms | 0.65 ms | **2.7x** |
+| 1 week (minute res) | 1.99 ms | 3.41 ms | **1.7x** |
+| 2 weeks (minute res) | 3.22 ms | 7.00 ms | **2.2x** |
+| 2 weeks (second res) | 144 ms | 438 ms | **3.0x** |
+| 1 month (minute res) | 5.29 ms | 14.84 ms | **2.8x** |
 
-#### Python (2 weeks @ second resolution)
+#### Multi-Satellite Constellation
 
-| Implementation | Props/sec |
-|----------------|-----------|
-| **astroz** | 7.6M |
-| python-sgp4 | 2.6M |
+| Satellites | Time Points | Total Props | Throughput |
+|------------|-------------|-------------|------------|
+| 100 | 10,080 | 1M | **7.9M props/sec** |
+| 13,000+ | 120 | 1.5M | **6M+ props/sec** |
+
+The [Cesium visualization example](examples/README.md) propagates the entire active satellite catalog (~13,000 satellites) at interactive rates.
 
 ### Python
 
@@ -43,7 +47,7 @@ pip install astroz
 ```
 
 ```python
-from astroz import Tle, Sgp4
+from astroz import Tle, Sgp4, Sgp4Constellation
 import numpy as np
 
 tle = Tle("1 25544U 98067A   24127.82853009 ...\n2 25544  51.6393 ...")
@@ -52,11 +56,18 @@ sgp4 = Sgp4(tle)
 # Single propagation
 pos, vel = sgp4.propagate(30.0)  # 30 min after epoch
 
-# Batch propagation (fastest - zero-copy with SIMD)
+# Batch propagation (zero-copy into pre-allocated arrays)
 times = np.arange(1209600, dtype=np.float64) / 60.0  # 2 weeks in minutes
 positions = np.empty((len(times), 3), dtype=np.float64)
 velocities = np.empty((len(times), 3), dtype=np.float64)
 sgp4.propagate_into(times, positions, velocities)
+
+# Multi-satellite constellation (SIMD-accelerated)
+tles = [Tle(tle_str) for tle_str in tle_strings]
+constellation = Sgp4Constellation(tles)
+times = np.arange(1440, dtype=np.float64)  # 1 day in minutes
+out = np.empty((len(times) * constellation.num_batches * 4 * 6,), dtype=np.float64)
+constellation.propagate_into(times, out)  # ~6M propagations/sec
 ```
 
 ### Usage
@@ -102,6 +113,10 @@ exe.root_module.addImport("astroz", astroz_mod);
 - #### [SGP4 Propagation](examples/sgp4_propagation.zig)
 
   Analytical orbit propagation using SGP4 with TLE input. Demonstrates both direct SGP4 usage and the modular propagator interface.
+
+- #### [Cesium Satellite Visualization](examples/README.md)
+
+  Interactive 3D visualization of the entire near-earth satellite catalog (~13,000 satellites) using Cesium. Features real-time SGP4 propagation at ~6M props/sec, constellation filtering, search, and satellite tracking.
 
 #### Spacecraft Operations
 

@@ -7,6 +7,10 @@ small/
 sample_fits/
 *.csv
 
+# Generated visualization files
+examples/tle_cache.txt
+cesium_fast.html
+
 # Rust
 target/
 

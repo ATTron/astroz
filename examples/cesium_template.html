@@ -1,0 +1,366 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>{{NUM_SATS}} Satellites - astroz</title>
+    <script src="https://cesium.com/downloads/cesiumjs/releases/1.104/Build/Cesium/Cesium.js"></script>
+    <link href="https://cesium.com/downloads/cesiumjs/releases/1.104/Build/Cesium/Widgets/widgets.css" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet">
+    <style>
+        * { box-sizing: border-box; }
+        html, body, #cesiumContainer { width: 100%; height: 100%; margin: 0; padding: 0; overflow: hidden; }
+        #ui { position: absolute; top: 24px; left: 24px; background: rgba(8, 12, 24, 0.85); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); color: #fff; padding: 24px 28px; border-radius: 16px; z-index: 1000; font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif; font-size: 13px; min-width: 260px; border: 1px solid rgba(255,255,255,0.08); box-shadow: 0 24px 48px rgba(0,0,0,0.4); }
+        #ui h2 { margin: 0 0 20px 0; font-size: 15px; font-weight: 600; color: rgba(255,255,255,0.5); text-transform: uppercase; letter-spacing: 1.5px; }
+        .big-number { font-family: 'JetBrains Mono', monospace; font-size: 42px; font-weight: 600; background: linear-gradient(135deg, #00d4ff 0%, #00ff88 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; line-height: 1; margin-bottom: 4px; }
+        .big-label { font-size: 12px; color: rgba(255,255,255,0.4); margin-bottom: 16px; }
+        .search-container { position: relative; margin-bottom: 20px; }
+        #searchBox { width: 100%; padding: 10px 36px 10px 12px; border: 1px solid rgba(255,255,255,0.15); border-radius: 8px; background: rgba(255,255,255,0.05); color: #fff; font-family: 'Inter', sans-serif; font-size: 12px; outline: none; transition: border-color 0.2s, background 0.2s; }
+        #searchBox::placeholder { color: rgba(255,255,255,0.35); }
+        #searchBox:focus { border-color: rgba(0, 212, 255, 0.5); background: rgba(255,255,255,0.08); }
+        #clearSearch { position: absolute; right: 8px; top: 50%; transform: translateY(-50%); background: none; border: none; color: rgba(255,255,255,0.4); font-size: 18px; cursor: pointer; padding: 4px 8px; display: none; }
+        #clearSearch:hover { color: #fff; }
+        .search-active #clearSearch { display: block; }
+        .legend { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 16px; margin-bottom: 20px; }
+        .legend-item { display: flex; align-items: center; font-size: 11px; color: rgba(255,255,255,0.7); }
+        .legend-item.toggle { cursor: pointer; padding: 4px 6px; margin: -4px -6px; border-radius: 6px; transition: background 0.15s; }
+        .legend-item.toggle:hover { background: rgba(255,255,255,0.05); }
+        .legend-item.toggle input[type="checkbox"] { display: none; }
+        .legend-item.toggle.disabled { opacity: 0.3; }
+        .legend-item.toggle.disabled .legend-dot { background: #444 !important; }
+        .legend-dot.iss-dot { background: none; font-size: 14px; line-height: 1; width: auto; height: auto; }
+        .iss-item { grid-column: span 2; background: rgba(255,255,255,0.05); border-radius: 6px; padding: 6px 8px !important; margin: 0 -6px 8px -6px !important; }
+        .toggle-row { border-top: 1px solid rgba(255,255,255,0.08); margin-top: 16px; padding-top: 16px; }
+        .toggle-option { display: flex; align-items: center; gap: 10px; cursor: pointer; font-size: 12px; color: rgba(255,255,255,0.6); }
+        .toggle-option input[type="checkbox"] { width: 36px; height: 20px; -webkit-appearance: none; appearance: none; background: rgba(255,255,255,0.1); border-radius: 10px; position: relative; cursor: pointer; transition: background 0.2s; }
+        .toggle-option input[type="checkbox"]::before { content: ''; position: absolute; width: 16px; height: 16px; background: #fff; border-radius: 50%; top: 2px; left: 2px; transition: transform 0.2s; }
+        .toggle-option input[type="checkbox"]:checked { background: #00d4ff; }
+        .toggle-option input[type="checkbox"]:checked::before { transform: translateX(16px); }
+        .legend-dot { width: 8px; height: 8px; border-radius: 50%; margin-right: 8px; flex-shrink: 0; }
+        .legend-count { margin-left: auto; color: rgba(255,255,255,0.35); font-family: 'JetBrains Mono', monospace; font-size: 10px; }
+        .stats { border-top: 1px solid rgba(255,255,255,0.08); padding-top: 16px; display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+        .stat { display: flex; flex-direction: column; }
+        .stat-value { font-family: 'JetBrains Mono', monospace; font-size: 16px; font-weight: 500; color: #00d4ff; }
+        .stat-label { font-size: 10px; color: rgba(255,255,255,0.35); text-transform: uppercase; letter-spacing: 0.5px; }
+        #controls { position: absolute; bottom: 24px; left: 24px; background: rgba(8, 12, 24, 0.85); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); color: #fff; padding: 16px 24px; border-radius: 12px; z-index: 1000; font-family: 'Inter', sans-serif; font-size: 12px; display: flex; align-items: center; gap: 20px; border: 1px solid rgba(255,255,255,0.08); box-shadow: 0 12px 32px rgba(0,0,0,0.3); }
+        #controls label { color: rgba(255,255,255,0.5); font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; }
+        #controls input[type="range"] { width: 120px; height: 4px; -webkit-appearance: none; background: rgba(255,255,255,0.1); border-radius: 2px; outline: none; }
+        #controls input[type="range"]::-webkit-slider-thumb { -webkit-appearance: none; width: 14px; height: 14px; background: #00d4ff; border-radius: 50%; cursor: pointer; box-shadow: 0 2px 8px rgba(0,212,255,0.4); }
+        #speedVal { font-family: 'JetBrains Mono', monospace; color: #00d4ff; min-width: 45px; }
+        .divider { width: 1px; height: 20px; background: rgba(255,255,255,0.1); }
+        .shortcut { color: rgba(255,255,255,0.4); font-size: 11px; }
+        .shortcut kbd { background: rgba(255,255,255,0.1); padding: 2px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 10px; margin-right: 4px; }
+        #perfBanner { position: absolute; top: 24px; right: 24px; background: linear-gradient(135deg, rgba(0, 212, 255, 0.15) 0%, rgba(0, 255, 136, 0.15) 100%); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); color: #fff; padding: 20px 24px; border-radius: 16px; z-index: 1000; font-family: 'Inter', sans-serif; border: 1px solid rgba(0, 212, 255, 0.3); box-shadow: 0 24px 48px rgba(0,0,0,0.3); text-align: center; min-width: 200px; }
+        #perfBanner .perf-value { font-family: 'JetBrains Mono', monospace; font-size: 36px; font-weight: 600; background: linear-gradient(135deg, #00d4ff 0%, #00ff88 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; line-height: 1; }
+        #perfBanner .perf-unit { font-size: 18px; opacity: 0.8; }
+        #perfBanner .perf-label { font-size: 11px; color: rgba(255,255,255,0.5); text-transform: uppercase; letter-spacing: 1px; margin-top: 4px; }
+        #perfBanner .perf-detail { font-size: 11px; color: rgba(255,255,255,0.4); margin-top: 12px; padding-top: 12px; border-top: 1px solid rgba(255,255,255,0.1); }
+        #perfBanner .perf-detail strong { color: #00d4ff; }
+        #perfBanner .perf-note { font-size: 10px; color: rgba(255,255,255,0.4); margin-top: 8px; }
+        #satInfo { position: absolute; bottom: 80px; right: 24px; background: rgba(8, 12, 24, 0.95); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); color: #fff; padding: 16px 20px; border-radius: 12px; z-index: 1000; font-family: 'Inter', sans-serif; font-size: 12px; border: 1px solid rgba(255,255,255,0.1); box-shadow: 0 12px 32px rgba(0,0,0,0.3); display: none; min-width: 220px; }
+        #satInfo.visible { display: block; }
+        #satInfo .sat-name { font-size: 14px; font-weight: 600; color: #fff; margin-bottom: 8px; }
+        #satInfo .sat-constellation { display: inline-block; padding: 3px 8px; border-radius: 4px; font-size: 10px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 10px; }
+        #satInfo .sat-details { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 16px; margin-top: 12px; padding-top: 12px; border-top: 1px solid rgba(255,255,255,0.1); }
+        #satInfo .sat-detail { color: rgba(255,255,255,0.5); font-size: 11px; }
+        #satInfo .sat-detail span { color: #fff; font-family: 'JetBrains Mono', monospace; }
+        #satInfo .sat-track-hint { margin-top: 12px; padding-top: 10px; border-top: 1px solid rgba(255,255,255,0.1); font-size: 10px; color: rgba(255,255,255,0.3); text-align: center; }
+        #satInfo .sat-close { position: absolute; top: 8px; right: 10px; background: none; border: none; color: rgba(255,255,255,0.4); cursor: pointer; font-size: 16px; padding: 4px; }
+        #satInfo .sat-close:hover { color: #fff; }
+        #branding { position: absolute; bottom: 24px; right: 24px; background: rgba(8, 12, 24, 0.85); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); color: #fff; padding: 12px 20px; border-radius: 10px; z-index: 1000; font-family: 'JetBrains Mono', monospace; font-size: 13px; font-weight: 500; border: 1px solid rgba(255,255,255,0.08); box-shadow: 0 12px 32px rgba(0,0,0,0.3); }
+        #branding span { background: linear-gradient(135deg, #00d4ff 0%, #00ff88 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+        .cesium-credit-logoContainer, .cesium-credit-expand-link, .cesium-widget-credits { display: none !important; }
+    </style>
+</head>
+<body>
+    <div id="cesiumContainer"></div>
+    <div id="ui">
+        <h2>Near-Earth Catalog</h2>
+        <div class="big-number" id="satCount">{{NUM_SATS}}</div>
+        <div class="big-label">satellites tracked in real-time</div>
+        <div class="search-container">
+            <input type="text" id="searchBox" placeholder="Search by name (e.g. Capella, GPS, Cosmos...)">
+            <button id="clearSearch" title="Clear search">&times;</button>
+        </div>
+        <div class="legend">
+            {{LEGEND_ITEMS}}
+        </div>
+        <div class="toggle-row">
+            <label class="toggle-option"><input type="checkbox" id="showOrbits" checked><span>Show orbit paths</span></label>
+            <label class="toggle-option" style="margin-top: 12px;"><input type="checkbox" id="realTimeMode"><span>Real-time mode</span></label>
+        </div>
+        <div class="stats">
+            <div class="stat"><span class="stat-value" id="fps">--</span><span class="stat-label">FPS</span></div>
+            <div class="stat" id="simTimeStat"><span class="stat-value"><span id="simTime">0</span> min</span><span class="stat-label">Sim Time</span></div>
+            <div class="stat" id="utcTimeStat" style="display: none; grid-column: span 2;"><span class="stat-value" id="utcTime" style="font-size: 14px;">--</span><span class="stat-label">UTC Time (Live)</span></div>
+        </div>
+    </div>
+    <div id="controls">
+        <label>Speed</label>
+        <input type="range" id="speed" min="0.05" max="2" step="0.05" value="0.05">
+        <span id="speedVal">0.05x</span>
+        <div class="divider"></div>
+        <span class="shortcut"><kbd>Space</kbd> Pause</span>
+        <span class="shortcut"><kbd>R</kbd> Real-time</span>
+        <span class="shortcut"><kbd>Esc</kbd> Reset</span>
+    </div>
+    <div id="perfBanner">
+        <div class="perf-value">{{THROUGHPUT}}<span class="perf-unit">M/s</span></div>
+        <div class="perf-label">SGP4 Propagations</div>
+        <div class="perf-detail"><strong>{{TOTAL_PROPS}}</strong> positions in <strong>{{PROP_TIME_MS}}ms</strong></div>
+        <div class="perf-note">via Python bindings · native Zig ~2x faster</div>
+    </div>
+    <div id="satInfo">
+        <button class="sat-close">&times;</button>
+        <div class="sat-name">-</div>
+        <div class="sat-constellation">-</div>
+        <div class="sat-details">
+            <div class="sat-detail">NORAD ID: <span id="satNorad">-</span></div>
+            <div class="sat-detail">Inclination: <span id="satInc">-</span>°</div>
+            <div class="sat-detail">Period: <span id="satPeriod">-</span> min</div>
+            <div class="sat-detail">Eccentricity: <span id="satEcc">-</span></div>
+            <div class="sat-detail">RAAN: <span id="satRaan">-</span>°</div>
+            <div class="sat-detail">Revs/day: <span id="satRevs">-</span></div>
+        </div>
+        <div class="sat-track-hint">Double-click to track</div>
+    </div>
+    <div id="branding">powered by <span>astroz</span></div>
+
+    <script>
+        // Data injected by Python
+        const frames = {{FRAMES}};
+        const satColors = {{SAT_COLORS}};
+        const satConstellations = {{SAT_CONSTELLATIONS}};
+        const satNames = {{SAT_NAMES}};
+        const satData = {{SAT_DATA}};
+        const numSats = {{NUM_SATS_RAW}};
+        const numFrames = {{NUM_FRAMES}};
+        const referenceEpoch = new Date('{{REFERENCE_EPOCH}}');
+        const startFrame = {{START_FRAME}};
+
+        const constellationColors = {
+            ISS: 'rgb(255,255,255)', Starlink: 'rgb(100,180,255)', OneWeb: 'rgb(255,160,100)',
+            Planet: 'rgb(130,200,130)', Spire: 'rgb(240,220,140)', Iridium: 'rgb(200,140,220)',
+            SSO: 'rgb(255,130,130)', LEO53: 'rgb(140,220,200)', Other: 'rgb(180,180,190)'
+        };
+        const constellationVisible = { ISS: true, Starlink: true, OneWeb: true, Planet: true, Spire: true, Iridium: true, SSO: true, LEO53: true, Other: true };
+
+        // Setup viewer
+        const viewer = new Cesium.Viewer('cesiumContainer', {
+            imageryProvider: new Cesium.UrlTemplateImageryProvider({ url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', credit: 'Esri' }),
+            baseLayerPicker: false, geocoder: false, homeButton: false, sceneModePicker: false,
+            navigationHelpButton: false, animation: false, timeline: false, fullscreenButton: false,
+            vrButton: false, infoBox: false, selectionIndicator: false
+        });
+        viewer.scene.skyBox = new Cesium.SkyBox({ sources: {
+            positiveX: Cesium.buildModuleUrl('Assets/Textures/SkyBox/tycho2t3_80_px.jpg'),
+            negativeX: Cesium.buildModuleUrl('Assets/Textures/SkyBox/tycho2t3_80_mx.jpg'),
+            positiveY: Cesium.buildModuleUrl('Assets/Textures/SkyBox/tycho2t3_80_py.jpg'),
+            negativeY: Cesium.buildModuleUrl('Assets/Textures/SkyBox/tycho2t3_80_my.jpg'),
+            positiveZ: Cesium.buildModuleUrl('Assets/Textures/SkyBox/tycho2t3_80_pz.jpg'),
+            negativeZ: Cesium.buildModuleUrl('Assets/Textures/SkyBox/tycho2t3_80_mz.jpg')
+        }});
+        viewer.scene.skyAtmosphere.show = false;
+        viewer.scene.globe.showGroundAtmosphere = false;
+        const baseLayer = viewer.scene.globe.imageryLayers.get(0);
+        baseLayer.brightness = 0.75; baseLayer.contrast = 1.1; baseLayer.saturation = 0.85;
+        viewer.camera.setView({ destination: Cesium.Cartesian3.fromDegrees(-30, 25, 22000000) });
+
+        // Create points
+        const pointCollection = viewer.scene.primitives.add(new Cesium.PointPrimitiveCollection());
+        const points = [];
+        let issIndex = -1, issEntity = null;
+
+        for (let i = 0; i < numSats; i++) {
+            const c = satColors[i], i3 = i * 3;
+            if (satConstellations[i] === 'ISS') {
+                issIndex = i;
+                points.push(pointCollection.add({ position: new Cesium.Cartesian3(frames[startFrame][i3], frames[startFrame][i3+1], frames[startFrame][i3+2]), color: Cesium.Color.TRANSPARENT, pixelSize: 0, show: false }));
+            } else {
+                points.push(pointCollection.add({ position: new Cesium.Cartesian3(frames[startFrame][i3], frames[startFrame][i3+1], frames[startFrame][i3+2]), color: Cesium.Color.fromBytes(c[0], c[1], c[2], 220), pixelSize: 2.5 }));
+            }
+        }
+
+        // ISS entity
+        if (issIndex >= 0) {
+            const i3 = issIndex * 3;
+            issEntity = viewer.entities.add({
+                name: 'ISS (ZARYA)',
+                position: new Cesium.Cartesian3(frames[startFrame][i3], frames[startFrame][i3+1], frames[startFrame][i3+2]),
+                billboard: { image: 'data:image/svg+xml,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="1.5"><rect x="2" y="10" width="20" height="4" rx="1"/><rect x="10" y="6" width="4" height="12" rx="1"/><line x1="6" y1="10" x2="6" y2="6"/><line x1="18" y1="10" x2="18" y2="6"/><line x1="6" y1="14" x2="6" y2="18"/><line x1="18" y1="14" x2="18" y2="18"/><circle cx="12" cy="12" r="1.5" fill="white"/></svg>'), scale: 1.0 },
+                label: { text: 'ISS', font: '12px Inter, sans-serif', fillColor: Cesium.Color.WHITE, outlineColor: Cesium.Color.BLACK, outlineWidth: 2, style: Cesium.LabelStyle.FILL_AND_OUTLINE, pixelOffset: new Cesium.Cartesian2(0, -24), verticalOrigin: Cesium.VerticalOrigin.BOTTOM }
+            });
+        }
+
+        // Orbit paths
+        const orbitSatIndices = []; const orbitStep = Math.floor(numSats / 50);
+        for (let i = 0; i < numSats; i += orbitStep) orbitSatIndices.push(i);
+        const allOrbitPositions = {};
+        for (const idx of orbitSatIndices) {
+            const pos = [];
+            for (let f = 0; f < numFrames; f++) { const i3 = idx * 3; pos.push(new Cesium.Cartesian3(frames[f][i3], frames[f][i3+1], frames[f][i3+2])); }
+            pos.push(pos[0]);
+            allOrbitPositions[idx] = pos;
+        }
+        let orbitCollection = viewer.scene.primitives.add(new Cesium.PolylineCollection());
+
+        function rebuildOrbitPaths() {
+            viewer.scene.primitives.remove(orbitCollection);
+            orbitCollection = viewer.scene.primitives.add(new Cesium.PolylineCollection());
+            if (!document.getElementById('showOrbits').checked) return;
+            const visible = Object.entries(constellationVisible).filter(([k,v]) => v).map(([k]) => k);
+            const perConst = Math.max(3, Math.floor(60 / Math.max(1, visible.length)));
+            const byConst = {};
+            for (const idx of orbitSatIndices) { const c = satConstellations[idx]; if (!byConst[c]) byConst[c] = []; byConst[c].push(idx); }
+            for (const c of visible) {
+                for (const idx of (byConst[c] || []).slice(0, perConst)) {
+                    const col = satColors[idx];
+                    orbitCollection.add({ positions: allOrbitPositions[idx], width: 1.5, material: Cesium.Material.fromType('Color', { color: Cesium.Color.fromBytes(col[0], col[1], col[2], 60) }) });
+                }
+            }
+        }
+        rebuildOrbitPaths();
+
+        // State
+        let simTime = startFrame, paused = false, speed = 0.05, realTimeMode = false;
+        let searchFilter = '', searchMatchIndices = new Set(), searchLabelEntities = [];
+        const satInfoPanel = document.getElementById('satInfo');
+        let trackedSatEntity = null, trackedSatIdx = -1;
+
+        // Animation loop
+        let lastTime = performance.now(), frameCount = 0;
+        viewer.scene.preRender.addEventListener(() => {
+            frameCount++;
+            const now = performance.now();
+            if (now - lastTime >= 1000) { document.getElementById('fps').textContent = frameCount; frameCount = 0; lastTime = now; }
+            if (paused && !realTimeMode) return;
+
+            let f1, f2, t;
+            if (realTimeMode) {
+                const nowUtc = new Date();
+                const mins = (nowUtc - referenceEpoch) / 60000;
+                const ff = ((mins % numFrames) + numFrames) % numFrames;
+                f1 = Math.floor(ff); f2 = (f1 + 1) % numFrames; t = ff - f1;
+                document.getElementById('utcTime').textContent = nowUtc.toISOString().slice(0, 19).replace('T', ' ') + ' UTC';
+            } else {
+                simTime += speed * 0.03; if (simTime >= numFrames) simTime -= numFrames;
+                f1 = Math.floor(simTime); f2 = (f1 + 1) % numFrames; t = simTime - f1;
+                document.getElementById('simTime').textContent = f1;
+            }
+            const d1 = frames[f1], d2 = frames[f2];
+            for (let i = 0; i < numSats; i++) {
+                const i3 = i * 3;
+                const pos = new Cesium.Cartesian3(d1[i3] + (d2[i3] - d1[i3]) * t, d1[i3+1] + (d2[i3+1] - d1[i3+1]) * t, d1[i3+2] + (d2[i3+2] - d1[i3+2]) * t);
+                points[i].position = pos;
+                if (i === issIndex && issEntity) issEntity.position = pos;
+            }
+        });
+
+        // Visibility
+        function updateVisibility() {
+            let count = 0;
+            const large = searchFilter && searchMatchIndices.size > 0 && searchMatchIndices.size <= 10;
+            const size = large ? 8 : 2.5;
+            for (let i = 0; i < numSats; i++) {
+                let vis = constellationVisible[satConstellations[i]];
+                if (searchFilter && vis) vis = searchMatchIndices.has(i);
+                points[i].show = vis; points[i].pixelSize = size;
+                if (vis) count++;
+            }
+            if (issEntity) { let v = constellationVisible['ISS']; if (searchFilter && v) v = searchMatchIndices.has(issIndex); issEntity.show = v; }
+            document.getElementById('satCount').textContent = searchFilter ? count.toLocaleString() : numSats.toLocaleString();
+            rebuildOrbitPaths();
+        }
+
+        // Search
+        function clearSearchLabels() { for (const e of searchLabelEntities) viewer.entities.remove(e); searchLabelEntities = []; }
+        function createSearchLabels() {
+            clearSearchLabels();
+            if (searchMatchIndices.size === 0 || searchMatchIndices.size > 10) return;
+            for (const idx of searchMatchIndices) {
+                if (idx === issIndex) continue;
+                const c = satColors[idx];
+                searchLabelEntities.push(viewer.entities.add({
+                    position: new Cesium.CallbackProperty(() => points[idx].position, false),
+                    label: { text: satNames[idx], font: '12px Inter', fillColor: Cesium.Color.fromBytes(c[0], c[1], c[2]), outlineColor: Cesium.Color.BLACK, outlineWidth: 2, style: Cesium.LabelStyle.FILL_AND_OUTLINE, pixelOffset: new Cesium.Cartesian2(0, -12), verticalOrigin: Cesium.VerticalOrigin.BOTTOM, disableDepthTestDistance: Number.POSITIVE_INFINITY }
+                }));
+            }
+        }
+        function performSearch(q) {
+            searchFilter = q.toLowerCase().trim(); searchMatchIndices.clear();
+            const cont = document.querySelector('.search-container');
+            if (searchFilter) { cont.classList.add('search-active'); for (let i = 0; i < numSats; i++) if (satNames[i].toLowerCase().includes(searchFilter)) searchMatchIndices.add(i); }
+            else cont.classList.remove('search-active');
+            updateVisibility(); createSearchLabels();
+        }
+
+        // Event handlers
+        document.getElementById('speed').oninput = e => { speed = parseFloat(e.target.value); document.getElementById('speedVal').textContent = speed.toFixed(2) + 'x'; };
+        document.getElementById('realTimeMode').addEventListener('change', e => {
+            realTimeMode = e.target.checked;
+            document.getElementById('simTimeStat').style.display = realTimeMode ? 'none' : 'flex';
+            document.getElementById('utcTimeStat').style.display = realTimeMode ? 'flex' : 'none';
+            document.getElementById('speed').disabled = realTimeMode;
+            document.getElementById('speedVal').textContent = realTimeMode ? 'LIVE' : speed.toFixed(2) + 'x';
+        });
+        document.onkeydown = e => {
+            if (e.code === 'Space') { paused = !paused; e.preventDefault(); }
+            if (e.code === 'KeyR') { const cb = document.getElementById('realTimeMode'); cb.checked = !cb.checked; cb.dispatchEvent(new Event('change')); e.preventDefault(); }
+            if (e.code === 'Escape') {
+                viewer.trackedEntity = undefined;
+                if (trackedSatEntity) { viewer.entities.remove(trackedSatEntity); trackedSatEntity = null; trackedSatIdx = -1; }
+                satInfoPanel.classList.remove('visible');
+                viewer.camera.setView({ destination: Cesium.Cartesian3.fromDegrees(-30, 25, 22000000) });
+            }
+        };
+        const searchBox = document.getElementById('searchBox');
+        let searchTimeout;
+        searchBox.addEventListener('input', e => { clearTimeout(searchTimeout); searchTimeout = setTimeout(() => performSearch(e.target.value), 150); });
+        document.getElementById('clearSearch').addEventListener('click', () => { searchBox.value = ''; performSearch(''); searchBox.focus(); });
+        searchBox.addEventListener('keydown', e => { if (e.code === 'Escape' && searchBox.value) { searchBox.value = ''; performSearch(''); e.stopPropagation(); } });
+        document.querySelectorAll('.legend-item.toggle').forEach(item => {
+            const cb = item.querySelector('input[type="checkbox"]'), c = item.dataset.constellation;
+            cb.addEventListener('change', () => { constellationVisible[c] = cb.checked; item.classList.toggle('disabled', !cb.checked); updateVisibility(); });
+        });
+        document.getElementById('showOrbits').addEventListener('change', updateVisibility);
+
+        // Click handlers
+        function showSatelliteInfo(idx) {
+            const d = satData[idx], c = satConstellations[idx], col = constellationColors[c];
+            satInfoPanel.querySelector('.sat-name').textContent = satNames[idx];
+            const el = satInfoPanel.querySelector('.sat-constellation'); el.textContent = c; el.style.background = col; el.style.color = '#000';
+            document.getElementById('satNorad').textContent = d.norad_id;
+            document.getElementById('satInc').textContent = d.inclination.toFixed(2);
+            document.getElementById('satPeriod').textContent = d.period.toFixed(1);
+            document.getElementById('satEcc').textContent = d.eccentricity.toFixed(6);
+            document.getElementById('satRaan').textContent = d.raan.toFixed(2);
+            document.getElementById('satRevs').textContent = d.mean_motion.toFixed(2);
+            satInfoPanel.classList.add('visible');
+        }
+        function findClosestSatellite(pos) {
+            let closest = -1, dist = Infinity;
+            for (let i = 0; i < numSats; i++) {
+                if (!points[i].show) continue;
+                const sp = Cesium.SceneTransforms.wgs84ToWindowCoordinates(viewer.scene, points[i].position);
+                if (!sp) continue;
+                const d = Math.sqrt((sp.x - pos.x) ** 2 + (sp.y - pos.y) ** 2);
+                if (d < dist) { dist = d; closest = i; }
+            }
+            return closest >= 0 && dist < 20 ? closest : -1;
+        }
+        function trackSatellite(idx) {
+            if (trackedSatEntity) { viewer.entities.remove(trackedSatEntity); trackedSatEntity = null; }
+            if (idx < 0) { trackedSatIdx = -1; return; }
+            trackedSatIdx = idx; const c = satColors[idx];
+            trackedSatEntity = viewer.entities.add({
+                position: new Cesium.CallbackProperty(() => points[idx].position, false),
+                point: { pixelSize: 12, color: Cesium.Color.fromBytes(c[0], c[1], c[2]), outlineColor: Cesium.Color.WHITE, outlineWidth: 2, disableDepthTestDistance: Number.POSITIVE_INFINITY },
+                label: { text: satNames[idx], font: '14px Inter', fillColor: Cesium.Color.WHITE, outlineColor: Cesium.Color.BLACK, outlineWidth: 2, style: Cesium.LabelStyle.FILL_AND_OUTLINE, pixelOffset: new Cesium.Cartesian2(0, -20), verticalOrigin: Cesium.VerticalOrigin.BOTTOM, disableDepthTestDistance: Number.POSITIVE_INFINITY }
+            });
+            viewer.trackedEntity = trackedSatEntity;
+        }
+        viewer.screenSpaceEventHandler.setInputAction(click => { const idx = findClosestSatellite(click.position); if (idx >= 0) showSatelliteInfo(idx); else satInfoPanel.classList.remove('visible'); }, Cesium.ScreenSpaceEventType.LEFT_CLICK);
+        viewer.screenSpaceEventHandler.setInputAction(click => { const idx = findClosestSatellite(click.position); if (idx >= 0) { trackSatellite(idx); showSatelliteInfo(idx); } }, Cesium.ScreenSpaceEventType.LEFT_DOUBLE_CLICK);
+        satInfoPanel.querySelector('.sat-close').addEventListener('click', () => satInfoPanel.classList.remove('visible'));
+    </script>
+</body>
+</html>

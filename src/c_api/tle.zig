@@ -9,14 +9,14 @@ const err = @import("error.zig");
 
 pub const Handle = *anyopaque;
 
-pub fn parse(tle_str: [*:0]const u8, out: *Handle) err.Code {
-    const tle = Tle.parse(std.mem.span(tle_str), allocator.get()) catch |e| {
+pub fn parse(tleStr: [*:0]const u8, out: *Handle) err.Code {
+    const tle = Tle.parse(std.mem.span(tleStr), allocator.get()) catch |e| {
         return switch (e) {
-            Tle.Error.BadTleLength => .bad_tle_length,
+            Tle.Error.BadTleLength => .badTleLength,
             else => err.fromError(e),
         };
     };
-    const ptr = allocator.get().create(Tle) catch return .alloc_failed;
+    const ptr = allocator.get().create(Tle) catch return .allocFailed;
     ptr.* = tle;
     out.* = @ptrCast(ptr);
     return .ok;

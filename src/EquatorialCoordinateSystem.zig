@@ -65,8 +65,8 @@ fn calculateRaDec(self: EquatorialCoordinateSystem, precessConstants: Precess) s
     const deltaRa = precessConstants.M + (precessConstants.N * raSin * decTan);
     const deltaDec = precessConstants.N * raCos;
 
-    const returnRa = (deltaRa * constants.arcseconds_per_degree) / constants.degrees_per_hour;
-    const returnDec = deltaDec * constants.arcseconds_per_degree;
+    const returnRa = (deltaRa * constants.arcsecondsPerDegree) / constants.degreesPerHour;
+    const returnDec = deltaDec * constants.arcsecondsPerDegree;
 
     return .{ .ra = returnRa, .dec = returnDec };
 }
@@ -88,8 +88,8 @@ pub const Declination = struct {
     /// Convert to angular degrees, needed to precess
     pub fn convertToAngular(self: Declination) f64 {
         const degrees = @as(f32, @floatFromInt(self.degrees));
-        const arcminutes = @as(f32, @floatFromInt(self.arcminutes)) / constants.arcminutes_per_degree;
-        const arcseconds = self.arcseconds / constants.arcseconds_per_degree;
+        const arcminutes = @as(f32, @floatFromInt(self.arcminutes)) / constants.arcminutesPerDegree;
+        const arcseconds = self.arcseconds / constants.arcsecondsPerDegree;
         return degrees + arcminutes + arcseconds;
     }
 };
@@ -111,9 +111,9 @@ pub const RightAscension = struct {
     /// Convert to angular degrees, needed to precess
     pub fn convertToAngular(self: RightAscension) f64 {
         const hours = @as(f32, @floatFromInt(self.hours));
-        const minutes = @as(f32, @floatFromInt(self.minutes)) / constants.minutes_per_hour;
-        const seconds = self.seconds / constants.seconds_per_hour;
-        return (hours + minutes + seconds) * constants.degrees_per_hour;
+        const minutes = @as(f32, @floatFromInt(self.minutes)) / constants.minutesPerHour;
+        const seconds = self.seconds / constants.secondsPerHour;
+        return (hours + minutes + seconds) * constants.degreesPerHour;
     }
 };
 
@@ -146,36 +146,36 @@ const Precess = struct {
 };
 
 test "Equatorial Coordinates" {
-    const test_ra = RightAscension.init(19, 50, 47.0);
-    const test_dec = Declination.init(8, 52, 6.0);
-    const test_coord = EquatorialCoordinateSystem.init(
-        test_dec,
-        test_ra,
+    const testRa = RightAscension.init(19, 50, 47.0);
+    const testDec = Declination.init(8, 52, 6.0);
+    const testCoord = EquatorialCoordinateSystem.init(
+        testDec,
+        testRa,
     );
-    const angular_ra = test_ra.convertToAngular();
-    const angular_dec = test_dec.convertToAngular();
-    const precessed_output = test_coord.precess(Datetime.initDate(2005, 7, 30));
-    const expected_precessed = EquatorialCoordinateSystem.init(
+    const angularRa = testRa.convertToAngular();
+    const angularDec = testDec.convertToAngular();
+    const precessedOutput = testCoord.precess(Datetime.initDate(2005, 7, 30));
+    const expectedPrecessed = EquatorialCoordinateSystem.init(
         Declination.init(8, 52, 57.962516014965246),
         RightAscension.init(19, 51, 3.122949149012854),
     );
 
-    try std.testing.expectEqual(test_coord.rightAscension, test_ra);
-    try std.testing.expectEqual(test_coord.declination, test_dec);
-    try std.testing.expectApproxEqAbs(297.6958428700765, angular_ra, 1e-4);
-    try std.testing.expectApproxEqAbs(8.86833346048991, angular_dec, 1e-4);
+    try std.testing.expectEqual(testCoord.rightAscension, testRa);
+    try std.testing.expectEqual(testCoord.declination, testDec);
+    try std.testing.expectApproxEqAbs(297.6958428700765, angularRa, 1e-4);
+    try std.testing.expectApproxEqAbs(8.86833346048991, angularDec, 1e-4);
 
     // Check precessed coordinates are within tolerance
-    try std.testing.expectApproxEqAbs(expected_precessed.declination.arcseconds, precessed_output.declination.arcseconds, 1e-4);
-    try std.testing.expectApproxEqAbs(expected_precessed.rightAscension.seconds, precessed_output.rightAscension.seconds, 1e-4);
+    try std.testing.expectApproxEqAbs(expectedPrecessed.declination.arcseconds, precessedOutput.declination.arcseconds, 1e-4);
+    try std.testing.expectApproxEqAbs(expectedPrecessed.rightAscension.seconds, precessedOutput.rightAscension.seconds, 1e-4);
 }
 
 test "Precess" {
-    const test_dt = Datetime.initDate(2005, 7, 30);
-    const test_pre = Precess.init(test_dt);
+    const testDt = Datetime.initDate(2005, 7, 30);
+    const testPre = Precess.init(testDt);
 
-    try std.testing.expectEqual(2005.5780821917808, test_pre.t);
-    try std.testing.expectEqual(0.055780821917808227, test_pre.T);
-    try std.testing.expectEqual(0.07146939946550677, test_pre.M);
-    try std.testing.expectEqual(0.03105576921912479, test_pre.N);
+    try std.testing.expectEqual(2005.5780821917808, testPre.t);
+    try std.testing.expectEqual(0.055780821917808227, testPre.T);
+    try std.testing.expectEqual(0.07146939946550677, testPre.M);
+    try std.testing.expectEqual(0.03105576921912479, testPre.N);
 }

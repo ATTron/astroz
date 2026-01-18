@@ -37,6 +37,12 @@ pub export fn PyInit__astroz() ?*c.PyObject {
     c.Py_INCREF(@ptrCast(&sgp4.Sgp4Type));
     if (c.PyModule_AddObject(m, "Sgp4", @ptrCast(&sgp4.Sgp4Type)) < 0) return null;
 
+    c.Py_INCREF(@ptrCast(&sgp4.Sgp4BatchType));
+    if (c.PyModule_AddObject(m, "Sgp4Batch", @ptrCast(&sgp4.Sgp4BatchType)) < 0) return null;
+
+    c.Py_INCREF(@ptrCast(&sgp4.Sgp4ConstellationType));
+    if (c.PyModule_AddObject(m, "Sgp4Constellation", @ptrCast(&sgp4.Sgp4ConstellationType)) < 0) return null;
+
     _ = c.PyModule_AddIntConstant(m, "WGS84", sgp4.WGS84);
     _ = c.PyModule_AddIntConstant(m, "WGS72", sgp4.WGS72);
     return m;

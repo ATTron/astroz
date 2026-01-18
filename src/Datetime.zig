@@ -5,8 +5,8 @@ const constants = @import("constants.zig");
 
 const Datetime = @This();
 
-const days_in_month = [_]u8{ 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31 };
-const days_per_year = 365;
+const daysInMonth = [_]u8{ 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31 };
+const daysPerYear = 365;
 
 instant: ?std.time.Instant,
 doy: ?u16,
@@ -23,7 +23,7 @@ pub fn initDate(year: u16, month: u8, day: u8) Datetime {
     var dt = Datetime{
         .instant = null,
         .doy = null,
-        .daysInYear = days_per_year,
+        .daysInYear = daysPerYear,
         .year = year,
         .month = month,
         .day = day,
@@ -40,7 +40,7 @@ pub fn initTime(hours: u8, minutes: u8, seconds: f16) Datetime {
     return .{
         .instant = null,
         .doy = null,
-        .daysInYear = days_per_year,
+        .daysInYear = daysPerYear,
         .year = null,
         .month = null,
         .day = null,
@@ -55,7 +55,7 @@ pub fn initDatetime(year: u16, month: u8, day: u8, hours: u8, minutes: u8, secon
     var dt = Datetime{
         .instant = null,
         .doy = null,
-        .daysInYear = days_per_year,
+        .daysInYear = daysPerYear,
         .year = year,
         .month = month,
         .day = day,
@@ -72,7 +72,7 @@ pub fn fromInstant(instant: std.time.Instant) Datetime {
     var newDt = Datetime{
         .instant = instant,
         .doy = null,
-        .daysInYear = days_per_year,
+        .daysInYear = daysPerYear,
         .year = null,
         .month = null,
         .day = null,
@@ -84,10 +84,10 @@ pub fn fromInstant(instant: std.time.Instant) Datetime {
 }
 
 fn calculateDoy(self: *Datetime) void {
-    var dim = days_in_month;
+    var dim = daysInMonth;
     if (isLeapYear(self.year.?)) {
         dim[1] = 29;
-        self.daysInYear = days_per_year + 1;
+        self.daysInYear = daysPerYear + 1;
     }
     var doy: u16 = 0;
     for (dim, 1..) |days, i| {
@@ -105,7 +105,7 @@ fn epochToDatetime(timestamp: i64) Datetime {
     var year: u16 = 1970;
 
     while (true) {
-        const daysThisYear: u32 = if (isLeapYear(year)) days_per_year + 1 else days_per_year;
+        const daysThisYear: u32 = if (isLeapYear(year)) daysPerYear + 1 else daysPerYear;
         const secondsThisYear = daysThisYear * std.time.s_per_day;
         if (remainingSeconds < secondsThisYear) break;
         remainingSeconds -= secondsThisYear;
@@ -115,7 +115,7 @@ fn epochToDatetime(timestamp: i64) Datetime {
     const daysElapsed = @divFloor(remainingSeconds, std.time.s_per_day);
     remainingSeconds -= daysElapsed * std.time.s_per_day;
 
-    var dim = days_in_month;
+    var dim = daysInMonth;
     if (isLeapYear(year)) dim[1] = 29;
 
     var month: u8 = 1;
@@ -147,10 +147,10 @@ pub fn doyToMonthDay(year: u16, doy: f64) struct { month: u8, day: u8 } {
     var month: u8 = 1;
     var day = doy;
 
-    for (days_in_month) |days| {
-        const days_f64: f64 = @floatFromInt(if (month == 2 and isLeapYear(year)) days + 1 else days);
-        if (day > days_f64) {
-            day -= days_f64;
+    for (daysInMonth) |days| {
+        const daysF64: f64 = @floatFromInt(if (month == 2 and isLeapYear(year)) days + 1 else days);
+        if (day > daysF64) {
+            day -= daysF64;
             month += 1;
         } else {
             break;
@@ -199,7 +199,7 @@ pub fn toJulianDate(self: Datetime) f64 {
         const h: f64 = @floatFromInt(self.hours.?);
         const min: f64 = if (self.minutes) |mins| @floatFromInt(mins) else 0.0;
         const sec: f64 = if (self.seconds) |secs| @floatCast(secs) else 0.0;
-        jd += (h - 12.0) / constants.hours_per_day + min / constants.minutes_per_day + sec / constants.seconds_per_day;
+        jd += (h - 12.0) / constants.hoursPerDay + min / constants.minutesPerDay + sec / constants.secondsPerDay;
     }
 
     return jd;
@@ -208,11 +208,11 @@ pub fn toJulianDate(self: Datetime) f64 {
 /// initialize from year and fractional day-of-year (TLE epoch format)
 pub fn fromYearDoy(year: u16, doy: f64) Datetime {
     const md = doyToMonthDay(year, doy);
-    const fractional_day = doy - @floor(doy);
-    const total_seconds = fractional_day * constants.seconds_per_day;
-    const hours: u8 = @intFromFloat(@floor(total_seconds / constants.seconds_per_hour));
-    const minutes: u8 = @intFromFloat(@floor(@mod(total_seconds, constants.seconds_per_hour) / constants.seconds_per_minute));
-    const seconds: f16 = @floatCast(@mod(total_seconds, constants.seconds_per_minute));
+    const fractionalDay = doy - @floor(doy);
+    const totalSeconds = fractionalDay * constants.secondsPerDay;
+    const hours: u8 = @intFromFloat(@floor(totalSeconds / constants.secondsPerHour));
+    const minutes: u8 = @intFromFloat(@floor(@mod(totalSeconds, constants.secondsPerHour) / constants.secondsPerMinute));
+    const seconds: f16 = @floatCast(@mod(totalSeconds, constants.secondsPerMinute));
 
     return Datetime.initDatetime(year, md.month, md.day, hours, minutes, seconds);
 }
@@ -223,9 +223,9 @@ pub fn yearDoyToJulianDate(year: u16, doy: f64) f64 {
     const a = @floor((14.0 - 1.0) / 12.0);
     const yy = y + 4800.0 - a;
     const mm = 1.0 + 12.0 * a - 3.0;
-    const jd_jan1 = 1.0 + @floor((153.0 * mm + 2.0) / 5.0) + 365.0 * yy +
+    const jdJan1 = 1.0 + @floor((153.0 * mm + 2.0) / 5.0) + 365.0 * yy +
         @floor(yy / 4.0) - @floor(yy / 100.0) + @floor(yy / 400.0) - 32045.0;
-    return jd_jan1 + doy - 1.0;
+    return jdJan1 + doy - 1.0;
 }
 
 test "Test Date" {

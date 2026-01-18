@@ -10,9 +10,9 @@ const Matrix3x3 = [3][3]f64;
 
 pub const Vector3 = [3]f64;
 
-pub const wgs84_a = constants.wgs84.radiusEarthKm;
-pub const wgs84_f = constants.wgs84_flattening;
-pub const wgs84_e2 = constants.wgs84_eccentricity_sq;
+pub const wgs84A = constants.wgs84.radiusEarthKm;
+pub const wgs84F = constants.wgs84Flattening;
+pub const wgs84E2 = constants.wgs84EccentricitySq;
 
 const WorldCoordinateSystem = @This();
 
@@ -74,11 +74,11 @@ fn eciToECEF(eci: Vector3, timeSinceEpoch: f64, celestialObject: constants.Celes
 
 /// convert ECI to ECEF using GMST (Greenwich Mean Sidereal Time).
 pub fn eciToEcefGmst(eci: Vector3, gmst: f64) Vector3 {
-    const cos_gmst = @cos(gmst);
-    const sin_gmst = @sin(gmst);
+    const cosGmst = @cos(gmst);
+    const sinGmst = @sin(gmst);
     return .{
-        eci[0] * cos_gmst + eci[1] * sin_gmst,
-        -eci[0] * sin_gmst + eci[1] * cos_gmst,
+        eci[0] * cosGmst + eci[1] * sinGmst,
+        -eci[0] * sinGmst + eci[1] * cosGmst,
         eci[2],
     };
 }
@@ -92,19 +92,19 @@ pub fn ecefToGeodetic(ecef: Vector3) Vector3 {
     const lon = std.math.atan2(y, x);
     const p = @sqrt(x * x + y * y);
 
-    var lat = std.math.atan2(z, p * (1.0 - wgs84_e2));
+    var lat = std.math.atan2(z, p * (1.0 - wgs84E2));
     for (0..10) |_| {
-        const lat_prev = lat;
-        const sin_lat = @sin(lat);
-        const N = wgs84_a / @sqrt(1.0 - wgs84_e2 * sin_lat * sin_lat);
-        lat = std.math.atan2(z + wgs84_e2 * N * sin_lat, p);
-        if (@abs(lat - lat_prev) < 1e-12) break;
+        const latPrev = lat;
+        const sinLat = @sin(lat);
+        const N = wgs84A / @sqrt(1.0 - wgs84E2 * sinLat * sinLat);
+        lat = std.math.atan2(z + wgs84E2 * N * sinLat, p);
+        if (@abs(lat - latPrev) < 1e-12) break;
     }
 
-    const sin_lat = @sin(lat);
-    const cos_lat = @cos(lat);
-    const N = wgs84_a / @sqrt(1.0 - wgs84_e2 * sin_lat * sin_lat);
-    const alt = p / cos_lat - N;
+    const sinLat = @sin(lat);
+    const cosLat = @cos(lat);
+    const N = wgs84A / @sqrt(1.0 - wgs84E2 * sinLat * sinLat);
+    const alt = p / cosLat - N;
 
     return .{ lat, lon, alt };
 }
@@ -121,9 +121,9 @@ pub fn ecefToGeodeticDeg(ecef: Vector3) Vector3 {
 
 /// Compute GMST (Greenwich Mean Sidereal Time) from Julian date.
 pub fn julianToGmst(jd: f64) f64 {
-    const jd_j2000 = jd - constants.j2000_jd;
-    const t = jd_j2000 / constants.julian_days_per_century;
-    var gmst = 280.46061837 + 360.98564736629 * jd_j2000 +
+    const jdJ2000 = jd - constants.j2000Jd;
+    const t = jdJ2000 / constants.@"julian\\DaysPerCentury";
+    var gmst = 280.46061837 + 360.98564736629 * jdJ2000 +
         0.000387933 * t * t - t * t * t / 38710000.0;
     gmst = @mod(gmst, 360.0);
     if (gmst < 0) gmst += 360.0;
@@ -131,14 +131,14 @@ pub fn julianToGmst(jd: f64) f64 {
 }
 
 test WorldCoordinateSystem {
-    const raw_tle =
+    const rawTle =
         \\1 55909U 23035B   24187.51050877  .00023579  00000+0  16099-2 0  9998
         \\2 55909  43.9978 311.8012 0011446 278.6226  81.3336 15.05761711 71371
     ;
 
-    var test_tle = try Tle.parse(raw_tle, std.testing.allocator);
-    defer test_tle.deinit();
-    const wcs = WorldCoordinateSystem.fromTle(test_tle, 0.0, constants.earth);
+    var testTle = try Tle.parse(rawTle, std.testing.allocator);
+    defer testTle.deinit();
+    const wcs = WorldCoordinateSystem.fromTle(testTle, 0.0, constants.earth);
 
     try std.testing.expectApproxEqAbs(wcs.x, 4628.0, 1.0);
     try std.testing.expectApproxEqAbs(wcs.y, -5164.8, 1.0);
