@@ -6,104 +6,28 @@
 [![CD][cd-shd]][cd-url]
 [![DC][dc-shd]][dc-url]
 
-
 ## Astronomical and Spacecraft Toolkit Written in Zig
 
-### Features / Plans
+**Featuring the fastest open-source SGP4 propagator.**
 
-#### Spacecraft
+| Orbital Mechanics | Spacecraft Ops | Astronomy |
+|-------------------|----------------|-----------|
+| SGP4 propagation | CCSDS packets | FITS parsing |
+| TLE parsing | VITA49 packets | WCS coordinates |
+| Orbital maneuvers | Attitude determination | Star precession |
+| Monte Carlo sims | | Celestial bodies |
 
-- [x] CCSDS Packets
-  - [x] CCSDS Stream Parser
-- [x] VITA49 Packets
-  - [x] Vita49 Stream Parser
-- [x] TLE Support
-  - [x] Orbital Propagation
-    - [x] RK4 Numerical Integration
-    - [x] SGP4 Analytical Propagation
-  - [x] Modular Propagator System
-    - [x] Composable Force Models (TwoBody, J2, Drag)
-    - [x] Swappable Integrators
-  - [x] Orbital Maneuvers
-    - [x] Impulse Maneuvers
-    - [x] Phase Maneuvers
-    - [x] Plane Change Maneuvers
-- [x] Orientation Determination
-- [ ] SPICE Kernel Parsing
-    - [x] LSK
+### Performance
 
-#### Astronomical
+Sub-meter accuracy validated against reference implementations. Uses SIMD (AVX2/SSE) to process 4 orbits simultaneously.
 
-- [x] Astronomical References
-  - [x] J2000 and JD
-  - [x] Celestial Bodies
-    - [x] Mass
-    - [x] Radius
-    - [x] Orbital Details
-- [x] Astronomical Coordinates
-  - [x] Equatorial Coordinate System
-  - [x] World Coordinate System
-- [x] Astronomical Computation
-  - [x] Precession
-- [x] Celestial Bodies
-- [x] Orbital Mechanics
-  - [x] Interplanetary Maneuvers
-  - [x] Monte Carlo Simulations
-- [x] FITS File Parsing
-  - [x] Image Generation
-    - [x] MEF Parsing
-  - [x] Table Parsing
+#### Native (2 weeks @ second resolution)
 
-### SGP4 Performance
-
-The fastest general-purpose, open source SGP4 implementation, with sub-meter accuracy validated against reference implementations. Uses SIMD (AVX2/SSE) to process 4 orbits simultaneously for ~2x speedup.
-
-#### Native Performance (2 weeks @ second resolution)
-
-| Implementation | Props/sec | Notes |
-|----------------|-----------|-------|
-| **astroz (SIMD)** | 11.1M | Zig |
-| **astroz (scalar)** | 5.2M | Zig |
-| sgp4 | 5.3M | Rust |
-
-#### Python Bindings (2 weeks @ second resolution)
-
-| Implementation | Props/sec | vs python-sgp4 |
-|----------------|-----------|----------------|
-| **astroz** | 5.3M | **2.1x faster** |
-| python-sgp4 | 2.6M | - |
-
-#### Python Bindings (1 month @ minute resolution)
-
-| Implementation | Props/sec | vs python-sgp4 |
-|----------------|-----------|----------------|
-| **astroz** | 7.7M | **2.9x faster** |
-| python-sgp4 | 2.7M | - |
-
-#### Other Toolkits
-
-| Implementation | Props/sec | Notes |
-|----------------|-----------|-------|
-| Skyfield | 121K | Wraps sgp4 + coordinate transforms |
-| OSTk | 56K | Full astrodynamics toolkit overhead |
-
-*python-sgp4 uses the official Vallado C++ implementation. Skyfield and OSTk are slower due to additional coordinate frame transformations, not SGP4 itself.*
-
-### Python Bindings
-
-```bash
-pip install astroz
-```
-
-```python
-from astroz import Tle, Sgp4, orbital, coords
-
-tle = Tle("1 25544U ...")
-sgp4 = Sgp4(tle)
-pos, vel = sgp4.propagate(30.0)  # 30 min after epoch
-```
-
-See [python/README.md](python/README.md) for full API documentation.
+| Implementation | Props/sec |
+|----------------|-----------|
+| **astroz (SIMD)** | 10.8M |
+| **astroz (scalar)** | 5.3M |
+| sgp4 (Rust) | 4.8M |
 
 ### Usage
 
