@@ -733,6 +733,15 @@ const CorrectedState = struct {
     xinc: f64,
 };
 
+const CorrectedStateV4 = struct {
+    r: Vec4,
+    rdot: Vec4,
+    rvdot: Vec4,
+    u: Vec4,
+    xnode: Vec4,
+    xinc: Vec4,
+};
+
 fn applyShortPeriodCorrections(el: *const Elements, kep: KeplerState, nm: f64) CorrectedState {
     const temp = 1.0 / kep.pl;
     const temp1 = 0.5 * el.grav.j2 * temp;
@@ -745,6 +754,34 @@ fn applyShortPeriodCorrections(el: *const Elements, kep: KeplerState, nm: f64) C
     const xinc = el.inclo + 1.5 * temp2 * el.cosio * el.sinio * kep.cos2u;
     const mvt = kep.rdot - nm * temp1 * el.x1mth2 * kep.sin2u / el.grav.xke;
     const rvdot = kep.rvdot + nm * temp1 * (el.x1mth2 * kep.cos2u + 1.5 * el.con41) / el.grav.xke;
+
+    return .{ .r = mrt, .rdot = mvt, .rvdot = rvdot, .u = su, .xnode = xnode, .xinc = xinc };
+}
+
+fn applyShortPeriodCorrectionsV4(el: *const Elements, kep: KeplerStateV4, nm: Vec4) CorrectedStateV4 {
+    const quarter: Vec4 = @splat(0.25);
+    const half: Vec4 = @splat(0.5);
+    const one: Vec4 = @splat(1.0);
+    const oneHalf: Vec4 = @splat(1.5);
+    const sinio: Vec4 = @splat(el.sinio);
+    const con41: Vec4 = @splat(el.con41);
+    const x1mth2: Vec4 = @splat(el.x1mth2);
+    const x7thm1: Vec4 = @splat(el.x7thm1);
+    const cosio: Vec4 = @splat(el.cosio);
+    const inclo: Vec4 = @splat(el.inclo);
+    const j2: Vec4 = @splat(el.grav.j2);
+    const xke: Vec4 = @splat(el.grav.xke);
+
+    const temp = one / kep.pl;
+    const temp1 = half * j2 * temp;
+    const temp2 = temp1 * temp;
+
+    const mrt = kep.r * (one - oneHalf * temp2 * kep.betal * con41) + half * temp1 * x1mth2 * kep.cos2u;
+    const su = kep.u - quarter * temp2 * x7thm1 * kep.sin2u;
+    const xnode = kep.nodem + oneHalf * temp2 * cosio * kep.sin2u;
+    const xinc = inclo + oneHalf * temp2 * cosio * sinio * kep.cos2u;
+    const mvt = kep.rdot - nm * temp1 * x1mth2 * kep.sin2u / xke;
+    const rvdot = kep.rvdot + nm * temp1 * (x1mth2 * kep.cos2u + oneHalf * con41) / xke;
 
     return .{ .r = mrt, .rdot = mvt, .rvdot = rvdot, .u = su, .xnode = xnode, .xinc = xinc };
 }
@@ -862,7 +899,7 @@ test "sgp4 vallado reference ISS" {
     try std.testing.expect(vel_err < 0.00001);
 }
 
-test "solveKeplerV4 matches scalar" {
+test "applyShortPeriodCorrectionsV4 matches scalar" {
     const test_tle =
         \\1 25544U 98067A   24127.82853009  .00015698  00000+0  27310-3 0  9995
         \\2 25544  51.6393 160.4574 0003580 140.6673 205.7250 15.50957674452123
@@ -874,30 +911,28 @@ test "solveKeplerV4 matches scalar" {
     const sgp4 = try Sgp4.init(tle, constants.wgs84);
     const el = &sgp4.elements;
 
-    // Test at various times
     const test_times = Vec4{ 0.0, 1440.0, 10080.0, 20160.0 };
 
-    // First get secular state using SIMD
+    // Build up the SIMD pipeline
     const secular_simd = updateSecularV4(el, test_times);
-
-    // Then solve Kepler using SIMD
+    const nm_simd = @as(Vec4, @splat(el.grav.xke)) / (secular_simd.a * @sqrt(secular_simd.a));
     const kepler_simd = solveKeplerV4(el, secular_simd);
+    const corrected_simd = applyShortPeriodCorrectionsV4(el, kepler_simd, nm_simd);
 
     const tol = 1e-10;
 
-    // Compare each lane against scalar version
     inline for (0..4) |i| {
+        // Scalar pipeline
         const secular_scalar = updateSecular(el, test_times[i]);
+        const nm_scalar = el.grav.xke / std.math.pow(f64, secular_scalar.a, 1.5);
         const kepler_scalar = solveKepler(el, secular_scalar);
+        const corrected_scalar = applyShortPeriodCorrections(el, kepler_scalar, nm_scalar);
 
-        try std.testing.expectApproxEqAbs(kepler_scalar.u, kepler_simd.u[i], tol);
-        try std.testing.expectApproxEqAbs(kepler_scalar.r, kepler_simd.r[i], tol);
-        try std.testing.expectApproxEqAbs(kepler_scalar.rdot, kepler_simd.rdot[i], tol);
-        try std.testing.expectApproxEqAbs(kepler_scalar.rvdot, kepler_simd.rvdot[i], tol);
-        try std.testing.expectApproxEqAbs(kepler_scalar.betal, kepler_simd.betal[i], tol);
-        try std.testing.expectApproxEqAbs(kepler_scalar.sin2u, kepler_simd.sin2u[i], tol);
-        try std.testing.expectApproxEqAbs(kepler_scalar.cos2u, kepler_simd.cos2u[i], tol);
-        try std.testing.expectApproxEqAbs(kepler_scalar.nodem, kepler_simd.nodem[i], tol);
-        try std.testing.expectApproxEqAbs(kepler_scalar.pl, kepler_simd.pl[i], tol);
+        try std.testing.expectApproxEqAbs(corrected_scalar.r, corrected_simd.r[i], tol);
+        try std.testing.expectApproxEqAbs(corrected_scalar.rdot, corrected_simd.rdot[i], tol);
+        try std.testing.expectApproxEqAbs(corrected_scalar.rvdot, corrected_simd.rvdot[i], tol);
+        try std.testing.expectApproxEqAbs(corrected_scalar.u, corrected_simd.u[i], tol);
+        try std.testing.expectApproxEqAbs(corrected_scalar.xnode, corrected_simd.xnode[i], tol);
+        try std.testing.expectApproxEqAbs(corrected_scalar.xinc, corrected_simd.xinc[i], tol);
     }
 }
