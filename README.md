@@ -56,30 +56,29 @@
 
 ### SGP4 Performance
 
-The fastest general-purpose, open source SGP4 implementation, with sub-meter accuracy validated against reference implementations.
+The fastest general-purpose, open source SGP4 implementation, with sub-meter accuracy validated against reference implementations. Uses SIMD (AVX2/SSE) to process 4 orbits simultaneously for ~2x speedup.
 
 #### Native Performance (2 weeks @ second resolution)
 
-| Implementation | Props/sec | Language |
-|----------------|-----------|----------|
-| **astroz** | 5.6M | Zig |
+| Implementation | Props/sec | Notes |
+|----------------|-----------|-------|
+| **astroz (SIMD)** | 11.1M | Zig |
+| **astroz (scalar)** | 5.2M | Zig |
 | sgp4 | 5.3M | Rust |
 
 #### Python Bindings (2 weeks @ second resolution)
 
-| Implementation | Props/sec | Backend |
-|----------------|-----------|---------|
-| **astroz** | 4.8M | Zig |
-| satkit | 3.4M | Rust |
-| python-sgp4 | 2.8M | C++ |
+| Implementation | Props/sec | vs python-sgp4 |
+|----------------|-----------|----------------|
+| **astroz** | 5.3M | **2.1x faster** |
+| python-sgp4 | 2.6M | - |
 
 #### Python Bindings (1 month @ minute resolution)
 
-| Implementation | Props/sec | Backend |
-|----------------|-----------|---------|
-| **astroz** | 5.2M | Zig |
-| satkit | 3.9M | Rust |
-| python-sgp4 | 2.8M | C++ |
+| Implementation | Props/sec | vs python-sgp4 |
+|----------------|-----------|----------------|
+| **astroz** | 7.7M | **2.9x faster** |
+| python-sgp4 | 2.7M | - |
 
 #### Other Toolkits
 
@@ -88,7 +87,7 @@ The fastest general-purpose, open source SGP4 implementation, with sub-meter acc
 | Skyfield | 121K | Wraps sgp4 + coordinate transforms |
 | OSTk | 56K | Full astrodynamics toolkit overhead |
 
-*python-sgp4 uses the official Vallado C++ implementation. satkit uses Rust with PyO3 bindings. Skyfield and OSTk are slower due to additional coordinate frame transformations, not SGP4 itself.*
+*python-sgp4 uses the official Vallado C++ implementation. Skyfield and OSTk are slower due to additional coordinate frame transformations, not SGP4 itself.*
 
 ### Python Bindings
 

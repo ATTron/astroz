@@ -10,7 +10,7 @@ pub fn main() !void {
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
 
-    const orbitalMechanics = OrbitalMechanics.init(constants.sun.mu, constants.sun);
+    const orbitalMechanics = OrbitalMechanics.init(constants.sun.mu);
 
     // Example 1: Mission Planning - Compare Hohmann vs Bi-Elliptic
     std.debug.print("=== Mission Planning: Hohmann vs Bi-Elliptic ===\n", .{});

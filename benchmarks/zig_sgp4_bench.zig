@@ -40,6 +40,7 @@ pub fn main() !void {
 
     std.debug.print("\nastroz SGP4 Benchmark\n", .{});
     std.debug.print("==================================================\n", .{});
+    std.debug.print("\n--- Scalar Propagation ---\n", .{});
 
     for (scenarios) |scenario| {
         const times = try allocator.alloc(f64, scenario.points);
@@ -56,6 +57,49 @@ pub fn main() !void {
 
             for (times) |t| {
                 _ = sgp4.propagate(t) catch continue;
+            }
+
+            const end = try std.time.Instant.now();
+            total_ns += end.since(start);
+        }
+
+        const avg_ms = @as(f64, @floatFromInt(total_ns)) / @as(f64, @floatFromInt(iterations)) / 1_000_000.0;
+        const props_per_sec = @as(f64, @floatFromInt(scenario.points)) / (avg_ms / 1000.0);
+
+        std.debug.print("{s:<25} {d:>10.3} ms  ({d:.2} prop/s)\n", .{
+            scenario.name,
+            avg_ms,
+            props_per_sec,
+        });
+    }
+
+    std.debug.print("\n--- SIMD Batch4 Propagation ---\n", .{});
+
+    for (scenarios) |scenario| {
+        const times = try allocator.alloc(f64, scenario.points);
+        defer allocator.free(times);
+
+        for (0..scenario.points) |i| {
+            times[i] = @as(f64, @floatFromInt(i)) * scenario.step_min;
+        }
+
+        var total_ns: u64 = 0;
+
+        for (0..iterations) |_| {
+            const start = try std.time.Instant.now();
+
+            // Process 4 at a time using SIMD batch
+            const full_batches = scenario.points / 4;
+            for (0..full_batches) |batch| {
+                const base = batch * 4;
+                const batch_times: [4]f64 = times[base..][0..4].*;
+                _ = sgp4.propagateV4(batch_times) catch continue;
+            }
+
+            // Handle remainder with scalar
+            const remainder_start = full_batches * 4;
+            for (remainder_start..scenario.points) |i| {
+                _ = sgp4.propagate(times[i]) catch continue;
             }
 
             const end = try std.time.Instant.now();

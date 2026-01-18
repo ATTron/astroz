@@ -1,6 +1,6 @@
 //! Integrators for orbit propagation
 const std = @import("std");
-const Sgp4 = @import("../sgp4/sgp4.zig");
+const Sgp4 = @import("../Sgp4.zig");
 const constants = @import("../constants.zig");
 const Tle = @import("../Tle.zig");
 const ForceModel = @import("ForceModel.zig").ForceModel;
