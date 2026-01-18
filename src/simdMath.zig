@@ -1,7 +1,7 @@
 //! SIMD Math for SGP4
 
 const std = @import("std");
-const constants = @import("../constants.zig");
+const constants = @import("constants.zig");
 
 const simdMath = @This();
 

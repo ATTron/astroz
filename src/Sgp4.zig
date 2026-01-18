@@ -2,11 +2,11 @@
 //! Reference: Revisiting Spacetrack Report #3
 
 const std = @import("std");
-const constants = @import("../constants.zig");
-const calculations = @import("../calculations.zig");
+const constants = @import("constants.zig");
+const calculations = @import("calculations.zig");
 const simdMath = @import("simdMath.zig");
-const Datetime = @import("../Datetime.zig");
-const Tle = @import("../Tle.zig");
+const Datetime = @import("Datetime.zig");
+const Tle = @import("Tle.zig");
 
 const Sgp4 = @This();
 
@@ -14,17 +14,17 @@ const Sgp4 = @This();
 const Vec4 = @Vector(4, f64);
 
 // Atmospheric drag model parameters (km)
-const perigee_s_adjustment = 156.0; // adjust s parameter if below this value
-const perigee_s_minimum = 98.0; // use minimum s, if below this value
-const s_parameter_standard = 78.0; // atmospheric parameter
-const q_parameter = 120.0;
-const s_parameter_minimum = 20.0; // s value minimum
-const perigee_simplified = 220.0; // use simplified drag model, if below this value
+const perigeeSAdjustment = 156.0; // adjust s parameter if below this value
+const perigeeSMinimum = 98.0; // use minimum s, if below this value
+const sParameterStandard = 78.0; // atmospheric parameter
+const qParameter = 120.0;
+const sParameterMinimum = 20.0; // s value minimum
+const perigeeSimplified = 220.0; // use simplified drag model, if below this value
 
 // Numerical tolerances
-const eccentricity_min = 1.0e-4; // minimum for cc3/xmcof
-const eccentricity_floor = 1.0e-6; // floor to prevent numerical issues
-const singularity_tolerance = 1.5e-12; // near-polar orbit singularity check
+const eccentricityMin = 1.0e-4; // minimum for cc3/xmcof
+const eccentricityFloor = 1.0e-6; // floor to prevent numerical issues
+const singularityTolerance = 1.5e-12; // near-polar orbit singularity check
 
 pub const Error = error{
     DeepSpaceNotSupported,
@@ -34,10 +34,10 @@ pub const Error = error{
 
 pub const Elements = struct {
     grav: constants.Sgp4GravityModel,
-    epoch_jd: f64,
+    epochJd: f64,
 
     // Mean elements from TLE
-    no_kozai: f64,
+    noKozai: f64,
     ecco: f64,
     inclo: f64,
     nodeo: f64,
@@ -46,7 +46,7 @@ pub const Elements = struct {
     bstar: f64,
 
     // Derived mean elements
-    no_unkozai: f64,
+    noUnkozai: f64,
     a: f64,
 
     // Trigonometric terms
@@ -89,7 +89,7 @@ pub const Elements = struct {
     t5cof: f64,
 
     // Precomputed for propagation
-    a_base: f64, // cbrt((xke/no_unkozai)^2)
+    aBase: f64, // cbrt((xke/noUnkozai)^2)
     vkmpersec: f64, // velocity conversion factor
 
     isimp: bool, // simplified drag model flag
@@ -108,45 +108,45 @@ pub fn propagate(self: *const Sgp4, tsince: f64) Error![2][3]f64 {
 }
 
 fn initElements(tle: Tle, grav: constants.Sgp4GravityModel) Error!Elements {
-    const mean_elements = extractMeanElements(tle);
+    const meanElements = extractMeanElements(tle);
 
-    if (mean_elements.ecco < 0.0 or mean_elements.ecco >= 1.0) {
+    if (meanElements.ecco < 0.0 or meanElements.ecco >= 1.0) {
         return Error.InvalidEccentricity;
     }
 
-    const recovered = recoverMeanMotion(mean_elements, grav);
+    const recovered = recoverMeanMotion(meanElements, grav);
 
-    const rp = recovered.a * (1.0 - mean_elements.ecco);
+    const rp = recovered.a * (1.0 - meanElements.ecco);
     if (rp < 1.0) return Error.SatelliteDecayed;
 
-    const period = constants.twoPi / recovered.no_unkozai;
+    const period = constants.twoPi / recovered.noUnkozai;
     if (period > constants.sgp4DeepSpaceThresholdMinutes) {
         return Error.DeepSpaceNotSupported;
     }
 
-    const trig = computeTrigTerms(mean_elements.inclo);
+    const trig = computeTrigTerms(meanElements.inclo);
     const poly = computePolyTerms(trig);
-    const secular = computeSecularRates(mean_elements, recovered, trig, poly, grav);
-    const drag = computeDragCoefficients(mean_elements, recovered, trig, poly, grav);
-    const higher_order = computeHigherOrderDrag(recovered, drag, grav);
+    const secular = computeSecularRates(meanElements, recovered, trig, poly, grav);
+    const drag = computeDragCoefficients(meanElements, recovered, trig, poly, grav);
+    const higherOrder = computeHigherOrderDrag(recovered, drag, grav);
 
     const fullYear: u16 = if (tle.firstLine.epochYear < 57)
         2000 + tle.firstLine.epochYear
     else
         1900 + tle.firstLine.epochYear;
-    const epoch_jd = Datetime.yearDoyToJulianDate(fullYear, tle.firstLine.epochDay);
+    const epochJd = Datetime.yearDoyToJulianDate(fullYear, tle.firstLine.epochDay);
 
     return Elements{
         .grav = grav,
-        .epoch_jd = epoch_jd,
-        .no_kozai = mean_elements.no_kozai,
-        .ecco = mean_elements.ecco,
-        .inclo = mean_elements.inclo,
-        .nodeo = mean_elements.nodeo,
-        .argpo = mean_elements.argpo,
-        .mo = mean_elements.mo,
-        .bstar = mean_elements.bstar,
-        .no_unkozai = recovered.no_unkozai,
+        .epochJd = epochJd,
+        .noKozai = meanElements.noKozai,
+        .ecco = meanElements.ecco,
+        .inclo = meanElements.inclo,
+        .nodeo = meanElements.nodeo,
+        .argpo = meanElements.argpo,
+        .mo = meanElements.mo,
+        .bstar = meanElements.bstar,
+        .noUnkozai = recovered.noUnkozai,
         .a = recovered.a,
         .sinio = trig.sinio,
         .cosio = trig.cosio,
@@ -171,23 +171,23 @@ fn initElements(tle: Tle, grav: constants.Sgp4GravityModel) Error!Elements {
         .eta = drag.eta,
         .delmo = drag.delmo,
         .sinmao = drag.sinmao,
-        .d2 = higher_order.d2,
-        .d3 = higher_order.d3,
-        .d4 = higher_order.d4,
-        .t3cof = higher_order.t3cof,
-        .t4cof = higher_order.t4cof,
-        .t5cof = higher_order.t5cof,
-        .a_base = blk: {
-            const ratio = grav.xke / recovered.no_unkozai;
+        .d2 = higherOrder.d2,
+        .d3 = higherOrder.d3,
+        .d4 = higherOrder.d4,
+        .t3cof = higherOrder.t3cof,
+        .t4cof = higherOrder.t4cof,
+        .t5cof = higherOrder.t5cof,
+        .aBase = blk: {
+            const ratio = grav.xke / recovered.noUnkozai;
             break :blk std.math.cbrt(ratio * ratio);
         },
         .vkmpersec = grav.xke * grav.radiusEarthKm / 60.0,
-        .isimp = higher_order.isimp,
+        .isimp = higherOrder.isimp,
     };
 }
 
 const MeanElements = struct {
-    no_kozai: f64,
+    noKozai: f64,
     ecco: f64,
     inclo: f64,
     nodeo: f64,
@@ -198,7 +198,7 @@ const MeanElements = struct {
 
 fn extractMeanElements(tle: Tle) MeanElements {
     return .{
-        .no_kozai = tle.secondLine.mMotion * constants.twoPi / constants.minutes_per_day,
+        .noKozai = tle.secondLine.mMotion * constants.twoPi / constants.minutes_per_day,
         .ecco = tle.secondLine.eccentricity,
         .inclo = tle.secondLine.inclination * constants.deg2rad,
         .nodeo = tle.secondLine.rightAscension * constants.deg2rad,
@@ -208,7 +208,7 @@ fn extractMeanElements(tle: Tle) MeanElements {
     };
 }
 
-const RecoveredElements = struct { no_unkozai: f64, a: f64 };
+const RecoveredElements = struct { noUnkozai: f64, a: f64 };
 
 fn recoverMeanMotion(el: MeanElements, grav: constants.Sgp4GravityModel) RecoveredElements {
     // unkozai the mean motion
@@ -219,7 +219,7 @@ fn recoverMeanMotion(el: MeanElements, grav: constants.Sgp4GravityModel) Recover
     const betao2 = 1.0 - eosq;
     const betao = @sqrt(betao2);
 
-    const a1 = std.math.pow(f64, grav.xke / el.no_kozai, 2.0 / 3.0);
+    const a1 = std.math.pow(f64, grav.xke / el.noKozai, 2.0 / 3.0);
 
     // Kozai correction: del = 0.75 * j2 * x3thm1 / (a^2 * beta^3)
     const del1 = 0.75 * grav.j2 * x3thm1 / (a1 * a1 * betao * betao2);
@@ -228,10 +228,10 @@ fn recoverMeanMotion(el: MeanElements, grav: constants.Sgp4GravityModel) Recover
     const ao = a1 * (1.0 - del1 * (1.0 / 3.0 + del1 * (1.0 + 134.0 / 81.0 * del1)));
     const delo = 0.75 * grav.j2 * x3thm1 / (ao * ao * betao * betao2);
 
-    const no_unkozai = el.no_kozai / (1.0 + delo);
-    const a = std.math.pow(f64, grav.xke / no_unkozai, 2.0 / 3.0);
+    const noUnkozai = el.noKozai / (1.0 + delo);
+    const a = std.math.pow(f64, grav.xke / noUnkozai, 2.0 / 3.0);
 
-    return .{ .no_unkozai = no_unkozai, .a = a };
+    return .{ .noUnkozai = noUnkozai, .a = a };
 }
 
 const TrigTerms = struct { sinio: f64, cosio: f64, cosio2: f64, cosio4: f64 };
@@ -269,12 +269,12 @@ fn computeSecularRates(
     const pinvsq = 1.0 / std.math.pow(f64, rec.a * omeosq, 2.0);
 
     // J2/J4 perturbation terms
-    const temp1 = 1.5 * grav.j2 * pinvsq * rec.no_unkozai;
+    const temp1 = 1.5 * grav.j2 * pinvsq * rec.noUnkozai;
     const temp2 = 0.5 * temp1 * grav.j2 * pinvsq;
-    const temp3 = -0.46875 * grav.j4 * pinvsq * pinvsq * rec.no_unkozai;
+    const temp3 = -0.46875 * grav.j4 * pinvsq * pinvsq * rec.noUnkozai;
 
     // mean motion rate (rad/min)
-    const mdot = rec.no_unkozai + 0.5 * temp1 * rteosq * poly.con41 +
+    const mdot = rec.noUnkozai + 0.5 * temp1 * rteosq * poly.con41 +
         0.0625 * temp2 * rteosq * (13.0 - 78.0 * trig.cosio2 + 137.0 * trig.cosio4);
 
     // argument of perigee rate
@@ -318,13 +318,13 @@ fn computeDragCoefficients(
     const perige = (rp - 1.0) * grav.radiusEarthKm;
 
     // atmospheric drag parameters adjusted for low perigee
-    const sfour, const qzms24 = if (perige < perigee_s_adjustment) blk: {
-        const s = if (perige < perigee_s_minimum) s_parameter_minimum else perige - s_parameter_standard;
-        const qtemp = (q_parameter - s) / grav.radiusEarthKm;
+    const sfour, const qzms24 = if (perige < perigeeSAdjustment) blk: {
+        const s = if (perige < perigeeSMinimum) sParameterMinimum else perige - sParameterStandard;
+        const qtemp = (qParameter - s) / grav.radiusEarthKm;
         break :blk .{ s / grav.radiusEarthKm + 1.0, qtemp * qtemp * qtemp * qtemp };
     } else blk: {
-        const qtemp = (q_parameter - s_parameter_standard) / grav.radiusEarthKm;
-        break :blk .{ s_parameter_standard / grav.radiusEarthKm + 1.0, qtemp * qtemp * qtemp * qtemp };
+        const qtemp = (qParameter - sParameterStandard) / grav.radiusEarthKm;
+        break :blk .{ sParameterStandard / grav.radiusEarthKm + 1.0, qtemp * qtemp * qtemp * qtemp };
     };
 
     const pinvsq = 1.0 / std.math.pow(f64, rec.a * omeosq, 2.0);
@@ -337,16 +337,16 @@ fn computeDragCoefficients(
     const coef1 = coef / std.math.pow(f64, psisq, 3.5);
 
     // drag coefficients cc1-cc5
-    const cc2 = coef1 * rec.no_unkozai * (rec.a * (1.0 + 1.5 * etasq + eeta * (4.0 + etasq)) +
+    const cc2 = coef1 * rec.noUnkozai * (rec.a * (1.0 + 1.5 * etasq + eeta * (4.0 + etasq)) +
         0.375 * grav.j2 * tsi / psisq * poly.con41 * (8.0 + 3.0 * etasq * (8.0 + etasq)));
     const cc1 = el.bstar * cc2;
 
-    const cc3 = if (el.ecco > eccentricity_min)
-        -2.0 * coef * tsi * grav.j3oj2 * rec.no_unkozai * trig.sinio / el.ecco
+    const cc3 = if (el.ecco > eccentricityMin)
+        -2.0 * coef * tsi * grav.j3oj2 * rec.noUnkozai * trig.sinio / el.ecco
     else
         0.0;
 
-    const cc4 = 2.0 * rec.no_unkozai * coef1 * rec.a * omeosq *
+    const cc4 = 2.0 * rec.noUnkozai * coef1 * rec.a * omeosq *
         (eta * (2.0 + 0.5 * etasq) + el.ecco * (0.5 + 2.0 * etasq) -
             grav.j2 * tsi / (rec.a * psisq) *
                 (-3.0 * poly.con41 * (1.0 - 2.0 * eeta + etasq * (1.5 - 0.5 * eeta)) +
@@ -355,22 +355,22 @@ fn computeDragCoefficients(
     const cc5 = 2.0 * coef1 * rec.a * omeosq * (1.0 + 2.75 * (etasq + eeta) + eeta * etasq);
 
     // Other drag-related coefficients
-    const temp1 = 1.5 * grav.j2 * pinvsq * rec.no_unkozai;
+    const temp1 = 1.5 * grav.j2 * pinvsq * rec.noUnkozai;
     const xhdot1 = -temp1 * trig.cosio;
     const xnodcf = 3.5 * omeosq * xhdot1 * cc1;
     const t2cof = 1.5 * cc1;
 
-    const xlcof = if (@abs(trig.cosio + 1.0) > singularity_tolerance)
+    const xlcof = if (@abs(trig.cosio + 1.0) > singularityTolerance)
         -0.25 * grav.j3oj2 * trig.sinio * (3.0 + 5.0 * trig.cosio) / (1.0 + trig.cosio)
     else
-        -0.25 * grav.j3oj2 * trig.sinio * (3.0 + 5.0 * trig.cosio) / singularity_tolerance;
+        -0.25 * grav.j3oj2 * trig.sinio * (3.0 + 5.0 * trig.cosio) / singularityTolerance;
 
     const aycof = -0.5 * grav.j3oj2 * trig.sinio;
     const delmotemp = 1.0 + eta * @cos(el.mo);
     const delmo = delmotemp * delmotemp * delmotemp;
     const sinmao = @sin(el.mo);
 
-    const xmcof = if (el.ecco > eccentricity_min)
+    const xmcof = if (el.ecco > eccentricityMin)
         -(2.0 / 3.0) * coef * el.bstar / eeta
     else
         0.0;
@@ -409,11 +409,11 @@ fn computeHigherOrderDrag(
     drag: DragCoefficients,
     grav: constants.Sgp4GravityModel,
 ) HigherOrderDrag {
-    if (drag.perige < perigee_simplified) {
+    if (drag.perige < perigeeSimplified) {
         return .{ .d2 = 0, .d3 = 0, .d4 = 0, .t3cof = 0, .t4cof = 0, .t5cof = 0, .isimp = true };
     }
 
-    const s = s_parameter_standard / grav.radiusEarthKm + 1.0;
+    const s = sParameterStandard / grav.radiusEarthKm + 1.0;
     const tsi = 1.0 / (rec.a - s);
 
     const cc1sq = drag.cc1 * drag.cc1;
@@ -474,11 +474,11 @@ fn updateSecular(el: *const Elements, tsince: f64) SecularState {
         templ = templ + el.t3cof * t3 + t4 * (el.t4cof + tsince * el.t5cof);
     }
 
-    const am = el.a_base * tempa * tempa;
+    const am = el.aBase * tempa * tempa;
     var em = el.ecco - tempe;
-    em = @max(em, eccentricity_floor);
+    em = @max(em, eccentricityFloor);
 
-    mm = mm + el.no_unkozai * templ;
+    mm = mm + el.noUnkozai * templ;
     const xlm = mm + argpm + nodem;
 
     nodem = @mod(nodem, constants.twoPi);
@@ -538,10 +538,10 @@ fn solveKepler(el: *const Elements, sec: SecularState) KeplerState {
     const rdotl = @sqrt(sec.a) * esine / rl;
     const rvdotl = @sqrt(pl) / rl;
 
-    const a_over_r = sec.a / rl;
-    const esine_term = esine / (1.0 + betal);
-    const sinu = a_over_r * (sineo1 - aynl - axnl * esine_term);
-    const cosu = a_over_r * (coseo1 - axnl + aynl * esine_term);
+    const aOverR = sec.a / rl;
+    const esineTerm = esine / (1.0 + betal);
+    const sinu = aOverR * (sineo1 - aynl - axnl * esineTerm);
+    const cosu = aOverR * (coseo1 - axnl + aynl * esineTerm);
     u = std.math.atan2(sinu, cosu);
 
     return .{
@@ -599,11 +599,11 @@ fn computePositionVelocity(el: *const Elements, state: CorrectedState) [2][3]f64
     const vy = xmy * cossu - snod * sinsu;
     const vz = sini * cossu;
 
-    const r_scaled = state.r * el.grav.radiusEarthKm;
+    const rScaled = state.r * el.grav.radiusEarthKm;
     const r: [3]f64 = .{
-        r_scaled * ux,
-        r_scaled * uy,
-        r_scaled * uz,
+        rScaled * ux,
+        rScaled * uy,
+        rScaled * uz,
     };
     const v: [3]f64 = .{
         (state.rdot * ux + state.rvdot * vx) * el.vkmpersec,
@@ -647,13 +647,13 @@ const CorrectedStateV4 = struct {
     xinc: Vec4,
 };
 
-fn propagateV4(self: *const Sgp4, times: [4]f64) Error![4][2][3]f64 {
+pub fn propagateV4(self: *const Sgp4, times: [4]f64) Error![4][2][3]f64 {
     const el = &self.elements;
     const timeV4 = Vec4{ times[0], times[1], times[2], times[3] };
 
     const secular = updateSecularV4(el, timeV4);
 
-    const emFloor: Vec4 = @splat(eccentricity_floor);
+    const emFloor: Vec4 = @splat(eccentricityFloor);
     const decayed = secular.em < emFloor;
     if (@reduce(.Or, decayed)) {
         return Error.SatelliteDecayed;
@@ -722,12 +722,12 @@ fn updateSecularV4(el: *const Elements, tsince: Vec4) SecularStateV4 {
         templ = templ + t3cofV4 * t3 + t4 * (t4cofV4 + tsince * t5cofV4);
     }
 
-    const aBaseV4: Vec4 = @splat(el.a_base);
+    const aBaseV4: Vec4 = @splat(el.aBase);
     const eccoV4: Vec4 = @splat(el.ecco);
-    const noUnkozaiV4: Vec4 = @splat(el.no_unkozai);
+    const noUnkozaiV4: Vec4 = @splat(el.noUnkozai);
 
     const am = aBaseV4 * tempa * tempa;
-    const eccFloorV4: Vec4 = @splat(eccentricity_floor);
+    const eccFloorV4: Vec4 = @splat(eccentricityFloor);
     var em = eccoV4 - tempe;
     em = @max(em, eccFloorV4);
 
@@ -896,7 +896,7 @@ test "sgp4 basic init" {
 
     try std.testing.expect(sgp4.elements.ecco > 0.0);
     try std.testing.expect(sgp4.elements.ecco < 1.0);
-    try std.testing.expect(sgp4.elements.no_unkozai > 0.0);
+    try std.testing.expect(sgp4.elements.noUnkozai > 0.0);
 }
 
 test "sgp4 propagate basic" {
@@ -934,7 +934,7 @@ test "sgp4 vallado reference ISS" {
     const el = &sgp4.elements;
 
     // verify initialization matches python-sgp4
-    try std.testing.expectApproxEqAbs(@as(f64, 0.06767329492593213), el.no_kozai, 1e-15);
+    try std.testing.expectApproxEqAbs(@as(f64, 0.06767329492593213), el.noKozai, 1e-15);
     try std.testing.expectApproxEqAbs(@as(f64, 1.064977141044385), el.a, 1e-12);
     try std.testing.expectApproxEqAbs(@as(f64, 0.067673302731475), el.mdot, 1e-12);
     try std.testing.expectApproxEqAbs(@as(f64, 0.000044767460455), el.argpdot, 1e-12);
@@ -967,7 +967,7 @@ test "sgp4 vallado reference ISS" {
 test "SIMD matches scalar" {
     const allocator = std.testing.allocator;
 
-    // Parse ISS TLE
+    // ISS TLE
     const tle_str =
         \\1 25544U 98067A   24127.82853009  .00015698  00000+0  27310-3 0  9995
         \\2 25544  51.6393 160.4574 0003580 140.6673 205.7250 15.50957674452123
@@ -980,7 +980,7 @@ test "SIMD matches scalar" {
 
     const times = [4]f64{ 0.0, 10.0, 60.0, 1440.0 };
 
-    // Get scalar results
+    // scalar run
     var scalar_results: [4][2][3]f64 = undefined;
     for (0..4) |i| {
         const result = try sgp4.propagate(times[i]);
@@ -988,10 +988,9 @@ test "SIMD matches scalar" {
         scalar_results[i][1] = result[1];
     }
 
-    // Get SIMD results
+    // SIMD run
     const simd_results = try sgp4.propagateV4(times);
 
-    // Compare
     const tol = 1e-9;
     for (0..4) |i| {
         for (0..3) |j| {
