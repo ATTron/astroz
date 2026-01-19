@@ -72,8 +72,15 @@ jobs:
       - name: Copy built library
         run: |
           ls -la zig-out/bindings/python/astroz/
-          # Zig builds lib_astroz.so, but Python expects _astroz.so
-          cp zig-out/bindings/python/astroz/lib_astroz.so bindings/python/astroz/_astroz.so
+          # Zig builds lib_astroz.so (Linux) or lib_astroz.dylib (macOS)
+          if [ -f zig-out/bindings/python/astroz/lib_astroz.so ]; then
+            cp zig-out/bindings/python/astroz/lib_astroz.so bindings/python/astroz/_astroz.so
+          elif [ -f zig-out/bindings/python/astroz/lib_astroz.dylib ]; then
+            cp zig-out/bindings/python/astroz/lib_astroz.dylib bindings/python/astroz/_astroz.so
+          else
+            echo "ERROR: Could not find built library"
+            exit 1
+          fi
 
       - name: Install build tools
         run: pip install build wheel

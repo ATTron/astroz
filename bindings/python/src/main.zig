@@ -31,16 +31,16 @@ pub export fn PyInit__astroz() ?*c.PyObject {
     if (tle.ready() < 0 or sgp4.ready() < 0) return null;
     const m = py.moduleCreate(&module_def) orelse return null;
 
-    c.Py_INCREF(@ptrCast(&tle.TleType));
+    c.Py_INCREF(@as(*c.PyObject, @ptrCast(&tle.TleType)));
     if (c.PyModule_AddObject(m, "Tle", @ptrCast(&tle.TleType)) < 0) return null;
 
-    c.Py_INCREF(@ptrCast(&sgp4.Sgp4Type));
+    c.Py_INCREF(@as(*c.PyObject, @ptrCast(&sgp4.Sgp4Type)));
     if (c.PyModule_AddObject(m, "Sgp4", @ptrCast(&sgp4.Sgp4Type)) < 0) return null;
 
-    c.Py_INCREF(@ptrCast(&sgp4.Sgp4BatchType));
+    c.Py_INCREF(@as(*c.PyObject, @ptrCast(&sgp4.Sgp4BatchType)));
     if (c.PyModule_AddObject(m, "Sgp4Batch", @ptrCast(&sgp4.Sgp4BatchType)) < 0) return null;
 
-    c.Py_INCREF(@ptrCast(&sgp4.Sgp4ConstellationType));
+    c.Py_INCREF(@as(*c.PyObject, @ptrCast(&sgp4.Sgp4ConstellationType)));
     if (c.PyModule_AddObject(m, "Sgp4Constellation", @ptrCast(&sgp4.Sgp4ConstellationType)) < 0) return null;
 
     _ = c.PyModule_AddIntConstant(m, "WGS84", sgp4.WGS84);
