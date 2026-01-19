@@ -105,6 +105,64 @@ pub fn build(b: *std.Build) void {
     const c_api_install = b.addInstallArtifact(c_api_lib, .{});
     c_api_step.dependOn(&c_api_install.step);
 
+    // Python bindings
+    const python_step = b.step("python-bindings", "Build Python native bindings");
+
+    // Create a minimal astroz module for Python bindings (no cfitsio dependency)
+    const astroz_python_mod = b.addModule("astroz_python", .{
+        .target = target,
+        .optimize = optimize,
+        .root_source_file = b.path("src/lib.zig"),
+    });
+    astroz_python_mod.addImport("zignal", zignal_dependency.module("zignal"));
+    // Note: No cfitsio import - Python bindings don't need FITS support
+
+    const python_mod = b.createModule(.{
+        .target = target,
+        .optimize = optimize,
+        .root_source_file = b.path("bindings/python/src/main.zig"),
+    });
+    python_mod.addImport("astroz", astroz_python_mod);
+
+    // Python configuration for bindings
+    // Override with: -Dpython-include=/path -Dpython-lib=python3.X -Dpython-lib-path=/path
+    // Example for uv-managed Python 3.12:
+    //   zig build python-bindings \
+    //     -Dpython-include=$(python3.12 -c "import sysconfig; print(sysconfig.get_path('include'))") \
+    //     -Dpython-lib=python3.12 \
+    //     -Dpython-lib-path=$(python3.12 -c "import sysconfig; print(sysconfig.get_config_var('LIBDIR'))")
+    const python_include = b.option([]const u8, "python-include", "Python include path (run: python -c \"import sysconfig; print(sysconfig.get_path('include'))\")");
+    const python_lib_name = b.option([]const u8, "python-lib", "Python library name (e.g., python3.12)");
+    const python_lib_path = b.option([]const u8, "python-lib-path", "Python library search path");
+
+    if (python_include) |inc| {
+        python_mod.addIncludePath(.{ .cwd_relative = inc });
+    } else {
+        // Try common system locations
+        python_mod.addIncludePath(.{ .cwd_relative = "/usr/include/python3.12" });
+        python_mod.addIncludePath(.{ .cwd_relative = "/usr/include/python3" });
+    }
+
+    if (python_lib_path) |path| {
+        python_mod.addLibraryPath(.{ .cwd_relative = path });
+    }
+
+    // Link Python library and libc through the module
+    python_mod.linkSystemLibrary(python_lib_name orelse "python3.12", .{});
+    python_mod.link_libc = true;
+
+    const python_lib = b.addLibrary(.{
+        .linkage = .dynamic,
+        .name = "_astroz",
+        .root_module = python_mod,
+        .use_llvm = use_llvm,
+    });
+
+    const python_install = b.addInstallArtifact(python_lib, .{
+        .dest_dir = .{ .override = .{ .custom = "bindings/python/astroz" } },
+    });
+    python_step.dependOn(&python_install.step);
+
     // Benchmark
     const bench_step = b.step("bench", "Run SGP4 benchmark");
 

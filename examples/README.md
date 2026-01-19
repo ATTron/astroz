@@ -1,0 +1,40 @@
+# astroz Examples
+
+## Cesium Satellite Visualization
+
+Interactive 3D visualization of the entire near-earth satellite catalog (~13,000 satellites).
+
+**Files:**
+- `cesium_fast.py` - Main script (downloads TLEs, propagates, generates HTML)
+- `cesium_template.html` - HTML/JS template for the visualization
+
+### Running
+
+```bash
+uv run --python 3.12 examples/cesium_fast.py
+```
+
+This generates `cesium_fast.html` in the project root. Open it in your browser.
+
+### Features
+
+- Real-time SGP4 propagation (~6M propagations/sec)
+- Color-coded constellations (Starlink, OneWeb, Planet, Spire, Iridium, etc.)
+- Toggle constellation visibility
+- Search satellites by name (auto-labels when ≤10 results)
+- Click for orbital details, double-click to track
+- Real-time mode showing actual current UTC positions
+
+### Keyboard Shortcuts
+
+| Key | Action |
+|-----|--------|
+| Space | Pause/resume |
+| R | Toggle real-time mode |
+| Esc | Stop tracking / reset view |
+
+## Other Examples
+
+- `python_sgp4.py` - Basic SGP4 propagation example
+- `sgp4_propagation.zig` - Zig SGP4 example
+- `orbit_maneuvers.zig` - Hohmann transfer and orbital maneuvers

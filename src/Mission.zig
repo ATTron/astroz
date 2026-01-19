@@ -60,7 +60,7 @@ pub const MissionParameters = struct {
 
 pub const TransferType = union(enum) {
     hohmann: OrbitalMechanics.TransferResult,
-    bi_elliptic: OrbitalMechanics.BiEllipticTransferResult,
+    biElliptic: OrbitalMechanics.BiEllipticTransferResult,
 };
 
 pub const MissionPlan = struct {
@@ -275,9 +275,9 @@ pub fn planMission(self: *Mission, params: MissionParameters) !MissionPlan {
 
     const transfer = if (std.mem.eql(u8, params.transferType, "hohmann"))
         TransferType{ .hohmann = try self.orbitalMechanics.hohmannTransfer(departureRadius, arrivalRadius) }
-    else if (std.mem.eql(u8, params.transferType, "bi_elliptic")) blk: {
+    else if (std.mem.eql(u8, params.transferType, "biElliptic")) blk: {
         const aphelionRadius = 3 * @max(departureRadius, arrivalRadius);
-        break :blk TransferType{ .bi_elliptic = try self.orbitalMechanics.biEllipicTransfer(departureRadius, arrivalRadius, aphelionRadius) };
+        break :blk TransferType{ .biElliptic = try self.orbitalMechanics.biEllipicTransfer(departureRadius, arrivalRadius, aphelionRadius) };
     } else return ValidationError.ValueError;
 
     const departurePeriodYears = params.departureBody.period / 365.25;
@@ -484,7 +484,7 @@ test "Lambert solver integration" {
     );
 
     // approximate transfer time for Hohmann transfer to Mars (~259 days)
-    const transferTime = 259.0 * constants.seconds_per_day;
+    const transferTime = 259.0 * constants.secondsPerDay;
 
     const lambertResult = try orbitalMechanics.lambertSolverSimple(earthPos, marsPos, transferTime);
 
@@ -544,7 +544,7 @@ test "planMission with bi-elliptic transfer" {
         constants.mars,
         0.0,
         null,
-        "bi_elliptic",
+        "biElliptic",
     );
 
     var mission = Mission.init(ta, params, orbitalMechanics);
@@ -553,10 +553,10 @@ test "planMission with bi-elliptic transfer" {
     const plan = try mission.planMission(params);
 
     // Verify it's a bi-elliptic transfer
-    try testing.expect(plan.transfer == .bi_elliptic);
+    try testing.expect(plan.transfer == .biElliptic);
 
     // Check transfer parameters
-    const biEllipticTransfer = plan.transfer.bi_elliptic;
+    const biEllipticTransfer = plan.transfer.biElliptic;
     try testing.expect(biEllipticTransfer.totalDeltaV > 0);
     try testing.expect(biEllipticTransfer.totalTimeDays > 0);
 
@@ -574,7 +574,7 @@ test "planMission with invalid transfer type" {
         constants.mars,
         0.0,
         null,
-        "invalid_type",
+        "invalidType",
     );
 
     var mission = Mission.init(ta, params, orbitalMechanics);

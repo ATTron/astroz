@@ -22,7 +22,9 @@ def bench_astroz():
     try:
         from astroz import Tle, Sgp4
     except ImportError:
-        print("astroz not installed... run: zig build c-api && pip install -e python/")
+        print(
+            "astroz not installed... run: zig build python-bindings && pip install -e bindings/python/"
+        )
         return None
 
     tle = Tle(f"{ISS_TLE_LINE1}\n{ISS_TLE_LINE2}")
@@ -33,10 +35,12 @@ def bench_astroz():
     results = {}
     for name, points, step in SCENARIOS:
         times = np.arange(points, dtype=np.float64) * step
+        positions = np.empty((points, 3), dtype=np.float64)
+        velocities = np.empty((points, 3), dtype=np.float64)
         total = 0
         for _ in range(ITERATIONS):
             start = time.perf_counter_ns()
-            sgp4.propagate_batch_np(times)
+            sgp4.propagate_into(times, positions, velocities)
             total += time.perf_counter_ns() - start
         results[name] = total / ITERATIONS / 1_000_000
     return results

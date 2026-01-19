@@ -69,12 +69,12 @@ pub fn hohmannTransfer(self: *OrbitalMechanics, initialRadius: f64, finalRadius:
 
     const r = calculations.hohmannTransfer(self.mu, initialRadius, finalRadius);
     return .{
-        .semiMajorAxis = r.semi_major_axis,
-        .deltaV1 = r.delta_v1,
-        .deltaV2 = r.delta_v2,
-        .totalDeltaV = r.total_delta_v,
-        .transferTime = r.transfer_time,
-        .transferTimeDays = r.transfer_time / constants.seconds_per_day,
+        .semiMajorAxis = r.semiMajorAxis,
+        .deltaV1 = r.deltaV1,
+        .deltaV2 = r.deltaV2,
+        .totalDeltaV = r.totalDeltaV,
+        .transferTime = r.transferTime,
+        .transferTimeDays = r.transferTime / constants.secondsPerDay,
     };
 }
 
@@ -114,7 +114,7 @@ pub fn biEllipicTransfer(self: *OrbitalMechanics, initialRadius: f64, finalRadiu
         .deltaV3 = deltaVThirdBurn,
         .totalDeltaV = totalDeltaV,
         .totalTime = totalTime,
-        .totalTimeDays = totalTime / constants.seconds_per_day,
+        .totalTimeDays = totalTime / constants.secondsPerDay,
     };
 }
 

@@ -76,7 +76,7 @@ pub const OrbitalElements = struct {
 };
 
 pub fn meanMotionToRadiansPerMinute(mMotion: f64) f64 {
-    return mMotion * constants.twoPi / constants.minutes_per_day;
+    return mMotion * constants.twoPi / constants.minutesPerDay;
 }
 
 /// Orbital velocity at given radius. Use sma=null for circular orbit.
@@ -99,36 +99,36 @@ pub fn escapeVelocity(mu: f64, radius: f64) f64 {
 
 /// Hohmann transfer result.
 pub const HohmannTransfer = struct {
-    semi_major_axis: f64,
-    delta_v1: f64,
-    delta_v2: f64,
-    total_delta_v: f64,
-    transfer_time: f64,
+    semiMajorAxis: f64,
+    deltaV1: f64,
+    deltaV2: f64,
+    totalDeltaV: f64,
+    transferTime: f64,
 };
 
 /// Calculate Hohmann transfer between two circular orbits.
 pub fn hohmannTransfer(mu: f64, r1: f64, r2: f64) HohmannTransfer {
     const sma = (r1 + r2) / 2.0;
-    const v1_circ = @sqrt(mu / r1);
-    const v2_circ = @sqrt(mu / r2);
-    const v1_trans = @sqrt(mu / r1) * @sqrt(2.0 * r2 / (r1 + r2));
-    const v2_trans = @sqrt(mu / r2) * @sqrt(2.0 * r1 / (r1 + r2));
-    const dv1 = v1_trans - v1_circ;
-    const dv2 = v2_circ - v2_trans;
+    const v1Circ = @sqrt(mu / r1);
+    const v2Circ = @sqrt(mu / r2);
+    const v1Trans = @sqrt(mu / r1) * @sqrt(2.0 * r2 / (r1 + r2));
+    const v2Trans = @sqrt(mu / r2) * @sqrt(2.0 * r1 / (r1 + r2));
+    const dv1 = v1Trans - v1Circ;
+    const dv2 = v2Circ - v2Trans;
     return .{
-        .semi_major_axis = sma,
-        .delta_v1 = dv1,
-        .delta_v2 = dv2,
-        .total_delta_v = @abs(dv1) + @abs(dv2),
-        .transfer_time = std.math.pi * @sqrt(sma * sma * sma / mu),
+        .semiMajorAxis = sma,
+        .deltaV1 = dv1,
+        .deltaV2 = dv2,
+        .totalDeltaV = @abs(dv1) + @abs(dv2),
+        .transferTime = std.math.pi * @sqrt(sma * sma * sma / mu),
     };
 }
 
 pub fn meanMotionToSemiMajorAxis(mMotion: f64) f64 {
-    const seconds_per_day = constants.minutes_per_day * 60.0;
+    const secondsPerDay = constants.minutesPerDay * 60.0;
     return std.math.pow(
         f64,
-        (constants.earth.mu / (mMotion * constants.twoPi / seconds_per_day) * 2.0 * 2.0),
+        (constants.earth.mu / (mMotion * constants.twoPi / secondsPerDay) * 2.0 * 2.0),
         1.0 / 3.0,
     );
 }
@@ -257,13 +257,13 @@ pub fn solveKeplerEquation(M: f64, e: f64) f64 {
 /// - M: mean anomaly (radians)
 /// - e: eccentricity
 /// - tol: convergence tolerance
-/// - max_iter: maximum iterations
+/// - maxIter: maximum iterations
 /// - damp: optional damping factor (clamps correction magnitude), null for no damping
-pub fn solveKeplerNewton(M: f64, e: f64, tol: f64, max_iter: u32, damp: ?f64) f64 {
+pub fn solveKeplerNewton(M: f64, e: f64, tol: f64, maxIter: u32, damp: ?f64) f64 {
     var E = M;
     var iter: u32 = 0;
 
-    while (iter < max_iter) {
+    while (iter < maxIter) {
         const sinE = @sin(E);
         const cosE = @cos(E);
         const f = E - e * sinE - M;
@@ -280,13 +280,13 @@ pub fn solveKeplerNewton(M: f64, e: f64, tol: f64, max_iter: u32, damp: ?f64) f6
     return E;
 }
 
-pub fn triad(v1_body: [3]f64, v2_body: [3]f64, v1_ref: [3]f64, v2_ref: [3]f64) [3][3]f64 {
-    const t1Body = normalize(v1_body);
-    const t2Body = normalize(cross(v1_body, v2_body));
+pub fn triad(v1Body: [3]f64, v2Body: [3]f64, v1Ref: [3]f64, v2Ref: [3]f64) [3][3]f64 {
+    const t1Body = normalize(v1Body);
+    const t2Body = normalize(cross(v1Body, v2Body));
     const t3Body = cross(t1Body, t2Body);
 
-    const t1Ref = normalize(v1_ref);
-    const t2Ref = normalize(cross(v1_ref, v2_ref));
+    const t1Ref = normalize(v1Ref);
+    const t2Ref = normalize(cross(v1Ref, v2Ref));
     const t3Ref = cross(t1Ref, t2Ref);
 
     const bodyMatrix = [3][3]f64{
@@ -467,10 +467,10 @@ pub fn scalarMultiply(scalar: f64, vector: StateV) StateV {
     return result;
 }
 
-pub fn impulse(state: StateV, delta_v: [3]f64) StateV {
+pub fn impulse(state: StateV, deltaV: [3]f64) StateV {
     return .{
-        state[0],              state[1],              state[2],
-        state[3] + delta_v[0], state[4] + delta_v[1], state[5] + delta_v[2],
+        state[0],             state[1],             state[2],
+        state[3] + deltaV[0], state[4] + deltaV[1], state[5] + deltaV[2],
     };
 }
 

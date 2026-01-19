@@ -173,7 +173,7 @@ pub fn propagate(self: *Spacecraft, t0: f64, days: f64, h: f64, impulseList: ?[]
     const y0OE = calculations.tleToOrbitalElements(self.tle);
     var y = calculations.orbitalElementsToStateVector(y0OE, self.orbitingObject.mu);
     var t = t0;
-    const tf = self.tle.firstLine.epoch + days * constants.seconds_per_day;
+    const tf = self.tle.firstLine.epoch + days * constants.secondsPerDay;
 
     // setup force models and integrator
     var forces = self.createForceModels();

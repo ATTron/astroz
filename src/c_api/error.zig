@@ -3,25 +3,25 @@
 pub const Code = enum(i32) {
     ok = 0,
     // TLE errors
-    bad_tle_length = -1,
-    bad_checksum = -2,
+    badTleLength = -1,
+    badChecksum = -2,
     // SGP4 errors
-    deep_space_not_supported = -10,
-    invalid_eccentricity = -11,
-    satellite_decayed = -12,
+    deepSpaceNotSupported = -10,
+    invalidEccentricity = -11,
+    satelliteDecayed = -12,
     // Orbital mechanics errors
-    value_error = -20,
+    valueError = -20,
     // General errors
-    alloc_failed = -100,
-    null_pointer = -101,
-    not_initialized = -102,
+    allocFailed = -100,
+    nullPointer = -101,
+    notInitialized = -102,
     unknown = -999,
 };
 
 /// Convert zig errors to C error code
 pub fn fromError(err: anyerror) Code {
     return switch (err) {
-        error.OutOfMemory => .alloc_failed,
+        error.OutOfMemory => .allocFailed,
         else => .unknown,
     };
 }

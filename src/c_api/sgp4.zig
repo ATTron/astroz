@@ -7,24 +7,24 @@ const constants = astroz.constants;
 
 const allocator = @import("allocator.zig");
 const err = @import("error.zig");
-const tle_api = @import("tle.zig");
+const tleApi = @import("tle.zig");
 
 pub const Handle = *anyopaque;
 
 /// gravity model: 0 = WGS84 (default), 1 = WGS72
-pub fn init(tle_handle: tle_api.Handle, grav_model: i32, out: *Handle) err.Code {
-    const tle_ptr: *Tle = @ptrCast(@alignCast(tle_handle));
-    const grav = if (grav_model == 1) constants.wgs72 else constants.wgs84;
+pub fn init(tleHandle: tleApi.Handle, gravModel: i32, out: *Handle) err.Code {
+    const tlePtr: *Tle = @ptrCast(@alignCast(tleHandle));
+    const grav = if (gravModel == 1) constants.wgs72 else constants.wgs84;
 
-    const sgp4 = Sgp4.init(tle_ptr.*, grav) catch |e| {
+    const sgp4 = Sgp4.init(tlePtr.*, grav) catch |e| {
         return switch (e) {
-            Sgp4.Error.DeepSpaceNotSupported => .deep_space_not_supported,
-            Sgp4.Error.InvalidEccentricity => .invalid_eccentricity,
-            Sgp4.Error.SatelliteDecayed => .satellite_decayed,
+            Sgp4.Error.DeepSpaceNotSupported => .deepSpaceNotSupported,
+            Sgp4.Error.InvalidEccentricity => .invalidEccentricity,
+            Sgp4.Error.SatelliteDecayed => .satelliteDecayed,
         };
     };
 
-    const ptr = allocator.get().create(Sgp4) catch return .alloc_failed;
+    const ptr = allocator.get().create(Sgp4) catch return .allocFailed;
     ptr.* = sgp4;
     out.* = @ptrCast(ptr);
     return .ok;
@@ -40,7 +40,7 @@ pub fn propagate(handle: Handle, tsince: f64, pos: *[3]f64, vel: *[3]f64) err.Co
     const ptr: *Sgp4 = @ptrCast(@alignCast(handle));
     const result = ptr.propagate(tsince) catch |e| {
         return switch (e) {
-            Sgp4.Error.SatelliteDecayed => .satellite_decayed,
+            Sgp4.Error.SatelliteDecayed => .satelliteDecayed,
             else => err.fromError(e),
         };
     };
@@ -52,7 +52,7 @@ pub fn propagate(handle: Handle, tsince: f64, pos: *[3]f64, vel: *[3]f64) err.Co
 /// Batch propagation - single FFI call for multiple time steps
 /// Uses SIMD which will process 4 time steps at a time
 /// times: array of tsince values (minutes since epoch)
-/// results: output array of [pos_x, pos_y, pos_z, vel_x, vel_y, vel_z] for each time
+/// results: output array of [posX, posY, posZ, velX, velY, velZ] for each time
 /// count: number of time steps
 pub fn propagateBatch(handle: Handle, times: [*]const f64, results: [*]f64, count: u32) err.Code {
     const ptr: *Sgp4 = @ptrCast(@alignCast(handle));
@@ -65,7 +65,7 @@ pub fn propagateBatch(handle: Handle, times: [*]const f64, results: [*]f64, coun
 
         const batchResult = ptr.propagateV4(batchTimes) catch |e| {
             return switch (e) {
-                Sgp4.Error.SatelliteDecayed => .satellite_decayed,
+                Sgp4.Error.SatelliteDecayed => .satelliteDecayed,
                 else => err.fromError(e),
             };
         };
@@ -86,7 +86,7 @@ pub fn propagateBatch(handle: Handle, times: [*]const f64, results: [*]f64, coun
     for (remainderStart..count) |i| {
         const result = ptr.propagate(times[i]) catch |e| {
             return switch (e) {
-                Sgp4.Error.SatelliteDecayed => .satellite_decayed,
+                Sgp4.Error.SatelliteDecayed => .satelliteDecayed,
                 else => err.fromError(e),
             };
         };
@@ -98,6 +98,91 @@ pub fn propagateBatch(handle: Handle, times: [*]const f64, results: [*]f64, coun
         results[base + 3] = result[1][0];
         results[base + 4] = result[1][1];
         results[base + 5] = result[1][2];
+    }
+
+    return .ok;
+}
+
+// Multi-Satellite Batch API
+pub const BatchHandle = *anyopaque;
+
+/// Initialize batch propagator for 4 satellites
+/// All 4 satellites must use the same gravity model
+pub fn initBatch(tleHandles: [*]const tleApi.Handle, gravModel: i32, out: *BatchHandle) err.Code {
+    const grav = if (gravModel == 1) constants.wgs72 else constants.wgs84;
+
+    var tles: [4]Tle = undefined;
+    for (0..4) |i| {
+        const tlePtr: *Tle = @ptrCast(@alignCast(tleHandles[i]));
+        tles[i] = tlePtr.*;
+    }
+
+    const elements = Sgp4.initElementsV4(tles, grav) catch |e| {
+        return switch (e) {
+            Sgp4.Error.DeepSpaceNotSupported => .deepSpaceNotSupported,
+            Sgp4.Error.InvalidEccentricity => .invalidEccentricity,
+            Sgp4.Error.SatelliteDecayed => .satelliteDecayed,
+        };
+    };
+
+    const ptr = allocator.get().create(Sgp4.ElementsV4) catch return .allocFailed;
+    ptr.* = elements;
+    out.* = @ptrCast(ptr);
+    return .ok;
+}
+
+/// Free batch propagator handle
+pub fn freeBatch(handle: BatchHandle) void {
+    const ptr: *Sgp4.ElementsV4 = @ptrCast(@alignCast(handle));
+    allocator.get().destroy(ptr);
+}
+
+/// Propagate 4 satellites at a single time point
+pub fn propagateSatellites(handle: BatchHandle, tsince: f64, results: [*]f64) err.Code {
+    const ptr: *Sgp4.ElementsV4 = @ptrCast(@alignCast(handle));
+
+    const result = Sgp4.propagateSatellitesV4(ptr, tsince) catch |e| {
+        return switch (e) {
+            Sgp4.Error.SatelliteDecayed => .satelliteDecayed,
+            else => err.fromError(e),
+        };
+    };
+
+    for (0..4) |i| {
+        const base = i * 6;
+        results[base + 0] = result[i][0][0];
+        results[base + 1] = result[i][0][1];
+        results[base + 2] = result[i][0][2];
+        results[base + 3] = result[i][1][0];
+        results[base + 4] = result[i][1][1];
+        results[base + 5] = result[i][1][2];
+    }
+
+    return .ok;
+}
+
+/// Propagate 4 satellites across multiple time points
+pub fn propagateSatellitesBatch(handle: BatchHandle, times: [*]const f64, results: [*]f64, count: u32) err.Code {
+    const ptr: *Sgp4.ElementsV4 = @ptrCast(@alignCast(handle));
+
+    for (0..count) |t| {
+        const result = Sgp4.propagateSatellitesV4(ptr, times[t]) catch |e| {
+            return switch (e) {
+                Sgp4.Error.SatelliteDecayed => .satelliteDecayed,
+                else => err.fromError(e),
+            };
+        };
+
+        const timeBase = t * 24;
+        for (0..4) |i| {
+            const base = timeBase + i * 6;
+            results[base + 0] = result[i][0][0];
+            results[base + 1] = result[i][0][1];
+            results[base + 2] = result[i][0][2];
+            results[base + 3] = result[i][1][0];
+            results[base + 4] = result[i][1][1];
+            results[base + 5] = result[i][1][2];
+        }
     }
 
     return .ok;
