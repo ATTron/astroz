@@ -195,7 +195,6 @@ def main():
     # Propagate each satellite for 1 day at 1-minute intervals
     # Each satellite needs its own tsince calculated from its TLE epoch
     print("[2/4] Propagating...", end=" ", flush=True)
-    t0 = time_module.perf_counter()
 
     num_times = 1440  # 1 day
     num_sats = len(satellites)
@@ -214,9 +213,12 @@ def main():
     # Propagate all times for each satellite, then convert to ECEF
     # This minimizes Python↔Zig crossings: one propagate_into call per satellite
     positions = np.empty((num_times, num_sats, 3), dtype=np.float64)
+    positions_teme = np.empty((num_times, num_sats, 3), dtype=np.float64)
     pos_buffer = np.empty((num_times, 3), dtype=np.float64)
     vel_buffer = np.empty((num_times, 3), dtype=np.float64)
 
+    # Phase 1: Pure SGP4 propagation
+    t0_prop = time_module.perf_counter()
     for sat_idx, s in enumerate(satellites):
         tle = Tle(f"{s['line1']}\n{s['line2']}")
         sgp4 = Sgp4(tle)
@@ -229,26 +231,33 @@ def main():
         # Single call to propagate all times (fast, happens in Zig)
         try:
             sgp4.propagate_into(times, pos_buffer, vel_buffer)
-            teme_km = pos_buffer  # shape (num_times, 3)
+            positions_teme[:, sat_idx, :] = pos_buffer
         except:
-            teme_km = np.zeros((num_times, 3), dtype=np.float64)
+            positions_teme[:, sat_idx, :] = 0
 
-        # Convert TEME to ECEF for all times (vectorized)
-        # Rotation around Z axis by GMST
-        cos_g = np.cos(gmst_values)
-        sin_g = np.sin(gmst_values)
-        x_teme = teme_km[:, 0]
-        y_teme = teme_km[:, 1]
-        z_teme = teme_km[:, 2]
-
-        positions[:, sat_idx, 0] = (x_teme * cos_g + y_teme * sin_g) * 1000  # km to m
-        positions[:, sat_idx, 1] = (-x_teme * sin_g + y_teme * cos_g) * 1000
-        positions[:, sat_idx, 2] = z_teme * 1000
-
-    prop_time = time_module.perf_counter() - t0
+    prop_time = time_module.perf_counter() - t0_prop
     total_props = num_sats * num_times
-    throughput = total_props / prop_time / 1e6
-    print(f"done - {throughput:.1f}M props/sec")
+    prop_throughput = total_props / prop_time / 1e6
+
+    # Phase 2: TEME→ECEF coordinate conversion
+    t0_conv = time_module.perf_counter()
+    cos_g = np.cos(gmst_values)[:, np.newaxis]
+    sin_g = np.sin(gmst_values)[:, np.newaxis]
+    x_teme = positions_teme[:, :, 0]
+    y_teme = positions_teme[:, :, 1]
+    z_teme = positions_teme[:, :, 2]
+
+    positions[:, :, 0] = (x_teme * cos_g + y_teme * sin_g) * 1000  # km to m
+    positions[:, :, 1] = (-x_teme * sin_g + y_teme * cos_g) * 1000
+    positions[:, :, 2] = z_teme * 1000
+    conv_time = time_module.perf_counter() - t0_conv
+
+    total_time = prop_time + conv_time
+    effective_throughput = total_props / total_time / 1e6
+    print(f"done")
+    print(f"       SGP4 propagation: {prop_time:.2f}s ({prop_throughput:.1f}M props/sec)")
+    print(f"       TEME→ECEF:        {conv_time:.2f}s")
+    print(f"       Total:            {total_time:.2f}s ({effective_throughput:.1f}M props/sec effective)")
 
     # Prepare template data
     counts = Counter(s["constellation"] for s in satellites)
@@ -285,9 +294,12 @@ def main():
         "{{NUM_FRAMES}}": str(num_times),
         "{{NUM_FRAMES_MINUS_1}}": str(num_times - 1),
         "{{START_FRAME}}": "0",
-        "{{THROUGHPUT}}": f"{throughput:.1f}",
+        "{{THROUGHPUT}}": f"{prop_throughput:.1f}",
         "{{TOTAL_PROPS}}": f"{total_props:,}",
         "{{PROP_TIME_MS}}": f"{prop_time * 1000:.0f}",
+        "{{CONV_TIME_MS}}": f"{conv_time * 1000:.0f}",
+        "{{TOTAL_TIME_MS}}": f"{total_time * 1000:.0f}",
+        "{{EFFECTIVE_THROUGHPUT}}": f"{effective_throughput:.1f}",
         "{{REFERENCE_EPOCH}}": start_time.isoformat(),
         "{{SAT_COLORS}}": json.dumps(
             [COLORS.get(s["constellation"], [150, 150, 150]) for s in satellites],

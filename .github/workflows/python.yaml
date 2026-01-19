@@ -30,10 +30,6 @@ jobs:
           - os: macos-latest
             python: '3.11'
             target: macos-arm64
-          # macOS x86_64
-          - os: macos-13
-            python: '3.12'
-            target: macos-x86_64
 
     steps:
       - uses: actions/checkout@v4
