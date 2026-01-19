@@ -28,9 +28,8 @@ pub const PyModuleDef = extern struct {
 };
 
 pub fn makeBaseObject() c.PyObject {
-    var obj = std.mem.zeroes(c.PyObject);
-    obj.unnamed_0.ob_refcnt = 1;
-    return obj;
+    // PyModule_Create will properly initialize the object header.
+    return std.mem.zeroes(c.PyObject);
 }
 
 pub fn moduleCreate(def: *PyModuleDef) ?*c.PyObject {
