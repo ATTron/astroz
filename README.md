@@ -98,17 +98,11 @@ exe.root_module.addImport("astroz", astroz_mod);
 - #### [Planet Transfer & Mission Planning](examples/transfer_propagation.zig)
   Demonstrates interplanetary transfers with mission planning (Hohmann vs Bi-Elliptic comparison) and trajectory propagation.
 
-<img src="assets/earth_mars_transfer.gif" width="300" height="300" alt="Earth-Mars transfer animation"/> <img src="assets/earth_mars_transfer_static.png" width="300" height="300" alt="Earth-Mars transfer trajectory"/> <img src="assets/earth_mars_transfer_analysis.png" width="300" height="300" alt="Earth-Mars transfer analysis"/>
-
 - #### [Orbit Maneuvers](examples/orbit_maneuvers.zig)
   Comprehensive example showing TLE-based orbit propagation with various maneuver types: impulse, plane change, and phase change.
 
-<img src="assets/orbit_prop.gif" width="450" height="400" alt="visualization of orbit prop"/>
-
 - #### [Monte Carlo Simulation](examples/simple_monte_carlo.zig)
   Statistical analysis for mission planning with uncertainty.
-
-<img src="assets/monte_carlo_analysis.png" width="450" height="400" alt="graphs showing monte carlo run analysis"/>
 
 - #### [SGP4 Propagation](examples/sgp4_propagation.zig)
 
