@@ -10,6 +10,7 @@ sample_fits/
 # Generated visualization files
 examples/tle_cache.txt
 cesium_fast.html
+cesium_positions.bin*
 
 # Rust
 target/

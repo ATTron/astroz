@@ -35,6 +35,11 @@
         .toggle-option input[type="checkbox"]::before { content: ''; position: absolute; width: 16px; height: 16px; background: #fff; border-radius: 50%; top: 2px; left: 2px; transition: transform 0.2s; }
         .toggle-option input[type="checkbox"]:checked { background: #00d4ff; }
         .toggle-option input[type="checkbox"]:checked::before { transform: translateX(16px); }
+        .seek-row { border-top: 1px solid rgba(255,255,255,0.08); margin-top: 16px; padding-top: 16px; }
+        .seek-label { font-size: 11px; color: rgba(255,255,255,0.5); display: block; margin-bottom: 8px; }
+        .seek-row input[type="range"] { width: 100%; height: 4px; -webkit-appearance: none; background: rgba(255,255,255,0.1); border-radius: 2px; outline: none; }
+        .seek-row input[type="range"]::-webkit-slider-thumb { -webkit-appearance: none; width: 14px; height: 14px; background: #00d4ff; border-radius: 50%; cursor: pointer; box-shadow: 0 2px 8px rgba(0,212,255,0.4); }
+        #seekVal { font-family: 'JetBrains Mono', monospace; color: #00d4ff; font-size: 12px; display: block; margin-top: 6px; text-align: center; }
         .legend-dot { width: 8px; height: 8px; border-radius: 50%; margin-right: 8px; flex-shrink: 0; }
         .legend-count { margin-left: auto; color: rgba(255,255,255,0.35); font-family: 'JetBrains Mono', monospace; font-size: 10px; }
         .stats { border-top: 1px solid rgba(255,255,255,0.08); padding-top: 16px; display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
@@ -51,7 +56,7 @@
         .shortcut kbd { background: rgba(255,255,255,0.1); padding: 2px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 10px; margin-right: 4px; }
         #perfBanner { position: absolute; top: 24px; right: 24px; background: linear-gradient(135deg, rgba(0, 212, 255, 0.15) 0%, rgba(0, 255, 136, 0.15) 100%); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); color: #fff; padding: 20px 24px; border-radius: 16px; z-index: 1000; font-family: 'Inter', sans-serif; border: 1px solid rgba(0, 212, 255, 0.3); box-shadow: 0 24px 48px rgba(0,0,0,0.3); text-align: center; min-width: 200px; }
         #perfBanner .perf-value { font-family: 'JetBrains Mono', monospace; font-size: 36px; font-weight: 600; background: linear-gradient(135deg, #00d4ff 0%, #00ff88 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; line-height: 1; }
-        #perfBanner .perf-unit { font-size: 18px; opacity: 0.8; }
+        #perfBanner .perf-unit { font-size: 18px; background: linear-gradient(135deg, #00d4ff 0%, #00ff88 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; opacity: 0.8; }
         #perfBanner .perf-label { font-size: 11px; color: rgba(255,255,255,0.5); text-transform: uppercase; letter-spacing: 1px; margin-top: 4px; }
         #perfBanner .perf-detail { font-size: 11px; color: rgba(255,255,255,0.4); margin-top: 12px; padding-top: 12px; border-top: 1px solid rgba(255,255,255,0.1); }
         #perfBanner .perf-detail strong { color: #00d4ff; }
@@ -66,8 +71,10 @@
         #satInfo .sat-track-hint { margin-top: 12px; padding-top: 10px; border-top: 1px solid rgba(255,255,255,0.1); font-size: 10px; color: rgba(255,255,255,0.3); text-align: center; }
         #satInfo .sat-close { position: absolute; top: 8px; right: 10px; background: none; border: none; color: rgba(255,255,255,0.4); cursor: pointer; font-size: 16px; padding: 4px; }
         #satInfo .sat-close:hover { color: #fff; }
-        #branding { position: absolute; bottom: 24px; right: 24px; background: rgba(8, 12, 24, 0.85); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); color: #fff; padding: 12px 20px; border-radius: 10px; z-index: 1000; font-family: 'JetBrains Mono', monospace; font-size: 13px; font-weight: 500; border: 1px solid rgba(255,255,255,0.08); box-shadow: 0 12px 32px rgba(0,0,0,0.3); }
+        #branding { position: absolute; bottom: 24px; right: 24px; background: rgba(8, 12, 24, 0.85); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); color: #fff; padding: 12px 20px; border-radius: 10px; z-index: 1000; font-family: 'JetBrains Mono', monospace; font-size: 13px; font-weight: 500; border: 1px solid rgba(255,255,255,0.08); box-shadow: 0 12px 32px rgba(0,0,0,0.3); text-decoration: none; transition: border-color 0.2s, box-shadow 0.2s; }
+        #branding:hover { border-color: rgba(0, 212, 255, 0.4); box-shadow: 0 12px 32px rgba(0,212,255,0.15); }
         #branding span { background: linear-gradient(135deg, #00d4ff 0%, #00ff88 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+        #tleInfo { position: absolute; bottom: 24px; right: 200px; background: rgba(8, 12, 24, 0.7); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); color: rgba(255,255,255,0.4); padding: 8px 14px; border-radius: 8px; z-index: 1000; font-family: 'Inter', sans-serif; font-size: 10px; border: 1px solid rgba(255,255,255,0.05); }
         .cesium-credit-logoContainer, .cesium-credit-expand-link, .cesium-widget-credits { display: none !important; }
     </style>
 </head>
@@ -86,12 +93,15 @@
         </div>
         <div class="toggle-row">
             <label class="toggle-option"><input type="checkbox" id="showOrbits" checked><span>Show orbit paths</span></label>
-            <label class="toggle-option" style="margin-top: 12px;"><input type="checkbox" id="realTimeMode"><span>Real-time mode</span></label>
+        </div>
+        <div class="seek-row">
+            <label class="seek-label">Simulation Time</label>
+            <input type="range" id="seekSlider" min="0" max="{{NUM_FRAMES_MINUS_1}}" step="1" value="0">
+            <span id="seekVal">--:--</span>
         </div>
         <div class="stats">
             <div class="stat"><span class="stat-value" id="fps">--</span><span class="stat-label">FPS</span></div>
-            <div class="stat" id="simTimeStat"><span class="stat-value"><span id="simTime">0</span> min</span><span class="stat-label">Sim Time</span></div>
-            <div class="stat" id="utcTimeStat" style="display: none; grid-column: span 2;"><span class="stat-value" id="utcTime" style="font-size: 14px;">--</span><span class="stat-label">UTC Time (Live)</span></div>
+            <div class="stat"><span class="stat-value"><span id="simTime">0</span> min</span><span class="stat-label">Frame</span></div>
         </div>
     </div>
     <div id="controls">
@@ -100,7 +110,6 @@
         <span id="speedVal">0.05x</span>
         <div class="divider"></div>
         <span class="shortcut"><kbd>Space</kbd> Pause</span>
-        <span class="shortcut"><kbd>R</kbd> Real-time</span>
         <span class="shortcut"><kbd>Esc</kbd> Reset</span>
     </div>
     <div id="perfBanner">
@@ -123,11 +132,11 @@
         </div>
         <div class="sat-track-hint">Double-click to track</div>
     </div>
-    <div id="branding">powered by <span>astroz</span></div>
+    <a id="branding" href="https://github.com/ATTron/astroz" target="_blank">powered by <span>astroz</span></a>
+    <div id="tleInfo">TLE data fetched {{TLE_FETCH_DATE}}</div>
 
     <script>
-        // Data injected by Python
-        const frames = {{FRAMES}};
+        // Metadata injected by Python
         const satColors = {{SAT_COLORS}};
         const satConstellations = {{SAT_CONSTELLATIONS}};
         const satNames = {{SAT_NAMES}};
@@ -137,13 +146,82 @@
         const referenceEpoch = new Date('{{REFERENCE_EPOCH}}');
         const startFrame = {{START_FRAME}};
 
+        // Frames loaded from binary file
+        let frames = null;
+        let dataLoaded = false;
+        const chunkNames = {{CHUNK_NAMES}};
+
         const constellationColors = {
             ISS: 'rgb(255,255,255)', Starlink: 'rgb(100,180,255)', OneWeb: 'rgb(255,160,100)',
             Planet: 'rgb(130,200,130)', Spire: 'rgb(240,220,140)', Iridium: 'rgb(200,140,220)',
             SSO: 'rgb(255,130,130)', LEO53: 'rgb(140,220,200)', Other: 'rgb(180,180,190)'
         };
+
+        // Format time from frame index to HH:MM UTC
+        function formatFrameTime(frameIdx) {
+            const epochTime = new Date(referenceEpoch.getTime() + frameIdx * 60 * 1000);
+            const hh = String(epochTime.getUTCHours()).padStart(2, '0');
+            const mm = String(epochTime.getUTCMinutes()).padStart(2, '0');
+            const month = String(epochTime.getUTCMonth() + 1).padStart(2, '0');
+            const day = String(epochTime.getUTCDate()).padStart(2, '0');
+            return `${month}/${day} ${hh}:${mm} UTC`;
+        }
         const constellationVisible = { ISS: true, Starlink: true, OneWeb: true, Planet: true, Spire: true, Iridium: true, SSO: true, LEO53: true, Other: true };
 
+        // Load binary position data
+        async function loadPositionData() {
+            const loadingDiv = document.createElement('div');
+            loadingDiv.id = 'loadingOverlay';
+            loadingDiv.innerHTML = '<div class="loading-content"><div class="loading-spinner"></div><div class="loading-text">Loading satellite data...</div><div class="loading-progress" id="loadProgress">0%</div></div>';
+            loadingDiv.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(8,12,24,0.95);display:flex;align-items:center;justify-content:center;z-index:9999;flex-direction:column;';
+            document.body.appendChild(loadingDiv);
+
+            const style = document.createElement('style');
+            style.textContent = '.loading-content{text-align:center;color:#fff;font-family:Inter,sans-serif;}.loading-spinner{width:48px;height:48px;border:3px solid rgba(0,212,255,0.2);border-top-color:#00d4ff;border-radius:50%;animation:spin 1s linear infinite;margin:0 auto 20px;}.loading-text{font-size:16px;margin-bottom:8px;}.loading-progress{font-family:JetBrains Mono,monospace;color:#00d4ff;font-size:14px;}@keyframes spin{to{transform:rotate(360deg);}}';
+            document.head.appendChild(style);
+
+            try {
+                // Load chunked gzipped files and reassemble
+                const chunks = [];
+                let totalLoaded = 0;
+                const estimatedTotal = chunkNames.length * 50 * 1024 * 1024; // ~50MB per chunk
+
+                for (let i = 0; i < chunkNames.length; i++) {
+                    const response = await fetch(`cesium_positions.bin.gz.part_${chunkNames[i]}`);
+                    if (!response.ok) throw new Error(`Chunk ${chunkNames[i]} not found`);
+                    const chunk = await response.arrayBuffer();
+                    chunks.push(new Uint8Array(chunk));
+                    totalLoaded += chunk.byteLength;
+                    document.getElementById('loadProgress').textContent = Math.round((i + 1) / chunkNames.length * 100) + '%';
+                }
+
+                // Combine chunks
+                const totalLength = chunks.reduce((sum, c) => sum + c.length, 0);
+                const combined = new Uint8Array(totalLength);
+                let offset = 0;
+                for (const chunk of chunks) {
+                    combined.set(chunk, offset);
+                    offset += chunk.length;
+                }
+
+                // Decompress
+                document.getElementById('loadProgress').textContent = 'Decompressing...';
+                const decompressed = await new Response(
+                    new Blob([combined]).stream().pipeThrough(new DecompressionStream('gzip'))
+                ).arrayBuffer();
+                frames = new Float32Array(decompressed);
+
+                document.getElementById('loadProgress').textContent = 'Initializing...';
+                dataLoaded = true;
+                loadingDiv.remove();
+                initializeVisualization();
+            } catch (err) {
+                loadingDiv.innerHTML = '<div style="color:#ff6b6b;font-family:Inter,sans-serif;text-align:center;"><div style="font-size:24px;margin-bottom:12px;">Failed to load satellite data</div><div style="font-size:14px;opacity:0.7;">' + err.message + '</div></div>';
+            }
+        }
+
+        // Initialize visualization after data is loaded
+        function initializeVisualization() {
         // Setup viewer
         const viewer = new Cesium.Viewer('cesiumContainer', {
             imageryProvider: new Cesium.UrlTemplateImageryProvider({ url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', credit: 'Esri' }),
@@ -171,21 +249,22 @@
         let issIndex = -1, issEntity = null;
 
         for (let i = 0; i < numSats; i++) {
-            const c = satColors[i], i3 = i * 3;
+            const c = satColors[i];
+            const frameOffset = startFrame * numSats * 3 + i * 3;
             if (satConstellations[i] === 'ISS') {
                 issIndex = i;
-                points.push(pointCollection.add({ position: new Cesium.Cartesian3(frames[startFrame][i3], frames[startFrame][i3+1], frames[startFrame][i3+2]), color: Cesium.Color.TRANSPARENT, pixelSize: 0, show: false }));
+                points.push(pointCollection.add({ position: new Cesium.Cartesian3(frames[frameOffset], frames[frameOffset+1], frames[frameOffset+2]), color: Cesium.Color.TRANSPARENT, pixelSize: 0, show: false }));
             } else {
-                points.push(pointCollection.add({ position: new Cesium.Cartesian3(frames[startFrame][i3], frames[startFrame][i3+1], frames[startFrame][i3+2]), color: Cesium.Color.fromBytes(c[0], c[1], c[2], 220), pixelSize: 2.5 }));
+                points.push(pointCollection.add({ position: new Cesium.Cartesian3(frames[frameOffset], frames[frameOffset+1], frames[frameOffset+2]), color: Cesium.Color.fromBytes(c[0], c[1], c[2], 220), pixelSize: 2.5 }));
             }
         }
 
         // ISS entity
         if (issIndex >= 0) {
-            const i3 = issIndex * 3;
+            const issOffset = startFrame * numSats * 3 + issIndex * 3;
             issEntity = viewer.entities.add({
                 name: 'ISS (ZARYA)',
-                position: new Cesium.Cartesian3(frames[startFrame][i3], frames[startFrame][i3+1], frames[startFrame][i3+2]),
+                position: new Cesium.Cartesian3(frames[issOffset], frames[issOffset+1], frames[issOffset+2]),
                 billboard: { image: 'data:image/svg+xml,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="1.5"><rect x="2" y="10" width="20" height="4" rx="1"/><rect x="10" y="6" width="4" height="12" rx="1"/><line x1="6" y1="10" x2="6" y2="6"/><line x1="18" y1="10" x2="18" y2="6"/><line x1="6" y1="14" x2="6" y2="18"/><line x1="18" y1="14" x2="18" y2="18"/><circle cx="12" cy="12" r="1.5" fill="white"/></svg>'), scale: 1.0 },
                 label: { text: 'ISS', font: '12px Inter, sans-serif', fillColor: Cesium.Color.WHITE, outlineColor: Cesium.Color.BLACK, outlineWidth: 2, style: Cesium.LabelStyle.FILL_AND_OUTLINE, pixelOffset: new Cesium.Cartesian2(0, -24), verticalOrigin: Cesium.VerticalOrigin.BOTTOM }
             });
@@ -197,7 +276,10 @@
         const allOrbitPositions = {};
         for (const idx of orbitSatIndices) {
             const pos = [];
-            for (let f = 0; f < numFrames; f++) { const i3 = idx * 3; pos.push(new Cesium.Cartesian3(frames[f][i3], frames[f][i3+1], frames[f][i3+2])); }
+            for (let f = 0; f < numFrames; f++) {
+                const offset = f * numSats * 3 + idx * 3;
+                pos.push(new Cesium.Cartesian3(frames[offset], frames[offset+1], frames[offset+2]));
+            }
             pos.push(pos[0]);
             allOrbitPositions[idx] = pos;
         }
@@ -221,10 +303,37 @@
         rebuildOrbitPaths();
 
         // State
-        let simTime = startFrame, paused = false, speed = 0.05, realTimeMode = false;
+        let simTime = startFrame, paused = false, speed = 0.05, seekMode = false;
         let searchFilter = '', searchMatchIndices = new Set(), searchLabelEntities = [];
         const satInfoPanel = document.getElementById('satInfo');
         let trackedSatEntity = null, trackedSatIdx = -1;
+        const seekSlider = document.getElementById('seekSlider');
+        const seekVal = document.getElementById('seekVal');
+
+        // Initialize seek display
+        seekSlider.value = startFrame;
+        seekVal.textContent = formatFrameTime(startFrame);
+
+        // Update positions to a specific frame
+        function updatePositions(frameIdx) {
+            const f1 = Math.floor(frameIdx);
+            const f2 = (f1 + 1) % numFrames;
+            const t = frameIdx - f1;
+            const base1 = f1 * numSats * 3;
+            const base2 = f2 * numSats * 3;
+            for (let i = 0; i < numSats; i++) {
+                const i3 = i * 3;
+                const o1 = base1 + i3, o2 = base2 + i3;
+                const pos = new Cesium.Cartesian3(
+                    frames[o1] + (frames[o2] - frames[o1]) * t,
+                    frames[o1+1] + (frames[o2+1] - frames[o1+1]) * t,
+                    frames[o1+2] + (frames[o2+2] - frames[o1+2]) * t
+                );
+                points[i].position = pos;
+                if (i === issIndex && issEntity) issEntity.position = pos;
+            }
+            document.getElementById('simTime').textContent = f1;
+        }
 
         // Animation loop
         let lastTime = performance.now(), frameCount = 0;
@@ -232,27 +341,13 @@
             frameCount++;
             const now = performance.now();
             if (now - lastTime >= 1000) { document.getElementById('fps').textContent = frameCount; frameCount = 0; lastTime = now; }
-            if (paused && !realTimeMode) return;
+            if (paused || seekMode) return;
 
-            let f1, f2, t;
-            if (realTimeMode) {
-                const nowUtc = new Date();
-                const mins = (nowUtc - referenceEpoch) / 60000;
-                const ff = ((mins % numFrames) + numFrames) % numFrames;
-                f1 = Math.floor(ff); f2 = (f1 + 1) % numFrames; t = ff - f1;
-                document.getElementById('utcTime').textContent = nowUtc.toISOString().slice(0, 19).replace('T', ' ') + ' UTC';
-            } else {
-                simTime += speed * 0.03; if (simTime >= numFrames) simTime -= numFrames;
-                f1 = Math.floor(simTime); f2 = (f1 + 1) % numFrames; t = simTime - f1;
-                document.getElementById('simTime').textContent = f1;
-            }
-            const d1 = frames[f1], d2 = frames[f2];
-            for (let i = 0; i < numSats; i++) {
-                const i3 = i * 3;
-                const pos = new Cesium.Cartesian3(d1[i3] + (d2[i3] - d1[i3]) * t, d1[i3+1] + (d2[i3+1] - d1[i3+1]) * t, d1[i3+2] + (d2[i3+2] - d1[i3+2]) * t);
-                points[i].position = pos;
-                if (i === issIndex && issEntity) issEntity.position = pos;
-            }
+            simTime += speed * 0.03; if (simTime >= numFrames) simTime -= numFrames;
+            updatePositions(simTime);
+            const currentFrame = Math.floor(simTime);
+            seekSlider.value = currentFrame;
+            seekVal.textContent = formatFrameTime(currentFrame);
         });
 
         // Visibility
@@ -295,16 +390,16 @@
 
         // Event handlers
         document.getElementById('speed').oninput = e => { speed = parseFloat(e.target.value); document.getElementById('speedVal').textContent = speed.toFixed(2) + 'x'; };
-        document.getElementById('realTimeMode').addEventListener('change', e => {
-            realTimeMode = e.target.checked;
-            document.getElementById('simTimeStat').style.display = realTimeMode ? 'none' : 'flex';
-            document.getElementById('utcTimeStat').style.display = realTimeMode ? 'flex' : 'none';
-            document.getElementById('speed').disabled = realTimeMode;
-            document.getElementById('speedVal').textContent = realTimeMode ? 'LIVE' : speed.toFixed(2) + 'x';
+        seekSlider.addEventListener('input', e => {
+            seekMode = true;
+            const frame = parseInt(e.target.value);
+            simTime = frame;
+            updatePositions(frame);
+            seekVal.textContent = formatFrameTime(frame);
         });
+        seekSlider.addEventListener('change', () => { seekMode = false; });
         document.onkeydown = e => {
             if (e.code === 'Space') { paused = !paused; e.preventDefault(); }
-            if (e.code === 'KeyR') { const cb = document.getElementById('realTimeMode'); cb.checked = !cb.checked; cb.dispatchEvent(new Event('change')); e.preventDefault(); }
             if (e.code === 'Escape') {
                 viewer.trackedEntity = undefined;
                 if (trackedSatEntity) { viewer.entities.remove(trackedSatEntity); trackedSatEntity = null; trackedSatIdx = -1; }
@@ -361,6 +456,10 @@
         viewer.screenSpaceEventHandler.setInputAction(click => { const idx = findClosestSatellite(click.position); if (idx >= 0) showSatelliteInfo(idx); else satInfoPanel.classList.remove('visible'); }, Cesium.ScreenSpaceEventType.LEFT_CLICK);
         viewer.screenSpaceEventHandler.setInputAction(click => { const idx = findClosestSatellite(click.position); if (idx >= 0) { trackSatellite(idx); showSatelliteInfo(idx); } }, Cesium.ScreenSpaceEventType.LEFT_DOUBLE_CLICK);
         satInfoPanel.querySelector('.sat-close').addEventListener('click', () => satInfoPanel.classList.remove('visible'));
+        } // end initializeVisualization
+
+        // Start loading data
+        loadPositionData();
     </script>
 </body>
 </html>

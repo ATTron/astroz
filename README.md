@@ -38,7 +38,7 @@ Sub-meter accuracy validated against reference implementations. Uses SIMD (AVX2/
 | 100 | 10,080 | 1M | **7.9M props/sec** |
 | 13,000+ | 120 | 1.5M | **6M+ props/sec** |
 
-The [Cesium visualization example](examples/README.md) propagates the entire active satellite catalog (~13,000 satellites) at interactive rates.
+The [Cesium visualization example](examples/README.md) propagates the entire active satellite catalog (~13,000 satellites) at interactive rates. **[Try the live demo →](https://attron.github.io/astroz-demo/)**
 
 ### Python
 
@@ -108,7 +108,7 @@ exe.root_module.addImport("astroz", astroz_mod);
 
   Analytical orbit propagation using SGP4 with TLE input. Demonstrates both direct SGP4 usage and the modular propagator interface.
 
-- #### [Cesium Satellite Visualization](examples/README.md)
+- #### [Cesium Satellite Visualization](examples/README.md) — **[Live Demo](https://attron.github.io/astroz-demo/)**
 
   Interactive 3D visualization of the entire near-earth satellite catalog (~13,000 satellites) using Cesium. Features real-time SGP4 propagation at ~6M props/sec, constellation filtering, search, and satellite tracking.
 
