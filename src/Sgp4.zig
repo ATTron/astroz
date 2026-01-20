@@ -708,7 +708,7 @@ fn updateSecularV4(el: *const Elements, tsince: Vec4) SecularStateV4 {
         const sinmaoV4: Vec4 = @splat(el.sinmao);
 
         const delomg = omgcofV4 * tsince;
-        const delmtemp = one + etaV4 * simdMath.cosSIMD(xmdf);
+        const delmtemp = one + etaV4 * @cos(xmdf);
         // seems weird but it seems like just std multiply instead of cubing is WAY faster
         const delm = xmcofV4 * (delmtemp * delmtemp * delmtemp - delmoV4);
         const temp = delomg + delm;
@@ -718,7 +718,7 @@ fn updateSecularV4(el: *const Elements, tsince: Vec4) SecularStateV4 {
         const t3 = t2 * tsince;
         const t4 = t3 * tsince;
         tempa = tempa - d2V4 * t2 - d3V4 * t3 - d4V4 * t4;
-        tempe = tempe + bstarV4 * cc5V4 * (simdMath.sinSIMD(mm) - sinmaoV4);
+        tempe = tempe + bstarV4 * cc5V4 * (@sin(mm) - sinmaoV4);
         templ = templ + t3cofV4 * t3 + t4 * (t4cofV4 + tsince * t5cofV4);
     }
 
@@ -754,8 +754,8 @@ fn solveKeplerV4(el: *const Elements, sec: SecularStateV4) KeplerStateV4 {
     const xlcofV4: Vec4 = @splat(el.xlcof);
 
     const temp = one / (sec.a * (one - sec.em * sec.em));
-    const axnl = sec.em * simdMath.cosSIMD(sec.argpm);
-    const aynl = sec.em * simdMath.sinSIMD(sec.argpm) + temp * aycofV4;
+    const axnl = sec.em * @cos(sec.argpm);
+    const aynl = sec.em * @sin(sec.argpm) + temp * aycofV4;
     const xl = @mod(sec.mm + sec.argpm + sec.nodem + temp * xlcofV4 * axnl, simdMath.twoPiVec);
 
     var u = @mod(xl - sec.nodem, simdMath.twoPiVec);
@@ -768,8 +768,8 @@ fn solveKeplerV4(el: *const Elements, sec: SecularStateV4) KeplerStateV4 {
 
     var ktr: u32 = 0;
     while (ktr < 10) : (ktr += 1) {
-        sineo1 = simdMath.sinSIMD(eo1);
-        coseo1 = simdMath.cosSIMD(eo1);
+        sineo1 = @sin(eo1);
+        coseo1 = @cos(eo1);
         var tem5 = one - coseo1 * axnl - sineo1 * aynl;
         tem5 = (u - aynl * coseo1 + axnl * sineo1 - eo1) / tem5;
         // branch setup
@@ -844,12 +844,12 @@ fn computePositionVelocityV4(el: *const Elements, state: CorrectedStateV4) [4][2
     const radiusV4: Vec4 = @splat(el.grav.radiusEarthKm);
     const vkmpersecV4: Vec4 = @splat(el.vkmpersec);
 
-    const sinsu = simdMath.sinSIMD(state.u);
-    const cossu = simdMath.cosSIMD(state.u);
-    const snod = simdMath.sinSIMD(state.xnode);
-    const cnod = simdMath.cosSIMD(state.xnode);
-    const sini = simdMath.sinSIMD(state.xinc);
-    const cosi = simdMath.cosSIMD(state.xinc);
+    const sinsu = @sin(state.u);
+    const cossu = @cos(state.u);
+    const snod = @sin(state.xnode);
+    const cnod = @cos(state.xnode);
+    const sini = @sin(state.xinc);
+    const cosi = @cos(state.xinc);
 
     const xmx = -snod * cosi;
     const xmy = cnod * cosi;
@@ -1073,7 +1073,7 @@ inline fn updateSecularSatV4(el: *const ElementsV4, tsince: Vec4) SecularStateV4
     // Higher-order drag corrections - compute for all satellites
     // then select based on isimpMask
     const delomg = el.omgcof * tsince;
-    const delmtemp = el.one + el.eta * simdMath.cosSIMD(xmdf);
+    const delmtemp = el.one + el.eta * @cos(xmdf);
     const delmHo = el.xmcof * (delmtemp * delmtemp * delmtemp - el.delmo);
     const tempHo = delomg + delmHo;
 
@@ -1089,7 +1089,7 @@ inline fn updateSecularSatV4(el: *const ElementsV4, tsince: Vec4) SecularStateV4
 
     // Higher-order tempa/tempe/templ corrections
     const tempaHo = tempa - el.d2 * t2 - el.d3 * t3 - el.d4 * t4;
-    const tempeHo = tempe + el.bstar * el.cc5 * (simdMath.sinSIMD(mm) - el.sinmao);
+    const tempeHo = tempe + el.bstar * el.cc5 * (@sin(mm) - el.sinmao);
     const templHo = templ + el.t3cof * t3 + t4 * (el.t4cof + tsince * el.t5cof);
 
     tempa = @select(f64, el.isimpMask == el.zero, tempaHo, tempa);
@@ -1119,8 +1119,8 @@ inline fn updateSecularSatV4(el: *const ElementsV4, tsince: Vec4) SecularStateV4
 /// Solve Kepler's equation for 4 satellites at a single time.
 inline fn solveKeplerSatV4(el: *const ElementsV4, sec: SecularStateV4) KeplerStateV4 {
     const temp = el.one / (sec.a * (el.one - sec.em * sec.em));
-    const axnl = sec.em * simdMath.cosSIMD(sec.argpm);
-    const aynl = sec.em * simdMath.sinSIMD(sec.argpm) + temp * el.aycof;
+    const axnl = sec.em * @cos(sec.argpm);
+    const aynl = sec.em * @sin(sec.argpm) + temp * el.aycof;
     const xl = @mod(sec.mm + sec.argpm + sec.nodem + temp * el.xlcof * axnl, simdMath.twoPiVec);
 
     var u = @mod(xl - sec.nodem, simdMath.twoPiVec);
@@ -1133,8 +1133,8 @@ inline fn solveKeplerSatV4(el: *const ElementsV4, sec: SecularStateV4) KeplerSta
 
     var ktr: u32 = 0;
     while (ktr < 10) : (ktr += 1) {
-        sineo1 = simdMath.sinSIMD(eo1);
-        coseo1 = simdMath.cosSIMD(eo1);
+        sineo1 = @sin(eo1);
+        coseo1 = @cos(eo1);
         var tem5 = el.one - coseo1 * axnl - sineo1 * aynl;
         tem5 = (u - aynl * coseo1 + axnl * sineo1 - eo1) / tem5;
         // branch setup
@@ -1195,12 +1195,12 @@ inline fn applyShortPeriodCorrectionsSatV4(el: *const ElementsV4, kep: KeplerSta
 
 /// Compute position and velocity for 4 satellites at a single time.
 inline fn computePositionVelocitySatV4(el: *const ElementsV4, state: CorrectedStateV4) [4][2][3]f64 {
-    const sinsu = simdMath.sinSIMD(state.u);
-    const cossu = simdMath.cosSIMD(state.u);
-    const snod = simdMath.sinSIMD(state.xnode);
-    const cnod = simdMath.cosSIMD(state.xnode);
-    const sini = simdMath.sinSIMD(state.xinc);
-    const cosi = simdMath.cosSIMD(state.xinc);
+    const sinsu = @sin(state.u);
+    const cossu = @cos(state.u);
+    const snod = @sin(state.xnode);
+    const cnod = @cos(state.xnode);
+    const sini = @sin(state.xinc);
+    const cosi = @cos(state.xinc);
 
     const xmx = -snod * cosi;
     const xmy = cnod * cosi;
