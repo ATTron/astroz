@@ -17,16 +17,6 @@ pub const piVec: Vec4 = @splat(std.math.pi);
 pub const halfPiVec: Vec4 = @splat(std.math.pi / 2.0);
 pub const invTwoPiVec: Vec4 = @splat(1.0 / constants.twoPi);
 
-/// Vectorized sine - uses Zig's @sin builtin which auto-vectorizes
-pub fn sinSIMD(x: Vec4) Vec4 {
-    return @sin(x);
-}
-
-/// Vectorized cosine - uses Zig's @cos builtin which auto-vectorizes
-pub fn cosSIMD(x: Vec4) Vec4 {
-    return @cos(x);
-}
-
 /// Vectorized atan2 using polynomial approximation for the principal value,
 /// with quadrant correction. Accurate to ~1e-7 radians, sufficient for SGP4.
 ///
@@ -107,7 +97,7 @@ pub fn pow15V4(x: Vec4) Vec4 {
 test "sinSIMD accuracy" {
     const testVals = Vec4{ 0.0, std.math.pi / 6.0, std.math.pi / 4.0, std.math.pi / 2.0 };
     const expected = Vec4{ 0.0, 0.5, std.math.sqrt(2.0) / 2.0, 1.0 };
-    const result = sinSIMD(testVals);
+    const result = @sin(testVals);
 
     inline for (0..4) |i| {
         try std.testing.expectApproxEqAbs(expected[i], result[i], 1e-14);
@@ -117,7 +107,7 @@ test "sinSIMD accuracy" {
 test "cosSIMD accuracy" {
     const testVals = Vec4{ 0.0, std.math.pi / 3.0, std.math.pi / 4.0, std.math.pi };
     const expected = Vec4{ 1.0, 0.5, std.math.sqrt(2.0) / 2.0, -1.0 };
-    const result = cosSIMD(testVals);
+    const result = @cos(testVals);
 
     inline for (0..4) |i| {
         try std.testing.expectApproxEqAbs(expected[i], result[i], 1e-14);
@@ -126,7 +116,7 @@ test "cosSIMD accuracy" {
 
 test "sinSIMD large angles" {
     const testVals = Vec4{ 10.0 * std.math.pi, 100.0, -50.0, 1000.0 };
-    const result = sinSIMD(testVals);
+    const result = @sin(testVals);
 
     inline for (0..4) |i| {
         const expected = @sin(testVals[i]);
@@ -136,7 +126,7 @@ test "sinSIMD large angles" {
 
 test "cosSIMD large angles" {
     const testVals = Vec4{ 10.0 * std.math.pi, 100.0, -50.0, 1000.0 };
-    const result = cosSIMD(testVals);
+    const result = @cos(testVals);
 
     inline for (0..4) |i| {
         const expected = @cos(testVals[i]);
