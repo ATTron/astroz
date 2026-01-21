@@ -56,8 +56,11 @@ sgp4 = Sgp4(tle)
 # Single propagation
 pos, vel = sgp4.propagate(30.0)  # 30 min after epoch
 
-# Batch propagation (zero-copy into pre-allocated arrays)
+# Batch propagation (convenience method)
 times = np.arange(1209600, dtype=np.float64) / 60.0  # 2 weeks in minutes
+positions, velocities = sgp4.propagate_batch(times)
+
+# Or use propagate_into for zero-copy into pre-allocated arrays
 positions = np.empty((len(times), 3), dtype=np.float64)
 velocities = np.empty((len(times), 3), dtype=np.float64)
 sgp4.propagate_into(times, positions, velocities)

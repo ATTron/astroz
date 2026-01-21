@@ -1,6 +1,5 @@
 """Setup script for astroz Python bindings using Zig."""
 
-import os
 import subprocess
 import sys
 import sysconfig
@@ -49,7 +48,14 @@ class ZigBuildExt(build_ext):
 
         # Copy the built library to the expected location
         # Zig outputs to zig-out/bindings/python/astroz/lib_astroz.so
-        built_lib = project_root / "zig-out" / "bindings" / "python" / "astroz" / "lib_astroz.so"
+        built_lib = (
+            project_root
+            / "zig-out"
+            / "bindings"
+            / "python"
+            / "astroz"
+            / "lib_astroz.so"
+        )
 
         if not built_lib.exists():
             # Try alternative names
@@ -76,6 +82,7 @@ class ZigBuildExt(build_ext):
 
         # Copy to target
         import shutil
+
         target = ext_dir / f"_astroz{sysconfig.get_config_var('EXT_SUFFIX')}"
         print(f"Copying {built_lib} -> {target}")
         shutil.copy2(built_lib, target)

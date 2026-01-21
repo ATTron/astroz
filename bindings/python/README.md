@@ -16,8 +16,11 @@ tle = Tle("""1 25544U 98067A   24127.82853009  .00015698  00000+0  27310-3 0  99
 sgp4 = Sgp4(tle)
 pos, vel = sgp4.propagate(30.0)  # 30 minutes after TLE epoch
 
-# Batch propagation (fastest)
+# Batch propagation (convenience method)
 times = np.arange(0, 1440, 1.0, dtype=np.float64)  # 1 day, 1-min intervals
+positions, velocities = sgp4.propagate_batch(times)
+
+# Or use propagate_into for zero-copy into pre-allocated arrays
 positions = np.empty((len(times), 3), dtype=np.float64)
 velocities = np.empty((len(times), 3), dtype=np.float64)
 sgp4.propagate_into(times, positions, velocities)
@@ -54,7 +57,10 @@ sgp4 = Sgp4(tle, gravity_model=WGS84)  # WGS84 (default) or WGS72
 pos, vel = sgp4.propagate(tsince)  # tsince in minutes
 # Returns ((x,y,z), (vx,vy,vz)) in km and km/s (TEME frame)
 
-# Batch (fastest) - writes directly to pre-allocated arrays
+# Batch (convenience) - returns allocated arrays
+positions, velocities = sgp4.propagate_batch(times)
+
+# Batch (zero-copy) - writes directly to pre-allocated arrays
 sgp4.propagate_into(times, positions, velocities)
 ```
 
