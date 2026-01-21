@@ -143,12 +143,18 @@ pub fn build(b: *std.Build) void {
         python_mod.addIncludePath(.{ .cwd_relative = "/usr/include/python3" });
     }
 
-    if (python_lib_path) |path| {
-        python_mod.addLibraryPath(.{ .cwd_relative = path });
+    const is_macos = target.result.os.tag == .macos;
+
+    // On macOS, don't link against Python library - symbols resolve at load time
+    // when the extension is loaded by the Python interpreter. This is the standard
+    // approach used by all major Python extension build systems.
+    if (!is_macos) {
+        if (python_lib_path) |path| {
+            python_mod.addLibraryPath(.{ .cwd_relative = path });
+        }
+        python_mod.linkSystemLibrary(python_lib_name orelse "python3.12", .{});
     }
 
-    // Link Python library and libc through the module
-    python_mod.linkSystemLibrary(python_lib_name orelse "python3.12", .{});
     python_mod.link_libc = true;
 
     const python_lib = b.addLibrary(.{
@@ -157,6 +163,11 @@ pub fn build(b: *std.Build) void {
         .root_module = python_mod,
         .use_llvm = use_llvm,
     });
+
+    // On macOS, allow undefined symbols - they resolve when loaded by Python
+    if (is_macos) {
+        python_lib.linker_allow_shlib_undefined = true;
+    }
 
     const python_install = b.addInstallArtifact(python_lib, .{
         .dest_dir = .{ .override = .{ .custom = "bindings/python/astroz" } },

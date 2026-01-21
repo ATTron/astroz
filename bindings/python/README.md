@@ -2,6 +2,9 @@
 
 High-performance SGP4 satellite orbit propagation for Python, powered by Zig with SIMD acceleration.
 
+**Supported platforms:** macOS and Linux
+**Requires:** Python 3.12+
+
 ## Quick Start
 
 ```python
@@ -66,15 +69,9 @@ sgp4.propagate_into(times, positions, velocities)
 
 ## Building
 
-Requires [Zig](https://ziglang.org/) and Python 3.10+.
+Requires [Zig](https://ziglang.org/) and Python 3.12+.
 
 ```bash
-zig build python-bindings \
-  -Dpython-include=$(python -c "import sysconfig; print(sysconfig.get_path('include'))") \
-  -Dpython-lib=python3.12 \
-  -Dpython-lib-path=$(python -c "import sysconfig; print(sysconfig.get_config_var('LIBDIR'))") \
-  -Doptimize=ReleaseFast
-
-cp zig-out/bindings/python/astroz/lib_astroz.so bindings/python/astroz/_astroz.so
-pip install -e bindings/python
+cd bindings/python
+pip install -e .
 ```
