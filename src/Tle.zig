@@ -92,6 +92,7 @@ pub const FirstLine = struct {
             "{d}-{d}{s}",
             .{ intlYear, intlDesignator, intlDesignatorLaunch },
         );
+        errdefer allocator.free(string);
 
         const mantissa = try std.fmt.parseFloat(f64, line[54..59]);
         const exponent = try std.fmt.parseInt(i32, line[59..61], 10);
