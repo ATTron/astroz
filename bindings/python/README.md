@@ -3,7 +3,7 @@
 High-performance SGP4 satellite orbit propagation for Python, powered by Zig with SIMD acceleration.
 
 **Supported platforms:** macOS and Linux
-**Requires:** Python 3.12+
+**Requires:** Python 3.10+
 
 ## Quick Start
 

@@ -63,11 +63,19 @@ jobs:
           echo "Python include: $PYTHON_INCLUDE"
           echo "Python libdir: $PYTHON_LIBDIR"
           echo "Python lib: $PYTHON_LIB"
-          zig build python-bindings \
-            -Dpython-include="$PYTHON_INCLUDE" \
-            -Dpython-lib="$PYTHON_LIB" \
-            -Dpython-lib-path="$PYTHON_LIBDIR" \
-            -Doptimize=ReleaseFast
+
+          # On macOS, don't link against Python library - symbols resolve at load time
+          if [[ "$RUNNER_OS" == "macOS" ]]; then
+            zig build python-bindings \
+              -Dpython-include="$PYTHON_INCLUDE" \
+              -Doptimize=ReleaseFast
+          else
+            zig build python-bindings \
+              -Dpython-include="$PYTHON_INCLUDE" \
+              -Dpython-lib="$PYTHON_LIB" \
+              -Dpython-lib-path="$PYTHON_LIBDIR" \
+              -Doptimize=ReleaseFast
+          fi
 
       - name: Copy built library
         run: |
