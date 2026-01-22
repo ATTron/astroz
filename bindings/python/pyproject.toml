@@ -7,7 +7,7 @@ name = "astroz"
 version = "0.3.0"
 description = "Python bindings for astroz - high-performance astrodynamics library"
 readme = "README.md"
-requires-python = ">=3.8"
+requires-python = ">=3.12"
 license = {text = "MIT"}
 keywords = ["astrodynamics", "orbital-mechanics", "sgp4", "tle", "satellite"]
 classifiers = [
@@ -17,9 +17,10 @@ classifiers = [
     "Programming Language :: Python :: 3",
     "Topic :: Scientific/Engineering :: Astronomy",
 ]
+dependencies = ["numpy"]
 
 [project.optional-dependencies]
-dev = ["numpy", "sgp4"]  # For benchmarks and testing
+dev = ["sgp4"]  # For benchmarks and testing
 
 [project.urls]
 Repository = "https://github.com/ATTron/astroz"

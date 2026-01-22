@@ -35,13 +35,16 @@ class ZigBuildExt(build_ext):
             "build",
             "python-bindings",
             f"-Dpython-include={python_include}",
-            f"-Dpython-lib={python_lib}",
             "-Doptimize=ReleaseFast",
         ]
 
-        # Add library path if it exists
-        if python_lib_dir and Path(python_lib_dir).exists():
-            cmd.append(f"-Dpython-lib-path={python_lib_dir}")
+        # On non-macOS platforms, link against Python library
+        # On macOS, Python extensions should NOT link against the Python library -
+        # symbols resolve at runtime when loaded by the interpreter
+        if sys.platform != "darwin":
+            cmd.append(f"-Dpython-lib={python_lib}")
+            if python_lib_dir and Path(python_lib_dir).exists():
+                cmd.append(f"-Dpython-lib-path={python_lib_dir}")
 
         print(f"Building with: {' '.join(cmd)}")
         subprocess.check_call(cmd, cwd=project_root)
