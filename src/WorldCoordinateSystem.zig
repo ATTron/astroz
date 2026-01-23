@@ -5,10 +5,12 @@ const calculations = @import("calculations.zig");
 const constants = @import("constants.zig");
 const Spacecraft = @import("Spacecraft.zig");
 const Tle = @import("Tle.zig");
+const simdMath = @import("simdMath.zig");
 
 const Matrix3x3 = [3][3]f64;
 
 pub const Vector3 = [3]f64;
+const Vec4 = simdMath.Vec4;
 
 pub const wgs84A = constants.wgs84.radiusEarthKm;
 pub const wgs84F = constants.wgs84Flattening;
@@ -119,15 +121,56 @@ pub fn ecefToGeodeticDeg(ecef: Vector3) Vector3 {
     };
 }
 
+/// Rotate 4 ECI position vectors to ECEF using a precomputed GMST.
+pub fn eciToEcefV4(x: Vec4, y: Vec4, z: Vec4, gmst: f64) struct { x: Vec4, y: Vec4, z: Vec4 } {
+    const cosG: Vec4 = @splat(@cos(gmst));
+    const sinG: Vec4 = @splat(@sin(gmst));
+    return .{
+        .x = x * cosG + y * sinG,
+        .y = y * cosG - x * sinG,
+        .z = z,
+    };
+}
+
 /// Compute GMST (Greenwich Mean Sidereal Time) from Julian date.
 pub fn julianToGmst(jd: f64) f64 {
     const jdJ2000 = jd - constants.j2000Jd;
-    const t = jdJ2000 / constants.@"julian\\DaysPerCentury";
+    const t = jdJ2000 / constants.julianDaysPerCentury;
     var gmst = 280.46061837 + 360.98564736629 * jdJ2000 +
         0.000387933 * t * t - t * t * t / 38710000.0;
     gmst = @mod(gmst, 360.0);
     if (gmst < 0) gmst += 360.0;
     return gmst * constants.deg2rad;
+}
+
+test "eciToEcefV4 matches scalar eciToEcefGmst" {
+    const gmst = julianToGmst(2460500.5);
+
+    // 4 different ECI positions
+    const positions = [4]Vector3{
+        .{ 6500.0, 1000.0, 3000.0 },
+        .{ -2000.0, 7000.0, -500.0 },
+        .{ 100.0, -4000.0, 6000.0 },
+        .{ 5000.0, 5000.0, 1000.0 },
+    };
+
+    // Scalar reference
+    var ref: [4]Vector3 = undefined;
+    for (0..4) |i| {
+        ref[i] = eciToEcefGmst(positions[i], gmst);
+    }
+
+    // SIMD
+    const px = Vec4{ positions[0][0], positions[1][0], positions[2][0], positions[3][0] };
+    const py = Vec4{ positions[0][1], positions[1][1], positions[2][1], positions[3][1] };
+    const pz = Vec4{ positions[0][2], positions[1][2], positions[2][2], positions[3][2] };
+    const result = eciToEcefV4(px, py, pz, gmst);
+
+    inline for (0..4) |i| {
+        try std.testing.expectApproxEqAbs(result.x[i], ref[i][0], 1e-10);
+        try std.testing.expectApproxEqAbs(result.y[i], ref[i][1], 1e-10);
+        try std.testing.expectApproxEqAbs(result.z[i], ref[i][2], 1e-10);
+    }
 }
 
 test WorldCoordinateSystem {
