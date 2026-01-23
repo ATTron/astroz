@@ -5,6 +5,7 @@ const py = @import("python.zig");
 const c = py.c;
 const tle = @import("tle.zig");
 const sgp4 = @import("sgp4.zig");
+const conjunction = @import("conjunction.zig");
 
 fn astroz_version(_: [*c]c.PyObject, _: [*c]c.PyObject) callconv(.c) [*c]c.PyObject {
     return c.PyUnicode_FromString("0.3.0");
@@ -12,6 +13,8 @@ fn astroz_version(_: [*c]c.PyObject, _: [*c]c.PyObject) callconv(.c) [*c]c.PyObj
 
 var module_methods = [_]c.PyMethodDef{
     .{ .ml_name = "version", .ml_meth = @ptrCast(&astroz_version), .ml_flags = c.METH_NOARGS, .ml_doc = "Return version" },
+    .{ .ml_name = "min_distances", .ml_meth = @ptrCast(&conjunction.py_min_distances), .ml_flags = c.METH_VARARGS, .ml_doc = "min_distances(positions, pairs, [velocities], [num_sats]) -> (dists, indices[, rel_vels])\n\nCompute minimum pairwise distances between satellites across time steps." },
+    .{ .ml_name = "coarse_screen", .ml_meth = @ptrCast(&conjunction.py_coarse_screen), .ml_flags = c.METH_VARARGS, .ml_doc = "coarse_screen(positions, num_sats, threshold, [valid_mask]) -> (pairs, t_indices)\n\nFind all satellite pairs within threshold distance at any time step using cell-list spatial indexing." },
     .{ .ml_name = null, .ml_meth = null, .ml_flags = 0, .ml_doc = null },
 };
 

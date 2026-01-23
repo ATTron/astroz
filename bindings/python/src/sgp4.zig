@@ -188,9 +188,7 @@ const sgp4_methods = [_]c.PyMethodDef{
     .{ .ml_name = null, .ml_meth = null, .ml_flags = 0, .ml_doc = null },
 };
 
-// =============================================================================
 // Sgp4Batch: Multi-satellite batch propagator
-// =============================================================================
 
 pub const Sgp4BatchObject = extern struct {
     ob_base: c.PyObject,
@@ -388,16 +386,15 @@ const sgp4batch_methods = [_]c.PyMethodDef{
     .{ .ml_name = null, .ml_meth = null, .ml_flags = 0, .ml_doc = null },
 };
 
-// =============================================================================
 // Sgp4Constellation: Multi-batch propagator for large constellations
-// Eliminates Python loop overhead by processing all batches in a single call
-// =============================================================================
 
 pub const Sgp4ConstellationObject = extern struct {
     ob_base: c.PyObject,
     batches: ?[*]Sgp4.ElementsV4,
     num_batches: usize,
     num_satellites: usize,
+    epoch_jds: ?[*]f64, // per-satellite epoch Julian dates
+    padded_count: usize, // padded to multiple of 4
 };
 
 pub var Sgp4ConstellationType: c.PyTypeObject = undefined;
@@ -419,6 +416,8 @@ fn constellation_new(typ: [*c]c.PyTypeObject, _: [*c]c.PyObject, _: [*c]c.PyObje
     self.batches = null;
     self.num_batches = 0;
     self.num_satellites = 0;
+    self.epoch_jds = null;
+    self.padded_count = 0;
     return @ptrCast(self);
 }
 
@@ -446,50 +445,70 @@ fn constellation_init(self_obj: [*c]c.PyObject, args: [*c]c.PyObject, kwds: [*c]
     if (self.batches) |old_batches| {
         allocator.free(old_batches[0..self.num_batches]);
     }
+    if (self.epoch_jds) |old_ejds| {
+        allocator.free(old_ejds[0..self.padded_count]);
+    }
 
-    // Pad to multiple of 4
-    const padded_count = ((num_tles + 3) / 4) * 4;
-    const num_batches = padded_count / 4;
-
-    // Allocate batch array
-    const batches = allocator.alloc(Sgp4.ElementsV4, num_batches) catch {
+    // Extract TLEs from Python sequence into temp slice
+    const tles = allocator.alloc(astroz.Tle, num_tles) catch {
         py.raiseRuntime("Out of memory");
         return -1;
     };
+    defer allocator.free(tles);
 
-    const grav = if (grav_model == 1) astroz.constants.wgs72 else astroz.constants.wgs84;
+    for (0..num_tles) |i| {
+        const item = c.PySequence_GetItem(tles_obj, @intCast(i)) orelse {
+            py.raiseValue("Failed to get TLE from sequence");
+            return -1;
+        };
+        defer c.Py_DECREF(item);
 
-    // Process TLEs in groups of 4
-    var batch_idx: usize = 0;
-    while (batch_idx < num_batches) : (batch_idx += 1) {
-        var batch_tles: [4]astroz.Tle = undefined;
-
-        for (0..4) |i| {
-            const tle_idx = batch_idx * 4 + i;
-            // For padding, reuse the last TLE
-            const actual_idx = if (tle_idx < num_tles) tle_idx else num_tles - 1;
-
-            const item = c.PySequence_GetItem(tles_obj, @intCast(actual_idx)) orelse {
-                allocator.free(batches);
-                py.raiseValue("Failed to get TLE from sequence");
-                return -1;
-            };
-            defer c.Py_DECREF(item);
-
-            if (c.PyObject_TypeCheck(item, &tle_mod.TleType) == 0) {
-                allocator.free(batches);
-                py.raiseType("All items must be Tle objects");
-                return -1;
-            }
-
-            const tle_obj_ptr = @as(*tle_mod.TleObject, @ptrCast(@alignCast(item)));
-            batch_tles[i] = (tle_obj_ptr.tle orelse {
-                allocator.free(batches);
-                py.raiseValue("TLE not initialized");
-                return -1;
-            }).*;
+        if (c.PyObject_TypeCheck(item, &tle_mod.TleType) == 0) {
+            py.raiseType("All items must be Tle objects");
+            return -1;
         }
 
+        const tle_obj_ptr = @as(*tle_mod.TleObject, @ptrCast(@alignCast(item)));
+        tles[i] = (tle_obj_ptr.tle orelse {
+            py.raiseValue("TLE not initialized");
+            return -1;
+        }).*;
+    }
+
+    const grav = if (grav_model == 1) astroz.constants.wgs72 else astroz.constants.wgs84;
+    const result = buildBatches(tles, grav) orelse return -1;
+
+    self.batches = result.batches.ptr;
+    self.num_batches = result.batches.len;
+    self.num_satellites = num_tles;
+    self.epoch_jds = result.epoch_jds.ptr;
+    self.padded_count = result.padded_count;
+    return 0;
+}
+
+const BatchResult = struct {
+    batches: []Sgp4.ElementsV4,
+    epoch_jds: []f64,
+    padded_count: usize,
+};
+
+/// Group TLEs into SIMD batches of 4, pad last batch, and extract epoch JDs.
+fn buildBatches(tles: []const astroz.Tle, grav: anytype) ?BatchResult {
+    const num_tles = tles.len;
+    const padded_count = ((num_tles + 3) / 4) * 4;
+    const num_batches = padded_count / 4;
+
+    const batches = allocator.alloc(Sgp4.ElementsV4, num_batches) catch {
+        py.raiseRuntime("Out of memory");
+        return null;
+    };
+
+    for (0..num_batches) |batch_idx| {
+        var batch_tles: [4]astroz.Tle = undefined;
+        for (0..4) |i| {
+            const tle_idx = batch_idx * 4 + i;
+            batch_tles[i] = tles[if (tle_idx < num_tles) tle_idx else num_tles - 1];
+        }
         batches[batch_idx] = Sgp4.initElementsV4(batch_tles, grav) catch |e| {
             allocator.free(batches);
             py.raiseValue(switch (e) {
@@ -497,14 +516,22 @@ fn constellation_init(self_obj: [*c]c.PyObject, args: [*c]c.PyObject, kwds: [*c]
                 Sgp4.Error.InvalidEccentricity => "Invalid eccentricity",
                 Sgp4.Error.SatelliteDecayed => "Satellite decayed",
             });
-            return -1;
+            return null;
         };
     }
 
-    self.batches = batches.ptr;
-    self.num_batches = num_batches;
-    self.num_satellites = num_tles;
-    return 0;
+    const epoch_jds = allocator.alloc(f64, padded_count) catch {
+        allocator.free(batches);
+        py.raiseRuntime("Out of memory");
+        return null;
+    };
+    for (0..num_batches) |bi| {
+        inline for (0..4) |si| {
+            epoch_jds[bi * 4 + si] = batches[bi].epochJd[si];
+        }
+    }
+
+    return .{ .batches = batches, .epoch_jds = epoch_jds, .padded_count = padded_count };
 }
 
 fn constellation_dealloc(self_obj: [*c]c.PyObject) callconv(.c) void {
@@ -512,15 +539,39 @@ fn constellation_dealloc(self_obj: [*c]c.PyObject) callconv(.c) void {
     if (self.batches) |batches| {
         allocator.free(batches[0..self.num_batches]);
     }
+    if (self.epoch_jds) |ejds| {
+        allocator.free(ejds[0..self.padded_count]);
+    }
     if (c.Py_TYPE(self_obj)) |tp| if (tp.*.tp_free) |free| free(@ptrCast(self));
 }
 
-fn constellation_propagate_into(self_obj: [*c]c.PyObject, args: [*c]c.PyObject) callconv(.c) [*c]c.PyObject {
+fn constellation_propagate_into(self_obj: [*c]c.PyObject, args: [*c]c.PyObject, kwds: [*c]c.PyObject) callconv(.c) [*c]c.PyObject {
     const self: *Sgp4ConstellationObject = @ptrCast(@alignCast(self_obj));
     var times_obj: [*c]c.PyObject = null;
-    var results_obj: [*c]c.PyObject = null;
-
-    if (c.PyArg_ParseTuple(args, "OO", &times_obj, &results_obj) == 0) return null;
+    var pos_obj: [*c]c.PyObject = null;
+    var vel_obj: [*c]c.PyObject = null;
+    var offsets_obj: [*c]c.PyObject = null;
+    var mask_obj: [*c]c.PyObject = null;
+    var output_str: [*c]const u8 = null;
+    var output_str_len: c.Py_ssize_t = 0;
+    var reference_jd: f64 = 0.0;
+    const kwlist = [_:null]?[*:0]const u8{
+        "times", "positions", "velocities", "epoch_offsets", "satellite_mask", "output", "reference_jd", null,
+    };
+    if (c.PyArg_ParseTupleAndKeywords(
+        args,
+        kwds,
+        "OO|OOOs#d",
+        @ptrCast(@constCast(&kwlist)),
+        &times_obj,
+        &pos_obj,
+        &vel_obj,
+        &offsets_obj,
+        &mask_obj,
+        &output_str,
+        &output_str_len,
+        &reference_jd,
+    ) == 0) return null;
 
     const batches_ptr = self.batches orelse {
         py.raiseRuntime("Constellation not initialized");
@@ -528,29 +579,157 @@ fn constellation_propagate_into(self_obj: [*c]c.PyObject, args: [*c]c.PyObject) 
     };
     const batches = batches_ptr[0..self.num_batches];
 
-    var times_buf = std.mem.zeroes(c.Py_buffer);
-    var results_buf = std.mem.zeroes(c.Py_buffer);
-
-    if (c.PyObject_GetBuffer(times_obj, &times_buf, c.PyBUF_SIMPLE | c.PyBUF_FORMAT) < 0) return null;
-    defer c.PyBuffer_Release(&times_buf);
-    if (c.PyObject_GetBuffer(results_obj, &results_buf, c.PyBUF_WRITABLE | c.PyBUF_FORMAT) < 0) return null;
-    defer c.PyBuffer_Release(&results_buf);
-
-    const num_times = @as(usize, @intCast(times_buf.len)) / @sizeOf(f64);
-    const required_size = self.num_batches * num_times * 4 * 6 * @sizeOf(f64);
-
-    if (@as(usize, @intCast(results_buf.len)) < required_size) {
-        py.raiseValue("Output array too small");
-        return null;
+    // Parse output mode
+    var output_mode: Sgp4.OutputMode = .teme;
+    if (output_str != null and output_str_len > 0) {
+        const mode_slice = output_str[0..@intCast(output_str_len)];
+        if (std.mem.eql(u8, mode_slice, "teme")) {
+            output_mode = .teme;
+        } else if (std.mem.eql(u8, mode_slice, "ecef")) {
+            output_mode = .ecef;
+        } else if (std.mem.eql(u8, mode_slice, "geodetic")) {
+            output_mode = .geodetic;
+        } else {
+            py.raiseValue("output must be 'teme', 'ecef', or 'geodetic'");
+            return null;
+        }
     }
 
+    // Get times buffer
+    var times_buf = std.mem.zeroes(c.Py_buffer);
+    if (c.PyObject_GetBuffer(times_obj, &times_buf, c.PyBUF_SIMPLE | c.PyBUF_FORMAT) < 0) return null;
+    defer c.PyBuffer_Release(&times_buf);
+
+    const num_times = @as(usize, @intCast(times_buf.len)) / @sizeOf(f64);
     const times: [*]const f64 = @ptrCast(@alignCast(times_buf.buf));
-    const results: [*]f64 = @ptrCast(@alignCast(results_buf.buf));
 
-    const results_slice = results[0 .. self.num_batches * num_times * 24];
-    const times_slice = times[0..num_times];
+    // Get positions buffer
+    var pos_buf = std.mem.zeroes(c.Py_buffer);
+    if (c.PyObject_GetBuffer(pos_obj, &pos_buf, c.PyBUF_WRITABLE | c.PyBUF_FORMAT) < 0) return null;
+    defer c.PyBuffer_Release(&pos_buf);
 
-    Sgp4.propagateConstellationV4(batches, times_slice, results_slice) catch {
+    const required_pos_size = self.num_satellites * num_times * 3 * @sizeOf(f64);
+    if (@as(usize, @intCast(pos_buf.len)) < required_pos_size) {
+        py.raiseValue("positions array too small (need num_satellites * num_times * 3)");
+        return null;
+    }
+    const pos_out: [*]f64 = @ptrCast(@alignCast(pos_buf.buf));
+
+    // Get optional velocities buffer
+    var vel_buf = std.mem.zeroes(c.Py_buffer);
+    var vel_out: ?[*]f64 = null;
+    var have_vel = false;
+    if (!py.isNone(vel_obj)) {
+        if (c.PyObject_GetBuffer(vel_obj, &vel_buf, c.PyBUF_WRITABLE | c.PyBUF_FORMAT) < 0) return null;
+        have_vel = true;
+        if (@as(usize, @intCast(vel_buf.len)) < required_pos_size) {
+            c.PyBuffer_Release(&vel_buf);
+            py.raiseValue("velocities array too small (need num_satellites * num_times * 3)");
+            return null;
+        }
+        vel_out = @ptrCast(@alignCast(vel_buf.buf));
+    }
+    defer if (have_vel) c.PyBuffer_Release(&vel_buf);
+
+    // Get epoch offsets - use zeros if not provided
+    // Accepts either num_satellites or padded_count length arrays; pads internally.
+    var offsets_buf = std.mem.zeroes(c.Py_buffer);
+    var have_offsets = false;
+    var padded_offsets: []f64 = undefined;
+    var own_offsets = false;
+
+    if (!py.isNone(offsets_obj)) {
+        if (c.PyObject_GetBuffer(offsets_obj, &offsets_buf, c.PyBUF_SIMPLE | c.PyBUF_FORMAT) < 0) {
+            return null;
+        }
+        have_offsets = true;
+        const offsets_ptr: [*]const f64 = @ptrCast(@alignCast(offsets_buf.buf));
+        const offsets_len = @as(usize, @intCast(offsets_buf.len)) / @sizeOf(f64);
+
+        if (offsets_len >= self.padded_count) {
+            // Already padded or exact padded size — use directly
+            padded_offsets = @constCast(offsets_ptr[0..self.padded_count]);
+        } else if (offsets_len >= self.num_satellites) {
+            // User passed num_satellites-length array — pad to padded_count with zeros
+            const buf = allocator.alloc(f64, self.padded_count) catch {
+                c.PyBuffer_Release(&offsets_buf);
+                py.raiseRuntime("Out of memory");
+                return null;
+            };
+            @memcpy(buf[0..self.num_satellites], offsets_ptr[0..self.num_satellites]);
+            @memset(buf[self.num_satellites..self.padded_count], 0.0);
+            padded_offsets = buf;
+            own_offsets = true;
+        } else {
+            c.PyBuffer_Release(&offsets_buf);
+            py.raiseValue("epoch_offsets must have at least num_satellites elements");
+            return null;
+        }
+    } else {
+        // No offsets — allocate zeros
+        const zeros = allocator.alloc(f64, self.padded_count) catch {
+            py.raiseRuntime("Out of memory");
+            return null;
+        };
+        @memset(zeros, 0.0);
+        padded_offsets = zeros;
+        own_offsets = true;
+    }
+    defer if (have_offsets) c.PyBuffer_Release(&offsets_buf);
+    defer if (own_offsets) allocator.free(padded_offsets);
+
+    // Get optional satellite mask
+    // Accepts either num_satellites or padded_count length arrays; pads internally.
+    var mask_buf = std.mem.zeroes(c.Py_buffer);
+    var have_mask = false;
+    var sat_mask: ?[]const u8 = null;
+    var padded_mask: ?[]u8 = null;
+
+    if (!py.isNone(mask_obj)) {
+        if (c.PyObject_GetBuffer(mask_obj, &mask_buf, c.PyBUF_SIMPLE | c.PyBUF_FORMAT) < 0) {
+            return null;
+        }
+        have_mask = true;
+        const mask_ptr: [*]const u8 = @ptrCast(@alignCast(mask_buf.buf));
+        const mask_len = @as(usize, @intCast(mask_buf.len));
+
+        if (mask_len >= self.padded_count) {
+            sat_mask = mask_ptr[0..self.padded_count];
+        } else if (mask_len >= self.num_satellites) {
+            // Pad mask to padded_count with zeros (disabled padding satellites)
+            const buf = allocator.alloc(u8, self.padded_count) catch {
+                c.PyBuffer_Release(&mask_buf);
+                py.raiseRuntime("Out of memory");
+                return null;
+            };
+            @memcpy(buf[0..self.num_satellites], mask_ptr[0..self.num_satellites]);
+            @memset(buf[self.num_satellites..self.padded_count], 0);
+            padded_mask = buf;
+            sat_mask = buf;
+        } else {
+            c.PyBuffer_Release(&mask_buf);
+            py.raiseValue("satellite_mask must have at least num_satellites elements");
+            return null;
+        }
+    }
+    defer if (have_mask) c.PyBuffer_Release(&mask_buf);
+    defer if (padded_mask) |m| allocator.free(m);
+
+    // Build output slices
+    const pos_slice = pos_out[0 .. self.num_satellites * num_times * 3];
+    const vel_slice: ?[]f64 = if (vel_out) |vo| vo[0 .. self.num_satellites * num_times * 3] else null;
+
+    Sgp4.propagateConstellationWithOffsets(
+        batches,
+        self.num_satellites,
+        times[0..num_times],
+        padded_offsets,
+        pos_slice,
+        vel_slice,
+        output_mode,
+        reference_jd,
+        sat_mask,
+    ) catch {
         py.raiseValue("Propagation failed");
         return null;
     };
@@ -568,15 +747,128 @@ fn constellation_get_num_batches(self_obj: [*c]c.PyObject, _: ?*anyopaque) callc
     return py.int(@intCast(self.num_batches));
 }
 
+fn constellation_get_epochs(self_obj: [*c]c.PyObject, _: ?*anyopaque) callconv(.c) [*c]c.PyObject {
+    const self: *Sgp4ConstellationObject = @ptrCast(@alignCast(self_obj));
+    const ejds = self.epoch_jds orelse {
+        py.raiseRuntime("Constellation not initialized");
+        return null;
+    };
+    return py.listFromF64(ejds[0..self.num_satellites]);
+}
+
+fn constellation_from_tle_text(cls: [*c]c.PyObject, args: [*c]c.PyObject, kwds: [*c]c.PyObject) callconv(.c) [*c]c.PyObject {
+    _ = cls;
+    var text_ptr: [*c]const u8 = null;
+    var text_len: c.Py_ssize_t = 0;
+    var grav_model: c_int = 0;
+
+    const kwlist = [_:null]?[*:0]const u8{ "text", "gravity_model", null };
+    if (c.PyArg_ParseTupleAndKeywords(args, kwds, "s#|i", @ptrCast(@constCast(&kwlist)), &text_ptr, &text_len, &grav_model) == 0)
+        return null;
+
+    if (text_ptr == null or text_len <= 0) {
+        py.raiseValue("TLE text must not be empty");
+        return null;
+    }
+
+    const text = text_ptr[0..@intCast(text_len)];
+    const grav = if (grav_model == 1) astroz.constants.wgs72 else astroz.constants.wgs84;
+
+    // Parse TLEs from text using core MultiIterator
+    var tles: std.ArrayList(astroz.Tle) = .empty;
+    defer tles.deinit(allocator);
+
+    var iter = astroz.Tle.MultiIterator.init(text);
+    while (iter.next()) |pair| {
+        const tle = astroz.Tle.parseLines(pair.line1, pair.line2, allocator) catch continue;
+
+        // Filter: period <= 225 minutes (near-earth only, no deep space)
+        const period = astroz.constants.minutesPerDay / tle.secondLine.mMotion;
+        if (period <= astroz.constants.sgp4DeepSpaceThresholdMinutes) {
+            tles.append(allocator, tle) catch {
+                py.raiseRuntime("Out of memory");
+                return null;
+            };
+        } else {
+            var tle_mut = tle;
+            tle_mut.deinit();
+        }
+    }
+
+    if (tles.items.len == 0) {
+        py.raiseValue("No valid near-earth TLEs found in text");
+        return null;
+    }
+
+    const result = buildBatches(tles.items, grav) orelse return null;
+
+    // Create new Sgp4ConstellationObject
+    const self: *Sgp4ConstellationObject = @ptrCast(@alignCast(
+        c.PyType_GenericAlloc(&Sgp4ConstellationType, 0) orelse {
+            allocator.free(result.batches);
+            allocator.free(result.epoch_jds);
+            return null;
+        },
+    ));
+    self.batches = result.batches.ptr;
+    self.num_batches = result.batches.len;
+    self.num_satellites = tles.items.len;
+    self.epoch_jds = result.epoch_jds.ptr;
+    self.padded_count = result.padded_count;
+
+    return @ptrCast(self);
+}
+
 const constellation_methods = [_]c.PyMethodDef{
-    .{ .ml_name = "propagate_into", .ml_meth = @ptrCast(&constellation_propagate_into), .ml_flags = c.METH_VARARGS, .ml_doc = "propagate_into(times, results) -> None\n\nPropagates all satellites across all times in a single call.\nresults shape: (num_times, num_batches, 4, 6) flattened" },
-    .{ .ml_name = null, .ml_meth = null, .ml_flags = 0, .ml_doc = null },
+    .{
+        .ml_name = "propagate_into",
+        .ml_meth = @ptrCast(&constellation_propagate_into),
+        .ml_flags = c.METH_VARARGS | c.METH_KEYWORDS,
+        .ml_doc = "propagate_into(times, positions, velocities=None, *, epoch_offsets=None, output='teme', reference_jd=0.0) -> None\n\nPropagates all satellites. positions shape: (num_sats, num_times, 3)",
+    },
+    .{
+        .ml_name = "from_tle_text",
+        .ml_meth = @ptrCast(&constellation_from_tle_text),
+        .ml_flags = c.METH_CLASS | c.METH_VARARGS | c.METH_KEYWORDS,
+        .ml_doc = "from_tle_text(text, gravity_model=WGS84) -> Sgp4Constellation\n\nParse all TLEs from text in one call.",
+    },
+    .{
+        .ml_name = null,
+        .ml_meth = null,
+        .ml_flags = 0,
+        .ml_doc = null,
+    },
 };
 
 const constellation_getset = [_]c.PyGetSetDef{
-    .{ .name = "num_satellites", .get = @ptrCast(&constellation_get_num_satellites), .set = null, .doc = "Number of satellites", .closure = null },
-    .{ .name = "num_batches", .get = @ptrCast(&constellation_get_num_batches), .set = null, .doc = "Number of 4-satellite batches", .closure = null },
-    .{ .name = null, .get = null, .set = null, .doc = null, .closure = null },
+    .{
+        .name = "num_satellites",
+        .get = @ptrCast(&constellation_get_num_satellites),
+        .set = null,
+        .doc = "Number of satellites",
+        .closure = null,
+    },
+    .{
+        .name = "num_batches",
+        .get = @ptrCast(&constellation_get_num_batches),
+        .set = null,
+        .doc = "Number of 4-satellite batches",
+        .closure = null,
+    },
+    .{
+        .name = "epochs",
+        .get = @ptrCast(&constellation_get_epochs),
+        .set = null,
+        .doc = "Epoch Julian dates for each satellite",
+        .closure = null,
+    },
+    .{
+        .name = null,
+        .get = null,
+        .set = null,
+        .doc = null,
+        .closure = null,
+    },
 };
 
 pub fn ready() c_int {
