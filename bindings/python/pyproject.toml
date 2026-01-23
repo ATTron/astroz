@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "astroz"
-version = "0.3.0"
+version = "0.4.4"
 description = "Python bindings for astroz - high-performance astrodynamics library"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -17,7 +17,10 @@ classifiers = [
     "Programming Language :: Python :: 3",
     "Topic :: Scientific/Engineering :: Astronomy",
 ]
-dependencies = ["numpy"]
+dependencies = [
+    "numpy",
+    "scipy>=1.15.3",
+]
 
 [project.optional-dependencies]
 dev = ["sgp4"]  # For benchmarks and testing
