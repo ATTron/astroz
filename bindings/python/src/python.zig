@@ -69,6 +69,11 @@ pub fn tupleSet(t: *c.PyObject, idx: c.Py_ssize_t, val: *c.PyObject) void {
     _ = c.PyTuple_SetItem(t, idx, val);
 }
 
+/// Check if a PyObject pointer is null or Python None.
+pub fn isNone(obj: [*c]c.PyObject) bool {
+    return obj == null or obj == @as([*c]c.PyObject, @ptrCast(@constCast(&c._Py_NoneStruct)));
+}
+
 pub fn vec3Tuple(v: [3]f64) ?*c.PyObject {
     const t = tuple(3) orelse return null;
     tupleSet(t, 0, float(v[0]) orelse {
