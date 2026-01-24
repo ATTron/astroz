@@ -707,7 +707,7 @@ fn updateSecularV4(el: *const Elements, tsince: Vec4) SecularStateV4 {
         const sinmaoV4: Vec4 = @splat(el.sinmao);
 
         const delomg = omgcofV4 * tsince;
-        const delmtemp = one + etaV4 * @cos(xmdf);
+        const delmtemp = one + etaV4 * simdMath.cosV4(xmdf);
         const delm = xmcofV4 * (delmtemp * delmtemp * delmtemp - delmoV4);
         const temp = delomg + delm;
         mm = xmdf + temp;
@@ -716,7 +716,7 @@ fn updateSecularV4(el: *const Elements, tsince: Vec4) SecularStateV4 {
         const t3 = t2 * tsince;
         const t4 = t3 * tsince;
         tempa = tempa - d2V4 * t2 - d3V4 * t3 - d4V4 * t4;
-        tempe = tempe + bstarV4 * cc5V4 * (@sin(mm) - sinmaoV4);
+        tempe = tempe + bstarV4 * cc5V4 * (simdMath.sinV4(mm) - sinmaoV4);
         templ = templ + t3cofV4 * t3 + t4 * (t4cofV4 + tsince * t5cofV4);
     }
 
@@ -732,9 +732,9 @@ fn updateSecularV4(el: *const Elements, tsince: Vec4) SecularStateV4 {
     mm = mm + noUnkozaiV4 * templ;
     const xlm = mm + argpm + nodem;
 
-    nodem = @mod(nodem, simdMath.twoPiVec);
-    argpm = @mod(argpm, simdMath.twoPiVec);
-    mm = @mod(xlm - argpm - nodem, simdMath.twoPiVec);
+    nodem = simdMath.modTwoPiV4(nodem);
+    argpm = simdMath.modTwoPiV4(argpm);
+    mm = simdMath.modTwoPiV4(xlm - argpm - nodem);
 
     return .{
         .mm = mm,
@@ -752,11 +752,12 @@ fn solveKeplerV4(el: *const Elements, sec: SecularStateV4) KeplerStateV4 {
     const xlcofV4: Vec4 = @splat(el.xlcof);
 
     const temp = one / (sec.a * (one - sec.em * sec.em));
-    const axnl = sec.em * @cos(sec.argpm);
-    const aynl = sec.em * @sin(sec.argpm) + temp * aycofV4;
-    const xl = @mod(sec.mm + sec.argpm + sec.nodem + temp * xlcofV4 * axnl, simdMath.twoPiVec);
+    const sc_argpm = simdMath.sincosV4(sec.argpm);
+    const axnl = sec.em * sc_argpm.cos;
+    const aynl = sec.em * sc_argpm.sin + temp * aycofV4;
+    const xl = simdMath.modTwoPiV4(sec.mm + sec.argpm + sec.nodem + temp * xlcofV4 * axnl);
 
-    var u = @mod(xl - sec.nodem, simdMath.twoPiVec);
+    var u = simdMath.modTwoPiV4(xl - sec.nodem);
     var eo1 = u;
     var sineo1: Vec4 = @splat(0.0);
     var coseo1: Vec4 = @splat(1.0);
@@ -766,8 +767,9 @@ fn solveKeplerV4(el: *const Elements, sec: SecularStateV4) KeplerStateV4 {
 
     var ktr: u32 = 0;
     while (ktr < 10) : (ktr += 1) {
-        sineo1 = @sin(eo1);
-        coseo1 = @cos(eo1);
+        const sc_eo1 = simdMath.sincosV4(eo1);
+        sineo1 = sc_eo1.sin;
+        coseo1 = sc_eo1.cos;
         var tem5 = one - coseo1 * axnl - sineo1 * aynl;
         tem5 = (u - aynl * coseo1 + axnl * sineo1 - eo1) / tem5;
         // branch setup
@@ -842,12 +844,15 @@ fn computePositionVelocityV4(el: *const Elements, state: CorrectedStateV4) [4][2
     const radiusV4: Vec4 = @splat(el.grav.radiusEarthKm);
     const vkmpersecV4: Vec4 = @splat(el.vkmpersec);
 
-    const sinsu = @sin(state.u);
-    const cossu = @cos(state.u);
-    const snod = @sin(state.xnode);
-    const cnod = @cos(state.xnode);
-    const sini = @sin(state.xinc);
-    const cosi = @cos(state.xinc);
+    const sc_u = simdMath.sincosV4(state.u);
+    const sinsu = sc_u.sin;
+    const cossu = sc_u.cos;
+    const sc_node = simdMath.sincosV4(state.xnode);
+    const snod = sc_node.sin;
+    const cnod = sc_node.cos;
+    const sc_inc = simdMath.sincosV4(state.xinc);
+    const sini = sc_inc.sin;
+    const cosi = sc_inc.cos;
 
     const xmx = -snod * cosi;
     const xmy = cnod * cosi;
@@ -889,7 +894,10 @@ pub const initElementsV4 = Sgp4Batch.initElementsV4;
 pub const propagateSatellitesV4 = Sgp4Batch.propagateSatellitesV4;
 pub const propagateSatellitesV4Vec = Sgp4Batch.propagateSatellitesV4Vec;
 pub const OutputMode = Sgp4Constellation.OutputMode;
-pub const propagateConstellationWithOffsets = Sgp4Constellation.propagateConstellationWithOffsets;
+pub const ConstellationLayout = Sgp4Constellation.Layout;
+pub const propagateConstellation = Sgp4Constellation.propagateConstellation;
+pub const PositionVelocityV4 = Sgp4Batch.PositionVelocityV4;
+pub const propagateBatchV4Direct = Sgp4Batch.propagateBatchV4Direct;
 
 test "sgp4 basic init" {
     const testTle =

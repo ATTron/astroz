@@ -1,73 +1,170 @@
-"""astroz - High-performance astrodynamics library.
-Native Python bindings with zero FFI overhead.
-"""
+"""astroz - High-performance astrodynamics library."""
 
 import numpy as np
+from datetime import datetime, timezone
+from pathlib import Path
 from ._astroz import (
     Tle,
     Sgp4 as _Sgp4,
-    Sgp4Batch,
-    Sgp4Constellation,
+    Sgp4Constellation as _Sgp4Constellation,
     WGS84,
-    WGS72,
-    version,
     min_distances as _min_distances,
     coarse_screen as _coarse_screen,
 )
 
+# Aliases for CelesTrak group names (only where they differ)
+_CELESTRAK_ALIASES = {
+    "all": "active",
+    "iss": "stations",
+    "gps": "gps-ops",
+    "glonass": "glo-ops",
+}
+
 
 class Sgp4(_Sgp4):
-    """SGP4 orbit propagator with SIMD acceleration.
-    Extends native Sgp4 with convenience methods.
-    """
+    """SGP4 orbit propagator for a single satellite."""
 
     def propagate_batch(self, times):
-        """Batch propagation returning position and velocity arrays.
-        Args:
-            times: float64 array (n,) of minutes since TLE epoch
-        Returns:
-            (positions, velocities) tuple of float64 arrays (n, 3)
-        """
+        """Batch propagation returning (positions, velocities) arrays."""
         times = np.asarray(times, dtype=np.float64)
-        n = len(times)
-        pos = np.empty((n, 3), dtype=np.float64)
-        vel = np.empty((n, 3), dtype=np.float64)
+        pos = np.empty((len(times), 3), dtype=np.float64)
+        vel = np.empty((len(times), 3), dtype=np.float64)
         self.propagate_into(times, pos, vel)
         return pos, vel
+
+
+def _fetch_url(url):
+    """Fetch URL content."""
+    import urllib.request
+
+    req = urllib.request.Request(url, headers={"User-Agent": "astroz"})
+    return urllib.request.urlopen(req, timeout=60).read().decode("utf-8")
+
+
+def _celestrak_url(group=None, norad_id=None):
+    """Build CelesTrak URL."""
+    if norad_id is not None:
+        ids = (
+            ",".join(str(i) for i in norad_id)
+            if isinstance(norad_id, (list, tuple))
+            else str(norad_id)
+        )
+        return f"https://celestrak.org/NORAD/elements/gp.php?CATNR={ids}&FORMAT=tle"
+    group_name = _CELESTRAK_ALIASES.get(group.lower(), group)
+    return f"https://celestrak.org/NORAD/elements/gp.php?GROUP={group_name}&FORMAT=tle"
+
+
+def _parse_tle_metadata(tle_text):
+    """Parse TLE text into list of metadata dicts (name, norad_id, epoch, etc.)."""
+    lines = tle_text.strip().replace("\r", "").split("\n")
+    metadata = []
+    i = 0
+    while i < len(lines) - 2:
+        name = lines[i].strip()
+        line1 = lines[i + 1].strip()
+        line2 = lines[i + 2].strip()
+        if line1.startswith("1 ") and line2.startswith("2 "):
+            mean_motion = float(line2[52:63])
+            period = 1440.0 / mean_motion
+            if period <= 225:  # Near-earth only
+                metadata.append(
+                    {
+                        "name": name,
+                        "norad_id": int(line1[2:7]),
+                        "inclination": float(line2[8:16]),
+                        "eccentricity": float("0." + line2[26:33].strip()),
+                        "period": period,
+                        "mean_motion": mean_motion,
+                    }
+                )
+            i += 3
+        else:
+            i += 1
+    return metadata
+
+
+def load_constellation(source=None, *, norad_id=None, with_metadata=False):
+    """Load a constellation from TLE data.
+
+    Args:
+        source: File path, URL, TLE string, or CelesTrak group name
+            (e.g., "starlink", "iss", "gps", "all")
+        norad_id: NORAD catalog ID or list of IDs (e.g., 25544 for ISS)
+        with_metadata: If True, also return satellite metadata (name, norad_id, etc.)
+
+    Returns:
+        constellation, or (constellation, metadata) if with_metadata=True
+
+    Examples:
+        load_constellation("starlink")
+        load_constellation(norad_id=25544)
+        constellation, metadata = load_constellation("starlink", with_metadata=True)
+    """
+    if norad_id is not None:
+        tle_text = _fetch_url(_celestrak_url(norad_id=norad_id))
+    elif source is None:
+        raise ValueError("Must specify 'source' or 'norad_id'")
+    elif source.startswith(("http://", "https://")):
+        tle_text = _fetch_url(source)
+    elif Path(source).exists():
+        tle_text = Path(source).read_text()
+    elif "1 " in source and "2 " in source:
+        tle_text = source
+    else:
+        tle_text = _fetch_url(_celestrak_url(group=source))
+
+    constellation = _Sgp4Constellation.from_tle_text(tle_text)
+
+    if with_metadata:
+        return constellation, _parse_tle_metadata(tle_text)
+    return constellation
 
 
 def propagate_constellation(
     constellation,
     times,
     *,
-    epoch_offsets=None,
-    satellite_mask=None,
-    output="teme",
-    reference_jd=0.0,
+    start_time=None,
+    output="ecef",
     velocities=False,
+    # Advanced options (rarely needed)
+    epoch_offsets=None,
+    reference_jd=None,
+    satellite_mask=None,
+    layout="time_major",
 ):
-    """Propagate constellation, allocating output arrays automatically.
+    """Propagate constellation and return positions.
 
     Args:
-        constellation: Sgp4Constellation object
-        times: float64 array of time offsets in minutes
-        epoch_offsets: float64 array (num_satellites,) of per-satellite
-            time offsets in minutes. Padding to SIMD width is handled
-            internally.
-        satellite_mask: uint8 array (num_satellites,) where non-zero means
-            propagate. Padding is handled internally.
-        output: coordinate frame - 'teme', 'ecef', or 'geodetic'
-        reference_jd: reference Julian date for ECEF/geodetic conversion
-        velocities: if True, also compute velocities
+        constellation: from load_constellation()
+        times: minutes from start_time (e.g., np.arange(1440) for 1 day)
+        start_time: datetime (defaults to now UTC)
+        output: "ecef" (default), "teme", or "geodetic"
+        velocities: if True, also return velocities
 
     Returns:
-        positions array (num_sats, num_times, 3) if velocities=False
-        (positions, velocities) tuple if velocities=True
+        positions array (num_times, num_sats, 3), or (positions, velocities) tuple
+
+    Example:
+        positions = propagate_constellation(constellation, np.arange(1440))
     """
     times = np.ascontiguousarray(times, dtype=np.float64)
-    n_sats = constellation.num_satellites
-    shape = (n_sats, len(times), 3)
+    n_sats, n_times = constellation.num_satellites, len(times)
+    time_major = layout == "time_major"
 
+    # Default to current UTC time
+    if start_time is None and epoch_offsets is None:
+        start_time = datetime.now(timezone.utc)
+
+    if start_time is not None:
+        start_jd = 2440587.5 + (start_time.timestamp() / 86400.0)
+        epochs = np.array(constellation.epochs, dtype=np.float64)
+        epoch_offsets = (start_jd - epochs) * 1440.0
+        reference_jd = start_jd
+    elif output != "teme" and reference_jd is None:
+        raise ValueError(f"output='{output}' requires start_time")
+
+    shape = (n_times, n_sats, 3) if time_major else (n_sats, n_times, 3)
     pos = np.empty(shape, dtype=np.float64)
     vel = np.empty(shape, dtype=np.float64) if velocities else None
 
@@ -78,29 +175,26 @@ def propagate_constellation(
         epoch_offsets=epoch_offsets,
         satellite_mask=satellite_mask,
         output=output,
-        reference_jd=reference_jd,
+        reference_jd=reference_jd or 0.0,
+        time_major=time_major,
     )
     return (pos, vel) if velocities else pos
 
 
-def min_distances(positions, pairs, velocities=None, num_sats=None):
-    """Compute minimum pairwise distances between satellites across time steps.
+def min_distances(positions, pairs, velocities=None):
+    """Find minimum distance between satellite pairs across all time steps.
 
     Args:
-        positions: float64 array (num_sats, num_times, 3) - satellite positions
-        pairs: uint32 array (num_pairs, 2) - satellite index pairs to check
-        velocities: optional float64 array (num_sats, num_times, 3)
-        num_sats: number of satellites (inferred from positions shape if 3D)
+        positions: (num_sats, num_times, 3) array
+        pairs: (num_pairs, 2) array of satellite index pairs
+        velocities: optional (num_sats, num_times, 3) array
 
     Returns:
-        Without velocities: (min_dists, min_indices) numpy arrays
-        With velocities: (min_dists, min_indices, rel_vels) numpy arrays
+        (min_dists, time_indices) or (min_dists, time_indices, rel_velocities)
     """
     positions = np.ascontiguousarray(positions, dtype=np.float64)
     pairs = np.ascontiguousarray(pairs, dtype=np.uint32)
-
-    if num_sats is None and positions.ndim == 3:
-        num_sats = positions.shape[0]
+    num_sats = positions.shape[0]
 
     if velocities is not None:
         velocities = np.ascontiguousarray(velocities, dtype=np.float64)
@@ -110,51 +204,33 @@ def min_distances(positions, pairs, velocities=None, num_sats=None):
             np.array(result[1], dtype=np.uint32),
             np.array(result[2]),
         )
-    else:
-        result = _min_distances(positions, pairs, None, num_sats)
-        return np.array(result[0]), np.array(result[1], dtype=np.uint32)
+
+    result = _min_distances(positions, pairs, None, num_sats)
+    return np.array(result[0]), np.array(result[1], dtype=np.uint32)
 
 
-def coarse_screen(positions, num_sats=None, threshold=10.0, valid_mask=None):
-    """Find all satellite pairs within threshold distance at any time step.
-
-    Uses a spatial hash grid for O(n) neighbor search per time step.
+def coarse_screen(positions, threshold=10.0):
+    """Find satellite pairs within threshold distance at any time step.
 
     Args:
-        positions: float64 array (num_sats, num_times, 3) - satellite positions
-        num_sats: number of satellites (inferred from positions shape if 3D)
-        threshold: distance threshold in km (default: 10.0)
-        valid_mask: optional uint8 array (num_sats,) - 0 means skip satellite
+        positions: (num_sats, num_times, 3) array
+        threshold: distance in km (default: 10.0)
 
     Returns:
-        (pairs, t_indices) where:
-            pairs: list of (i, j) tuples - satellite index pairs
-            t_indices: list of int - time step index for each pair detection
+        (pairs, time_indices) - pairs is list of (i, j) tuples
     """
     positions = np.ascontiguousarray(positions, dtype=np.float64)
-
-    if num_sats is None and positions.ndim == 3:
-        num_sats = positions.shape[0]
-    elif num_sats is None:
-        raise ValueError("num_sats must be provided for non-3D position arrays")
-
-    if valid_mask is not None:
-        valid_mask = np.ascontiguousarray(valid_mask, dtype=np.uint8)
-
-    return _coarse_screen(positions, num_sats, threshold, valid_mask)
+    return _coarse_screen(positions, positions.shape[0], threshold, None)
 
 
-__version__ = "0.3.0"
+__version__ = "0.4.4"
 
 __all__ = [
     "__version__",
-    "version",
     "Tle",
     "Sgp4",
-    "Sgp4Batch",
-    "Sgp4Constellation",
     "WGS84",
-    "WGS72",
+    "load_constellation",
     "propagate_constellation",
     "min_distances",
     "coarse_screen",

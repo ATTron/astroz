@@ -33,12 +33,11 @@ Sub-meter accuracy validated against reference implementations. Uses SIMD (AVX2/
 
 #### Multi-Satellite Constellation
 
-| Satellites | Time Points | Total Props | Throughput | Mode |
-|------------|-------------|-------------|------------|------|
-| 13,448 | 1,440 | 19.4M | **7.7M props/sec** | 1 thread |
-| 13,448 | 1,440 | 19.4M | **56M props/sec** | 16 threads |
+| Satellites | Time Points | Total Props | Throughput |
+|------------|-------------|-------------|------------|
+| 13,448 | 1,440 | 19.4M | **190M+ props/sec** |
 
-Multithreading scales near-linearly across physical cores. Set `ASTROZ_THREADS` environment variable to control thread count (defaults to all available cores).
+Uses SIMD to process 4 satellites per batch with multithreaded time-major iteration. Set `ASTROZ_THREADS` environment variable to control thread count (defaults to all available cores).
 
 The [Cesium visualization example](examples/README.md) propagates the entire active satellite catalog (~13,000 satellites) at interactive rates. **[Try the live demo →](https://attron.github.io/astroz-demo/)**
 
@@ -126,7 +125,7 @@ exe.root_module.addImport("astroz", astroz_mod);
 
 - #### [Cesium Satellite Visualization](examples/README.md) — **[Live Demo](https://attron.github.io/astroz-demo/)**
 
-  Interactive 3D visualization of the entire near-earth satellite catalog (~13,000 satellites) using Cesium. Features multithreaded SGP4 propagation at ~56M props/sec, constellation filtering, search, and satellite tracking.
+  Interactive 3D visualization of the entire near-earth satellite catalog (~13,000 satellites) using Cesium. Features multithreaded SGP4 propagation at ~190M props/sec, constellation filtering, search, and satellite tracking.
 
 #### Spacecraft Operations
 
