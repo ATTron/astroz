@@ -31,12 +31,19 @@ sgp4.propagate_into(times, positions, velocities)
 
 ## Performance
 
-**1.3-2.9x faster** than python-sgp4:
+**1.3-2.9x faster** than python-sgp4 for single satellite, **multithreaded constellation** propagation at 56M props/sec:
 
 | Scenario | astroz | python-sgp4 | Speedup |
 |----------|--------|-------------|---------|
 | 2 weeks (second intervals) | 160 ms | 464 ms | **2.9x** |
 | 1 month (minute intervals) | 5.9 ms | 16.1 ms | **2.7x** |
+
+| Constellation (13,448 sats × 1,440 steps) | Throughput |
+|--------------------------------------------|------------|
+| 1 thread | 7.7M props/sec |
+| 16 threads | 56M props/sec |
+
+Set `ASTROZ_THREADS` to control thread count (defaults to all cores).
 
 ## API
 
@@ -65,6 +72,32 @@ positions, velocities = sgp4.propagate_batch(times)
 
 # Batch (zero-copy) - writes directly to pre-allocated arrays
 sgp4.propagate_into(times, positions, velocities)
+```
+
+### Sgp4Constellation
+
+```python
+from astroz import Sgp4Constellation, propagate_constellation
+import numpy as np
+
+# Parse all TLEs at once
+constellation = Sgp4Constellation.from_tle_text(tle_data)
+
+# Per-satellite epoch offsets (minutes from each TLE epoch to start time)
+start_jd = 2460000.5
+epochs = np.array(constellation.epochs, dtype=np.float64)
+epoch_offsets = (start_jd - epochs) * 1440.0
+
+# Propagate with coordinate transform
+times = np.arange(1440, dtype=np.float64)
+positions = propagate_constellation(
+    constellation, times,
+    epoch_offsets=epoch_offsets,
+    output="ecef",        # "teme", "ecef", or "geodetic"
+    reference_jd=start_jd,
+    velocities=False,
+)
+# positions shape: (num_sats, num_times, 3)
 ```
 
 ## Building

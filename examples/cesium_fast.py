@@ -40,7 +40,9 @@ def download_tles():
         "https://celestrak.org/NORAD/elements/gp.php?GROUP=active&FORMAT=tle",
         headers={"User-Agent": "Mozilla/5.0 (astroz satellite-viz)"},
     )
-    data = urllib.request.urlopen(req, timeout=60).read().decode("utf-8")
+    data = (
+        urllib.request.urlopen(req, timeout=60).read().decode("utf-8").replace("\r", "")
+    )
     cache_file.write_text(data)
     return data
 

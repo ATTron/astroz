@@ -19,7 +19,7 @@
 
 ### Performance
 
-Sub-meter accuracy validated against reference implementations. Uses SIMD (AVX2/SSE) to process 4 satellites simultaneously.
+Sub-meter accuracy validated against reference implementations. Uses SIMD (AVX2/SSE) to process 4 satellites simultaneously, with multithreaded constellation propagation across all available cores.
 
 #### Single Satellite (Python)
 
@@ -33,10 +33,12 @@ Sub-meter accuracy validated against reference implementations. Uses SIMD (AVX2/
 
 #### Multi-Satellite Constellation
 
-| Satellites | Time Points | Total Props | Throughput |
-|------------|-------------|-------------|------------|
-| 100 | 10,080 | 1M | **7.9M props/sec** |
-| 13,000+ | 120 | 1.5M | **6M+ props/sec** |
+| Satellites | Time Points | Total Props | Throughput | Mode |
+|------------|-------------|-------------|------------|------|
+| 13,448 | 1,440 | 19.4M | **7.7M props/sec** | 1 thread |
+| 13,448 | 1,440 | 19.4M | **56M props/sec** | 16 threads |
+
+Multithreading scales near-linearly across physical cores. Set `ASTROZ_THREADS` environment variable to control thread count (defaults to all available cores).
 
 The [Cesium visualization example](examples/README.md) propagates the entire active satellite catalog (~13,000 satellites) at interactive rates. **[Try the live demo →](https://attron.github.io/astroz-demo/)**
 
@@ -65,12 +67,23 @@ positions = np.empty((len(times), 3), dtype=np.float64)
 velocities = np.empty((len(times), 3), dtype=np.float64)
 sgp4.propagate_into(times, positions, velocities)
 
-# Multi-satellite constellation (SIMD-accelerated)
-tles = [Tle(tle_str) for tle_str in tle_strings]
-constellation = Sgp4Constellation(tles)
+# Multi-satellite constellation (SIMD + multithreaded)
+constellation = Sgp4Constellation.from_tle_text(tle_data)
 times = np.arange(1440, dtype=np.float64)  # 1 day in minutes
-out = np.empty((len(times) * constellation.num_batches * 4 * 6,), dtype=np.float64)
-constellation.propagate_into(times, out)  # ~6M propagations/sec
+
+# Compute epoch offsets for a specific start time
+start_jd = 2460000.5  # Julian date
+epochs = np.array(constellation.epochs, dtype=np.float64)
+epoch_offsets = (start_jd - epochs) * 1440.0  # minutes
+
+# Propagate all satellites with coordinate output (TEME, ECEF, or geodetic)
+from astroz import propagate_constellation
+positions = propagate_constellation(
+    constellation, times,
+    epoch_offsets=epoch_offsets,
+    output="ecef",
+    reference_jd=start_jd,
+)  # shape: (num_sats, num_times, 3)
 ```
 
 ### Usage
@@ -113,7 +126,7 @@ exe.root_module.addImport("astroz", astroz_mod);
 
 - #### [Cesium Satellite Visualization](examples/README.md) — **[Live Demo](https://attron.github.io/astroz-demo/)**
 
-  Interactive 3D visualization of the entire near-earth satellite catalog (~13,000 satellites) using Cesium. Features real-time SGP4 propagation at ~6M props/sec, constellation filtering, search, and satellite tracking.
+  Interactive 3D visualization of the entire near-earth satellite catalog (~13,000 satellites) using Cesium. Features multithreaded SGP4 propagation at ~56M props/sec, constellation filtering, search, and satellite tracking.
 
 #### Spacecraft Operations
 
