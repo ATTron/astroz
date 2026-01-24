@@ -69,6 +69,35 @@ pub fn tupleSet(t: *c.PyObject, idx: c.Py_ssize_t, val: *c.PyObject) void {
     _ = c.PyTuple_SetItem(t, idx, val);
 }
 
+/// Check if a PyObject pointer is null or Python None.
+pub fn isNone(obj: [*c]c.PyObject) bool {
+    return obj == null or obj == @as([*c]c.PyObject, @ptrCast(@constCast(&c._Py_NoneStruct)));
+}
+
+pub fn listFromF64(data: []const f64) ?*c.PyObject {
+    const list = c.PyList_New(@intCast(data.len)) orelse return null;
+    for (data, 0..) |val, i| {
+        const obj = c.PyFloat_FromDouble(val) orelse {
+            c.Py_DECREF(list);
+            return null;
+        };
+        _ = c.PyList_SetItem(list, @intCast(i), obj);
+    }
+    return list;
+}
+
+pub fn listFromU32(data: []const u32) ?*c.PyObject {
+    const list = c.PyList_New(@intCast(data.len)) orelse return null;
+    for (data, 0..) |val, i| {
+        const obj = c.PyLong_FromUnsignedLong(@as(c_ulong, val)) orelse {
+            c.Py_DECREF(list);
+            return null;
+        };
+        _ = c.PyList_SetItem(list, @intCast(i), obj);
+    }
+    return list;
+}
+
 pub fn vec3Tuple(v: [3]f64) ?*c.PyObject {
     const t = tuple(3) orelse return null;
     tupleSet(t, 0, float(v[0]) orelse {

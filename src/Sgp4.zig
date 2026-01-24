@@ -948,6 +948,9 @@ pub const ElementsV4 = struct {
     // Per-satellite simplified drag model flag (1.0 = simplified, 0.0 = full)
     isimpMask: Vec4,
 
+    // Julian dates of TLE epochs for each satellite
+    epochJd: Vec4,
+
     // Pre-splatted constants (computed once at init, eliminates repeated splats)
     // Gravity model constants
     xke: Vec4, // @splat(grav.xke)
@@ -1022,6 +1025,7 @@ pub fn initElementsV4(tles: [4]Tle, grav: constants.Sgp4GravityModel) Error!Elem
             if (els[2].isimp) 1.0 else 0.0,
             if (els[3].isimp) 1.0 else 0.0,
         },
+        .epochJd = Vec4{ els[0].epochJd, els[1].epochJd, els[2].epochJd, els[3].epochJd },
         // Pre-splatted constants (computed once, eliminates repeated splats in hot path)
         .xke = @splat(grav.xke),
         .j2 = @splat(grav.j2),
@@ -1040,7 +1044,12 @@ pub fn initElementsV4(tles: [4]Tle, grav: constants.Sgp4GravityModel) Error!Elem
 /// This is the satellite-batched complement to propagateV4 (which is time-batched).
 pub inline fn propagateSatellitesV4(el: *const ElementsV4, tsince: f64) Error![4][2][3]f64 {
     const tsinceVec: Vec4 = @splat(tsince);
+    return propagateSatellitesV4Vec(el, tsinceVec);
+}
 
+/// Propagate 4 satellites with per-satellite time offsets (Vec4).
+/// Same as propagateSatellitesV4 but takes a Vec4 of per-satellite times.
+pub inline fn propagateSatellitesV4Vec(el: *const ElementsV4, tsinceVec: Vec4) Error![4][2][3]f64 {
     const secular = updateSecularSatV4(el, tsinceVec);
 
     const decayed = secular.em < el.eccFloor;
@@ -1235,54 +1244,149 @@ inline fn computePositionVelocitySatV4(el: *const ElementsV4, state: CorrectedSt
 }
 
 /// Propagate multiple batches of 4 satellites across multiple time points.
-pub fn propagateConstellationV4(
+/// Output coordinate modes for propagation.
+pub const OutputMode = enum(u8) {
+    teme = 0,
+    ecef = 1,
+    geodetic = 2,
+};
+
+/// Propagate constellation with per-satellite epoch offsets and coordinate output
+pub fn propagateConstellationWithOffsets(
     batches: []const ElementsV4,
+    num_satellites: usize,
     times: []const f64,
-    results: []f64,
+    epoch_offsets: []const f64,
+    results_pos: []f64,
+    results_vel: ?[]f64,
+    output_mode: OutputMode,
+    reference_jd: f64,
+    satellite_mask: ?[]const u8,
 ) Error!void {
-    const numBatches = batches.len;
     const numTimes = times.len;
 
-    // Validate output buffer size
-    const requiredSize = numBatches * numTimes * 4 * 6;
-    if (results.len < requiredSize) {
-        return Error.SatelliteDecayed; // Reuse existing error for now
+    // Validate output buffer sizes
+    const requiredPosSize = num_satellites * numTimes * 3;
+    if (results_pos.len < requiredPosSize) {
+        return Error.SatelliteDecayed;
+    }
+    if (results_vel) |rv| {
+        if (rv.len < requiredPosSize) {
+            return Error.SatelliteDecayed;
+        }
     }
 
-    // Time tile size tuned for L1 cache (~32KB)
-    // Each time point produces 24 f64s (4 sats × 6 values) = 192 bytes
-    // Plus ElementsV4 (~600 bytes) should fit comfortably in L1
-    const TILE_SIZE: usize = 64;
+    // Dispatch on output_mode to generate specialized inner loops (no runtime branches).
+    const has_vel = results_vel != null;
+    inline for (.{ .teme, .ecef, .geodetic }) |mode| {
+        if (output_mode == mode) {
+            if (has_vel) {
+                try propagateInner(mode, true, batches, num_satellites, times, epoch_offsets, results_pos, results_vel, reference_jd, satellite_mask);
+            } else {
+                try propagateInner(mode, false, batches, num_satellites, times, epoch_offsets, results_pos, null, reference_jd, satellite_mask);
+            }
+        }
+    }
+}
 
-    // Process in tiles over time to keep data in L1/L2 cache
-    // For each time tile, process all batches before moving to next tile
-    var timeStart: usize = 0;
-    while (timeStart < numTimes) {
-        const timeEnd = @min(timeStart + TILE_SIZE, numTimes);
+fn propagateInner(
+    comptime mode: OutputMode,
+    comptime has_vel: bool,
+    batches: []const ElementsV4,
+    num_satellites: usize,
+    times: []const f64,
+    epoch_offsets: []const f64,
+    results_pos: []f64,
+    results_vel: ?[]f64,
+    reference_jd: f64,
+    satellite_mask: ?[]const u8,
+) Error!void {
+    const WCS = @import("WorldCoordinateSystem.zig");
+    const numTimes = times.len;
 
-        // Process all batches for this time tile
-        for (batches, 0..) |*batch, batchIdx| {
-            const batchOffset = batchIdx * numTimes * 24;
+    for (batches, 0..) |*batch, batchIdx| {
+        if (satellite_mask) |mask| {
+            const base = batchIdx * 4;
+            var any_active = false;
+            inline for (0..4) |s| {
+                if (base + s < num_satellites and mask[base + s] != 0) {
+                    any_active = true;
+                }
+            }
+            if (!any_active) continue;
+        }
 
-            for (timeStart..timeEnd) |timeIdx| {
-                const satResults = try propagateSatellitesV4(batch, times[timeIdx]);
+        const offsetBase = batchIdx * 4;
+        const batchOffsets = Vec4{
+            epoch_offsets[offsetBase],
+            epoch_offsets[offsetBase + 1],
+            epoch_offsets[offsetBase + 2],
+            epoch_offsets[offsetBase + 3],
+        };
 
-                const timeOffset = timeIdx * 24;
-                const base = batchOffset + timeOffset;
+        var active: [4]bool = undefined;
+        inline for (0..4) |s| {
+            const satIdx = batchIdx * 4 + s;
+            active[s] = if (satellite_mask) |mask|
+                (satIdx < num_satellites and mask[satIdx] != 0)
+            else
+                (satIdx < num_satellites);
+        }
 
+        for (0..numTimes) |timeIdx| {
+            const baseTime: Vec4 = @splat(times[timeIdx]);
+            const satResults = try propagateSatellitesV4Vec(batch, baseTime + batchOffsets);
+
+            var pos: [4][3]f64 = undefined;
+            var vel: [4][3]f64 = undefined;
+
+            if (mode == .ecef or mode == .geodetic) {
+                const gmst = WCS.julianToGmst(reference_jd + times[timeIdx] / 1440.0);
+                const ecef = WCS.eciToEcefV4(
+                    .{ satResults[0][0][0], satResults[1][0][0], satResults[2][0][0], satResults[3][0][0] },
+                    .{ satResults[0][0][1], satResults[1][0][1], satResults[2][0][1], satResults[3][0][1] },
+                    .{ satResults[0][0][2], satResults[1][0][2], satResults[2][0][2], satResults[3][0][2] },
+                    gmst,
+                );
                 inline for (0..4) |s| {
-                    const satBase = base + s * 6;
-                    results[satBase + 0] = satResults[s][0][0];
-                    results[satBase + 1] = satResults[s][0][1];
-                    results[satBase + 2] = satResults[s][0][2];
-                    results[satBase + 3] = satResults[s][1][0];
-                    results[satBase + 4] = satResults[s][1][1];
-                    results[satBase + 5] = satResults[s][1][2];
+                    if (mode == .geodetic) {
+                        pos[s] = WCS.ecefToGeodetic(.{ ecef.x[s], ecef.y[s], ecef.z[s] });
+                    } else {
+                        pos[s] = .{ ecef.x[s], ecef.y[s], ecef.z[s] };
+                    }
+                }
+                if (has_vel) {
+                    const ve = WCS.eciToEcefV4(
+                        .{ satResults[0][1][0], satResults[1][1][0], satResults[2][1][0], satResults[3][1][0] },
+                        .{ satResults[0][1][1], satResults[1][1][1], satResults[2][1][1], satResults[3][1][1] },
+                        .{ satResults[0][1][2], satResults[1][1][2], satResults[2][1][2], satResults[3][1][2] },
+                        gmst,
+                    );
+                    inline for (0..4) |s| {
+                        vel[s] = .{ ve.x[s], ve.y[s], ve.z[s] };
+                    }
+                }
+            } else {
+                inline for (0..4) |s| {
+                    pos[s] = satResults[s][0];
+                    if (has_vel) vel[s] = satResults[s][1];
+                }
+            }
+
+            inline for (0..4) |s| {
+                if (active[s]) {
+                    const outBase = (batchIdx * 4 + s) * numTimes * 3 + timeIdx * 3;
+                    results_pos[outBase] = pos[s][0];
+                    results_pos[outBase + 1] = pos[s][1];
+                    results_pos[outBase + 2] = pos[s][2];
+                    if (has_vel) {
+                        results_vel.?[outBase] = vel[s][0];
+                        results_vel.?[outBase + 1] = vel[s][1];
+                        results_vel.?[outBase + 2] = vel[s][2];
+                    }
                 }
             }
         }
-
-        timeStart = timeEnd;
     }
 }
 
