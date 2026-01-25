@@ -21,22 +21,27 @@
 
 Sub-meter accuracy validated against reference implementations. Uses SIMD (AVX2/SSE) to process 4 satellites simultaneously, with multithreaded constellation propagation across all available cores.
 
-#### Single Satellite (Python)
+#### Single-Threaded (1.2M propagations, single satellite)
 
-| Scenario | astroz | python-sgp4 | Speedup |
-|----------|--------|-------------|---------|
-| 1 day (minute res) | 0.24 ms | 0.65 ms | **2.7x** |
-| 1 week (minute res) | 1.99 ms | 3.41 ms | **1.7x** |
-| 2 weeks (minute res) | 3.22 ms | 7.00 ms | **2.2x** |
-| 2 weeks (second res) | 144 ms | 438 ms | **3.0x** |
-| 1 month (minute res) | 5.29 ms | 14.84 ms | **2.8x** |
+| Implementation | Props/sec | Speedup vs python-sgp4 |
+|----------------|-----------|------------------------|
+| **astroz** | **30.8M** | **11x** |
+| Rust sgp4 | 5.1M | 1.8x |
+| heyoka | 3.8M | 1.3x |
+| satkit | 3.5M | 1.2x |
+| python-sgp4 | 2.8M | 1x |
 
-#### Multi-Satellite Constellation
+#### Multi-Threaded Constellation (13,478 satellites × 1,440 times)
 
-| Mode | Throughput |
-|------|------------|
-| Single-core (SIMD) | **22M props/sec** |
-| Multithreaded | **200M+ props/sec** |
+| Implementation | 1 Thread | 16 Threads |
+|----------------|----------|------------|
+| **astroz** | 30.8M/s | **212.1M/s** |
+| heyoka | 15.7M/s | 155.6M/s |
+| Rust sgp4 (rayon) | 4.4M/s | 47.9M/s |
+| satkit | 3.5M/s | 3.5M/s |
+| python-sgp4 | 2.7M/s | 2.7M/s |
+
+*Benchmarked on AMD Ryzen 7 7840U (16 threads). All implementations using their optimal configurations (SIMD, pre-allocated outputs, batch mode).*
 
 Uses SIMD (AVX2/SSE) to process 4 satellites per batch with optional multithreaded time-major iteration. Validated against Vallado AIAA 2006-6753 reference vectors (< 10m position error, < 1µm/s velocity error). Set `ASTROZ_THREADS` environment variable to control thread count (defaults to all available cores).
 
@@ -128,7 +133,7 @@ exe.root_module.addImport("astroz", astroz_mod);
 
 - #### [Cesium Satellite Visualization](examples/README.md) — **[Live Demo](https://attron.github.io/astroz-demo/)**
 
-  Interactive 3D visualization of the entire near-earth satellite catalog (~13,000 satellites) using Cesium. Features multithreaded SGP4 propagation at ~190M props/sec, constellation filtering, search, and satellite tracking.
+  Interactive 3D visualization of the entire near-earth satellite catalog (~13,000 satellites) using Cesium. Features multithreaded SGP4 propagation at ~210M props/sec, constellation filtering, search, and satellite tracking.
 
 #### Spacecraft Operations
 
