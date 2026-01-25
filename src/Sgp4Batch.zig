@@ -134,7 +134,7 @@ pub inline fn propagateSatellitesV4(el: *const ElementsV4, tsince: f64) Error![4
     return results;
 }
 
-/// Core propagation - returns Vec4 directly (hot path)
+/// Core propagation, returns Vec4 directly (hot path)
 pub inline fn propagateBatchV4Direct(el: *const ElementsV4, tsince: Vec4) Error!PositionVelocityV4 {
     // Secular update
     const t2 = tsince * tsince;
@@ -168,10 +168,9 @@ pub inline fn propagateBatchV4Direct(el: *const ElementsV4, tsince: Vec4) Error!
 
     if (@reduce(.Or, em < eccFloor)) return Error.SatelliteDecayed;
 
-    mm = mm + el.noUnkozai * templ;
+    mm = simdMath.modTwoPiV4(mm + el.noUnkozai * templ);
     nodem = simdMath.modTwoPiV4(nodem);
     argpm = simdMath.modTwoPiV4(argpm);
-    mm = simdMath.modTwoPiV4(mm + argpm + nodem - argpm - nodem);
 
     // Kepler solve
     const temp = one / (am * (one - em * em));
@@ -189,10 +188,8 @@ pub inline fn propagateBatchV4Direct(el: *const ElementsV4, tsince: Vec4) Error!
         const sc = simdMath.sincosV4(eo1);
         sineo1 = sc.sin;
         coseo1 = sc.cos;
-        var delta = (u - aynl * coseo1 + axnl * sineo1 - eo1) / (one - coseo1 * axnl - sineo1 * aynl);
-        delta = @select(f64, delta > clampVal, clampVal, delta);
-        delta = @select(f64, delta < -clampVal, -clampVal, delta);
-        eo1 = eo1 + delta;
+        const delta = (u - aynl * coseo1 + axnl * sineo1 - eo1) / (one - coseo1 * axnl - sineo1 * aynl);
+        eo1 = eo1 + @max(-clampVal, @min(clampVal, delta));
         if (@reduce(.And, @abs(delta) < tolerance)) break;
     }
 
@@ -224,7 +221,7 @@ pub inline fn propagateBatchV4Direct(el: *const ElementsV4, tsince: Vec4) Error!
     const xnode = nodem + oneHalf * temp2 * el.cosio * sin2u;
     const xinc = el.inclo + oneHalf * temp2 * el.cosio * el.sinio * cos2u;
     const mvt = rdotl - nm * temp1 * el.x1mth2 * sin2u / el.xke;
-    const rvdot = rvdotl + nm * temp1 * (el.x1mth2 * cos2u + half * el.con41) / el.xke;
+    const rvdot = rvdotl + nm * temp1 * (el.x1mth2 * cos2u + oneHalf * el.con41) / el.xke;
 
     // Position/velocity
     const suSC = simdMath.sincosV4(su);
@@ -267,14 +264,79 @@ test "SIMD matches scalar" {
 
     const elsV4 = try initElementsV4(tles, constants.wgs84);
 
+    // Tolerances: position < 1m, velocity < 1µm/s
     for ([_]f64{ 0.0, 10.0, 60.0, 1440.0 }) |t| {
         const simd = try propagateSatellitesV4(&elsV4, t);
         for (0..4) |i| {
             const scalar = try (try Sgp4.init(tles[i], constants.wgs84)).propagate(t);
             for (0..3) |j| {
-                try std.testing.expectApproxEqAbs(scalar[0][j], simd[i][0][j], 2e-3);
-                try std.testing.expectApproxEqAbs(scalar[1][j], simd[i][1][j], 2e-3);
+                try std.testing.expectApproxEqAbs(scalar[0][j], simd[i][0][j], 1e-3);
+                try std.testing.expectApproxEqAbs(scalar[1][j], simd[i][1][j], 1e-6);
             }
         }
+    }
+}
+
+test "Vallado AIAA 2006-6753 near-earth vectors" {
+    // Test against official Vallado reference vectors (AIAA 2006-6753, tcppver.out)
+    const allocator = std.testing.allocator;
+
+    // Satellite 00005 - Vanguard 1 (high eccentricity test case)
+    const tle00005 =
+        \\1 00005U 58002B   00179.78495062  .00000023  00000-0  28098-4 0  4753
+        \\2 00005  34.2682 348.7242 1859667 331.7664  19.3264 10.82419157413667
+    ;
+
+    // Satellite 06251 - Delta 1 Deb (normal drag test case)
+    const tle06251 =
+        \\1 06251U 62025E   06176.82412014  .00008885  00000-0  12808-3 0  3985
+        \\2 06251  58.0579  54.0425 0030035 139.1568 221.1854 15.56387291  6774
+    ;
+
+    var t1 = try Tle.parse(tle00005, allocator);
+    defer t1.deinit();
+    var t2 = try Tle.parse(tle06251, allocator);
+    defer t2.deinit();
+
+    const tles: [4]Tle = .{ t1, t2, t1, t2 };
+    const elsV4 = try initElementsV4(tles, constants.wgs72);
+
+    // Vallado reference: sat 00005 at t=0
+    // r = (7022.46529266, -1400.08296755, 0.03995155) km
+    // v = (1.893841015, 6.405893759, 4.534807250) km/s
+    {
+        const result = try propagateSatellitesV4(&elsV4, 0.0);
+        try std.testing.expectApproxEqAbs(@as(f64, 7022.46529266), result[0][0][0], 0.01);
+        try std.testing.expectApproxEqAbs(@as(f64, -1400.08296755), result[0][0][1], 0.01);
+        try std.testing.expectApproxEqAbs(@as(f64, 0.03995155), result[0][0][2], 0.01);
+        try std.testing.expectApproxEqAbs(@as(f64, 1.893841015), result[0][1][0], 1e-6);
+        try std.testing.expectApproxEqAbs(@as(f64, 6.405893759), result[0][1][1], 1e-6);
+        try std.testing.expectApproxEqAbs(@as(f64, 4.534807250), result[0][1][2], 1e-6);
+    }
+
+    // Vallado reference: sat 00005 at t=360 min
+    // r = (-7154.03120202, -3783.17682504, -3536.19412294) km
+    // v = (4.741887409, -4.151817765, -2.093935425) km/s
+    {
+        const result = try propagateSatellitesV4(&elsV4, 360.0);
+        try std.testing.expectApproxEqAbs(@as(f64, -7154.03120202), result[0][0][0], 0.01);
+        try std.testing.expectApproxEqAbs(@as(f64, -3783.17682504), result[0][0][1], 0.01);
+        try std.testing.expectApproxEqAbs(@as(f64, -3536.19412294), result[0][0][2], 0.01);
+        try std.testing.expectApproxEqAbs(@as(f64, 4.741887409), result[0][1][0], 1e-6);
+        try std.testing.expectApproxEqAbs(@as(f64, -4.151817765), result[0][1][1], 1e-6);
+        try std.testing.expectApproxEqAbs(@as(f64, -2.093935425), result[0][1][2], 1e-6);
+    }
+
+    // Vallado reference: sat 06251 at t=0
+    // r = (3988.31022699, 5498.96657235, 0.90055879) km
+    // v = (-3.290032738, 2.357652820, 6.496623475) km/s
+    {
+        const result = try propagateSatellitesV4(&elsV4, 0.0);
+        try std.testing.expectApproxEqAbs(@as(f64, 3988.31022699), result[1][0][0], 0.01);
+        try std.testing.expectApproxEqAbs(@as(f64, 5498.96657235), result[1][0][1], 0.01);
+        try std.testing.expectApproxEqAbs(@as(f64, 0.90055879), result[1][0][2], 0.01);
+        try std.testing.expectApproxEqAbs(@as(f64, -3.290032738), result[1][1][0], 1e-6);
+        try std.testing.expectApproxEqAbs(@as(f64, 2.357652820), result[1][1][1], 1e-6);
+        try std.testing.expectApproxEqAbs(@as(f64, 6.496623475), result[1][1][2], 1e-6);
     }
 }
