@@ -94,7 +94,7 @@ jobs:
 
       - name: Test import and basic functionality
         run: |
-          python -c "from astroz import Tle, Sgp4, version; print(f'astroz {version()}')"
+          python -c "from astroz import Tle, Sgp4, __version__; print(f'astroz {__version__}')"
           python -c "
           from astroz import Tle, Sgp4
           import numpy as np

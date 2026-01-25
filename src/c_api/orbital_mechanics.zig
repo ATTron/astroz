@@ -16,17 +16,17 @@ pub const HohmannResult = extern struct {
 };
 
 pub fn hohmann(mu: f64, r1: f64, r2: f64, out: *HohmannResult) err.Code {
-    if (r1 <= 0 or r2 <= 0) return .value_error;
-    if (@abs(r1 - r2) < 1000) return .value_error;
+    if (r1 <= 0 or r2 <= 0) return .valueError;
+    if (@abs(r1 - r2) < 1000) return .valueError;
 
     const result = calc.hohmannTransfer(mu, r1, r2);
     out.* = .{
-        .semi_major_axis = result.semi_major_axis,
-        .delta_v1 = result.delta_v1,
-        .delta_v2 = result.delta_v2,
-        .total_delta_v = result.total_delta_v,
-        .transfer_time = result.transfer_time,
-        .transfer_time_days = result.transfer_time / constants.seconds_per_day,
+        .semi_major_axis = result.semiMajorAxis,
+        .delta_v1 = result.deltaV1,
+        .delta_v2 = result.deltaV2,
+        .total_delta_v = result.totalDeltaV,
+        .transfer_time = result.transferTime,
+        .transfer_time_days = result.transferTime / constants.secondsPerDay,
     };
     return .ok;
 }

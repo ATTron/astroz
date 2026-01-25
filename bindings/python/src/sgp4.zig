@@ -7,12 +7,25 @@ const astroz = @import("astroz");
 const Sgp4 = astroz.Sgp4;
 const tle_mod = @import("tle.zig");
 
+const allocator = std.heap.c_allocator;
+
+// Common error message for SGP4 init errors
+fn sgp4ErrorMsg(e: Sgp4.Error) [:0]const u8 {
+    return switch (e) {
+        Sgp4.Error.DeepSpaceNotSupported => "Deep space not supported",
+        Sgp4.Error.InvalidEccentricity => "Invalid eccentricity",
+        Sgp4.Error.SatelliteDecayed => "Satellite decayed",
+    };
+}
+
+fn getGravity(grav_model: c_int) @TypeOf(astroz.constants.wgs84) {
+    return if (grav_model == 1) astroz.constants.wgs72 else astroz.constants.wgs84;
+}
+
 pub const Sgp4Object = extern struct {
     ob_base: c.PyObject,
     sgp4: ?*Sgp4,
 };
-
-const allocator = std.heap.c_allocator;
 pub var Sgp4Type: c.PyTypeObject = undefined;
 
 // Class constants
@@ -58,13 +71,8 @@ fn sgp4_init(self_obj: [*c]c.PyObject, args: [*c]c.PyObject, kwds: [*c]c.PyObjec
 
     if (self.sgp4) |old| allocator.destroy(old);
 
-    const grav = if (grav_model == 1) astroz.constants.wgs72 else astroz.constants.wgs84;
-    const sgp4 = Sgp4.init(tle.*, grav) catch |e| {
-        py.raiseValue(switch (e) {
-            Sgp4.Error.DeepSpaceNotSupported => "Deep space not supported",
-            Sgp4.Error.InvalidEccentricity => "Invalid eccentricity",
-            Sgp4.Error.SatelliteDecayed => "Satellite decayed",
-        });
+    const sgp4 = Sgp4.init(tle.*, getGravity(grav_model)) catch |e| {
+        py.raiseValue(sgp4ErrorMsg(e));
         return -1;
     };
 
@@ -259,13 +267,8 @@ fn sgp4batch_init(self_obj: [*c]c.PyObject, args: [*c]c.PyObject, kwds: [*c]c.Py
 
     if (self.elements) |old| allocator.destroy(old);
 
-    const grav = if (grav_model == 1) astroz.constants.wgs72 else astroz.constants.wgs84;
-    const elements = Sgp4.initElementsV4(tles, grav) catch |e| {
-        py.raiseValue(switch (e) {
-            Sgp4.Error.DeepSpaceNotSupported => "Deep space not supported",
-            Sgp4.Error.InvalidEccentricity => "Invalid eccentricity",
-            Sgp4.Error.SatelliteDecayed => "Satellite decayed",
-        });
+    const elements = Sgp4.initElementsV4(tles, getGravity(grav_model)) catch |e| {
+        py.raiseValue(sgp4ErrorMsg(e));
         return -1;
     };
 
@@ -511,11 +514,7 @@ fn buildBatches(tles: []const astroz.Tle, grav: anytype) ?BatchResult {
         }
         batches[batch_idx] = Sgp4.initElementsV4(batch_tles, grav) catch |e| {
             allocator.free(batches);
-            py.raiseValue(switch (e) {
-                Sgp4.Error.DeepSpaceNotSupported => "Deep space not supported",
-                Sgp4.Error.InvalidEccentricity => "Invalid eccentricity",
-                Sgp4.Error.SatelliteDecayed => "Satellite decayed",
-            });
+            py.raiseValue(sgp4ErrorMsg(e));
             return null;
         };
     }
@@ -545,8 +544,83 @@ fn constellation_dealloc(self_obj: [*c]c.PyObject) callconv(.c) void {
     if (c.Py_TYPE(self_obj)) |tp| if (tp.*.tp_free) |free| free(@ptrCast(self));
 }
 
+fn parseOutputMode(output_str: [*c]const u8, output_str_len: c.Py_ssize_t) ?Sgp4.OutputMode {
+    if (output_str == null or output_str_len <= 0) return .teme;
+    const mode = output_str[0..@intCast(output_str_len)];
+    if (std.mem.eql(u8, mode, "teme")) return .teme;
+    if (std.mem.eql(u8, mode, "ecef")) return .ecef;
+    if (std.mem.eql(u8, mode, "geodetic")) return .geodetic;
+    py.raiseValue("output must be 'teme', 'ecef', or 'geodetic'");
+    return null;
+}
+
+/// Result of preparing a padded array from Python input
+const PaddedArray = struct {
+    data: []f64,
+    owned: bool,
+
+    fn deinit(self: *@This()) void {
+        if (self.owned) allocator.free(self.data);
+    }
+};
+
+/// Prepare epoch offsets: pad to padded_count, or create zeros if not provided
+fn prepareOffsets(obj: [*c]c.PyObject, buf: *c.Py_buffer, num_sats: usize, padded_count: usize) ?PaddedArray {
+    if (py.isNone(obj)) {
+        const zeros = allocator.alloc(f64, padded_count) catch {
+            py.raiseRuntime("Out of memory");
+            return null;
+        };
+        @memset(zeros, 0.0);
+        return .{ .data = zeros, .owned = true };
+    }
+
+    if (c.PyObject_GetBuffer(obj, buf, c.PyBUF_SIMPLE | c.PyBUF_FORMAT) < 0) return null;
+    const ptr: [*]const f64 = @ptrCast(@alignCast(buf.buf));
+    const len = @as(usize, @intCast(buf.len)) / @sizeOf(f64);
+
+    if (len >= padded_count) {
+        return .{ .data = @constCast(ptr[0..padded_count]), .owned = false };
+    } else if (len >= num_sats) {
+        const padded = allocator.alloc(f64, padded_count) catch {
+            py.raiseRuntime("Out of memory");
+            return null;
+        };
+        @memcpy(padded[0..num_sats], ptr[0..num_sats]);
+        @memset(padded[num_sats..padded_count], 0.0);
+        return .{ .data = padded, .owned = true };
+    }
+    py.raiseValue("epoch_offsets must have at least num_satellites elements");
+    return null;
+}
+
+/// Prepare satellite mask: pad to padded_count if provided
+fn prepareMask(obj: [*c]c.PyObject, buf: *c.Py_buffer, num_sats: usize, padded_count: usize) struct { mask: ?[]const u8, owned: ?[]u8 } {
+    if (py.isNone(obj)) return .{ .mask = null, .owned = null };
+
+    if (c.PyObject_GetBuffer(obj, buf, c.PyBUF_SIMPLE | c.PyBUF_FORMAT) < 0) return .{ .mask = null, .owned = null };
+    const ptr: [*]const u8 = @ptrCast(@alignCast(buf.buf));
+    const len = @as(usize, @intCast(buf.len));
+
+    if (len >= padded_count) {
+        return .{ .mask = ptr[0..padded_count], .owned = null };
+    } else if (len >= num_sats) {
+        const padded = allocator.alloc(u8, padded_count) catch {
+            py.raiseRuntime("Out of memory");
+            return .{ .mask = null, .owned = null };
+        };
+        @memcpy(padded[0..num_sats], ptr[0..num_sats]);
+        @memset(padded[num_sats..padded_count], 0);
+        return .{ .mask = padded, .owned = padded };
+    }
+    py.raiseValue("satellite_mask must have at least num_satellites elements");
+    return .{ .mask = null, .owned = null };
+}
+
 fn constellation_propagate_into(self_obj: [*c]c.PyObject, args: [*c]c.PyObject, kwds: [*c]c.PyObject) callconv(.c) [*c]c.PyObject {
     const self: *Sgp4ConstellationObject = @ptrCast(@alignCast(self_obj));
+
+    // Parse arguments
     var times_obj: [*c]c.PyObject = null;
     var pos_obj: [*c]c.PyObject = null;
     var vel_obj: [*c]c.PyObject = null;
@@ -555,180 +629,80 @@ fn constellation_propagate_into(self_obj: [*c]c.PyObject, args: [*c]c.PyObject, 
     var output_str: [*c]const u8 = null;
     var output_str_len: c.Py_ssize_t = 0;
     var reference_jd: f64 = 0.0;
-    const kwlist = [_:null]?[*:0]const u8{
-        "times", "positions", "velocities", "epoch_offsets", "satellite_mask", "output", "reference_jd", null,
-    };
-    if (c.PyArg_ParseTupleAndKeywords(
-        args,
-        kwds,
-        "OO|OOOs#d",
-        @ptrCast(@constCast(&kwlist)),
-        &times_obj,
-        &pos_obj,
-        &vel_obj,
-        &offsets_obj,
-        &mask_obj,
-        &output_str,
-        &output_str_len,
-        &reference_jd,
-    ) == 0) return null;
+    var time_major: c_int = 0;
 
-    const batches_ptr = self.batches orelse {
+    const kwlist = [_:null]?[*:0]const u8{
+        "times", "positions", "velocities", "epoch_offsets", "satellite_mask", "output", "reference_jd", "time_major", null,
+    };
+    if (c.PyArg_ParseTupleAndKeywords(args, kwds, "OO|OOOs#di", @ptrCast(@constCast(&kwlist)), &times_obj, &pos_obj, &vel_obj, &offsets_obj, &mask_obj, &output_str, &output_str_len, &reference_jd, &time_major) == 0)
+        return null;
+
+    const batches = (self.batches orelse {
         py.raiseRuntime("Constellation not initialized");
         return null;
-    };
-    const batches = batches_ptr[0..self.num_batches];
+    })[0..self.num_batches];
 
-    // Parse output mode
-    var output_mode: Sgp4.OutputMode = .teme;
-    if (output_str != null and output_str_len > 0) {
-        const mode_slice = output_str[0..@intCast(output_str_len)];
-        if (std.mem.eql(u8, mode_slice, "teme")) {
-            output_mode = .teme;
-        } else if (std.mem.eql(u8, mode_slice, "ecef")) {
-            output_mode = .ecef;
-        } else if (std.mem.eql(u8, mode_slice, "geodetic")) {
-            output_mode = .geodetic;
-        } else {
-            py.raiseValue("output must be 'teme', 'ecef', or 'geodetic'");
-            return null;
-        }
-    }
+    const output_mode = parseOutputMode(output_str, output_str_len) orelse return null;
 
-    // Get times buffer
+    // Get buffers
     var times_buf = std.mem.zeroes(c.Py_buffer);
+    var pos_buf = std.mem.zeroes(c.Py_buffer);
+    var vel_buf = std.mem.zeroes(c.Py_buffer);
+    var offsets_buf = std.mem.zeroes(c.Py_buffer);
+    var mask_buf = std.mem.zeroes(c.Py_buffer);
+
     if (c.PyObject_GetBuffer(times_obj, &times_buf, c.PyBUF_SIMPLE | c.PyBUF_FORMAT) < 0) return null;
     defer c.PyBuffer_Release(&times_buf);
 
-    const num_times = @as(usize, @intCast(times_buf.len)) / @sizeOf(f64);
-    const times: [*]const f64 = @ptrCast(@alignCast(times_buf.buf));
-
-    // Get positions buffer
-    var pos_buf = std.mem.zeroes(c.Py_buffer);
     if (c.PyObject_GetBuffer(pos_obj, &pos_buf, c.PyBUF_WRITABLE | c.PyBUF_FORMAT) < 0) return null;
     defer c.PyBuffer_Release(&pos_buf);
 
-    const required_pos_size = self.num_satellites * num_times * 3 * @sizeOf(f64);
-    if (@as(usize, @intCast(pos_buf.len)) < required_pos_size) {
-        py.raiseValue("positions array too small (need num_satellites * num_times * 3)");
+    const num_times = @as(usize, @intCast(times_buf.len)) / @sizeOf(f64);
+    const required_size = self.num_satellites * num_times * 3 * @sizeOf(f64);
+
+    if (@as(usize, @intCast(pos_buf.len)) < required_size) {
+        py.raiseValue("positions array too small");
         return null;
     }
-    const pos_out: [*]f64 = @ptrCast(@alignCast(pos_buf.buf));
 
-    // Get optional velocities buffer
-    var vel_buf = std.mem.zeroes(c.Py_buffer);
-    var vel_out: ?[*]f64 = null;
+    // Optional velocities
     var have_vel = false;
     if (!py.isNone(vel_obj)) {
         if (c.PyObject_GetBuffer(vel_obj, &vel_buf, c.PyBUF_WRITABLE | c.PyBUF_FORMAT) < 0) return null;
         have_vel = true;
-        if (@as(usize, @intCast(vel_buf.len)) < required_pos_size) {
+        if (@as(usize, @intCast(vel_buf.len)) < required_size) {
             c.PyBuffer_Release(&vel_buf);
-            py.raiseValue("velocities array too small (need num_satellites * num_times * 3)");
+            py.raiseValue("velocities array too small");
             return null;
         }
-        vel_out = @ptrCast(@alignCast(vel_buf.buf));
     }
     defer if (have_vel) c.PyBuffer_Release(&vel_buf);
 
-    // Get epoch offsets - use zeros if not provided
-    // Accepts either num_satellites or padded_count length arrays; pads internally.
-    var offsets_buf = std.mem.zeroes(c.Py_buffer);
-    var have_offsets = false;
-    var padded_offsets: []f64 = undefined;
-    var own_offsets = false;
+    // Prepare padded arrays
+    var offsets = prepareOffsets(offsets_obj, &offsets_buf, self.num_satellites, self.padded_count) orelse return null;
+    defer offsets.deinit();
+    defer if (!offsets.owned) c.PyBuffer_Release(&offsets_buf);
 
-    if (!py.isNone(offsets_obj)) {
-        if (c.PyObject_GetBuffer(offsets_obj, &offsets_buf, c.PyBUF_SIMPLE | c.PyBUF_FORMAT) < 0) {
-            return null;
-        }
-        have_offsets = true;
-        const offsets_ptr: [*]const f64 = @ptrCast(@alignCast(offsets_buf.buf));
-        const offsets_len = @as(usize, @intCast(offsets_buf.len)) / @sizeOf(f64);
+    const mask_result = prepareMask(mask_obj, &mask_buf, self.num_satellites, self.padded_count);
+    defer if (mask_result.owned) |m| allocator.free(m);
+    defer if (mask_result.mask != null and mask_result.owned == null) c.PyBuffer_Release(&mask_buf);
 
-        if (offsets_len >= self.padded_count) {
-            // Already padded or exact padded size — use directly
-            padded_offsets = @constCast(offsets_ptr[0..self.padded_count]);
-        } else if (offsets_len >= self.num_satellites) {
-            // User passed num_satellites-length array — pad to padded_count with zeros
-            const buf = allocator.alloc(f64, self.padded_count) catch {
-                c.PyBuffer_Release(&offsets_buf);
-                py.raiseRuntime("Out of memory");
-                return null;
-            };
-            @memcpy(buf[0..self.num_satellites], offsets_ptr[0..self.num_satellites]);
-            @memset(buf[self.num_satellites..self.padded_count], 0.0);
-            padded_offsets = buf;
-            own_offsets = true;
-        } else {
-            c.PyBuffer_Release(&offsets_buf);
-            py.raiseValue("epoch_offsets must have at least num_satellites elements");
-            return null;
-        }
-    } else {
-        // No offsets — allocate zeros
-        const zeros = allocator.alloc(f64, self.padded_count) catch {
-            py.raiseRuntime("Out of memory");
-            return null;
-        };
-        @memset(zeros, 0.0);
-        padded_offsets = zeros;
-        own_offsets = true;
-    }
-    defer if (have_offsets) c.PyBuffer_Release(&offsets_buf);
-    defer if (own_offsets) allocator.free(padded_offsets);
+    // Build slices and propagate
+    const times: [*]const f64 = @ptrCast(@alignCast(times_buf.buf));
+    const pos_out: [*]f64 = @ptrCast(@alignCast(pos_buf.buf));
+    const out_len = self.num_satellites * num_times * 3;
 
-    // Get optional satellite mask
-    // Accepts either num_satellites or padded_count length arrays; pads internally.
-    var mask_buf = std.mem.zeroes(c.Py_buffer);
-    var have_mask = false;
-    var sat_mask: ?[]const u8 = null;
-    var padded_mask: ?[]u8 = null;
-
-    if (!py.isNone(mask_obj)) {
-        if (c.PyObject_GetBuffer(mask_obj, &mask_buf, c.PyBUF_SIMPLE | c.PyBUF_FORMAT) < 0) {
-            return null;
-        }
-        have_mask = true;
-        const mask_ptr: [*]const u8 = @ptrCast(@alignCast(mask_buf.buf));
-        const mask_len = @as(usize, @intCast(mask_buf.len));
-
-        if (mask_len >= self.padded_count) {
-            sat_mask = mask_ptr[0..self.padded_count];
-        } else if (mask_len >= self.num_satellites) {
-            // Pad mask to padded_count with zeros (disabled padding satellites)
-            const buf = allocator.alloc(u8, self.padded_count) catch {
-                c.PyBuffer_Release(&mask_buf);
-                py.raiseRuntime("Out of memory");
-                return null;
-            };
-            @memcpy(buf[0..self.num_satellites], mask_ptr[0..self.num_satellites]);
-            @memset(buf[self.num_satellites..self.padded_count], 0);
-            padded_mask = buf;
-            sat_mask = buf;
-        } else {
-            c.PyBuffer_Release(&mask_buf);
-            py.raiseValue("satellite_mask must have at least num_satellites elements");
-            return null;
-        }
-    }
-    defer if (have_mask) c.PyBuffer_Release(&mask_buf);
-    defer if (padded_mask) |m| allocator.free(m);
-
-    // Build output slices
-    const pos_slice = pos_out[0 .. self.num_satellites * num_times * 3];
-    const vel_slice: ?[]f64 = if (vel_out) |vo| vo[0 .. self.num_satellites * num_times * 3] else null;
-
-    Sgp4.propagateConstellationWithOffsets(
+    Sgp4.propagateConstellation(
         batches,
         self.num_satellites,
         times[0..num_times],
-        padded_offsets,
-        pos_slice,
-        vel_slice,
+        offsets.data,
+        pos_out[0..out_len],
+        if (have_vel) @as([*]f64, @ptrCast(@alignCast(vel_buf.buf)))[0..out_len] else null,
         output_mode,
         reference_jd,
-        sat_mask,
+        mask_result.mask,
+        if (time_major != 0) .timeMajor else .satelliteMajor,
     ) catch {
         py.raiseValue("Propagation failed");
         return null;

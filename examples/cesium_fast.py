@@ -6,7 +6,6 @@ Uses astroz for high-performance SGP4 propagation.
 
 import json
 import numpy as np
-import urllib.request
 import time as time_module
 from pathlib import Path
 from collections import Counter
@@ -23,26 +22,6 @@ COLORS = {
     "LEO53": [140, 220, 200],
     "Other": [180, 180, 190],
 }
-
-
-def download_tles():
-    """Download TLEs from CelesTrak with caching."""
-    cache_file = Path(__file__).parent / "tle_cache.txt"
-    if (
-        cache_file.exists()
-        and (time_module.time() - cache_file.stat().st_mtime) < 86400
-    ):
-        print("(cached)", end=" ")
-        return cache_file.read_text()
-
-    print("(downloading)", end=" ")
-    req = urllib.request.Request(
-        "https://celestrak.org/NORAD/elements/gp.php?GROUP=active&FORMAT=tle",
-        headers={"User-Agent": "Mozilla/5.0 (astroz satellite-viz)"},
-    )
-    data = urllib.request.urlopen(req, timeout=60).read().decode("utf-8")
-    cache_file.write_text(data)
-    return data
 
 
 def classify_satellite(name, inc, period):
@@ -126,57 +105,54 @@ def generate_legend_html(counts):
 
 
 def main():
-    from astroz import Sgp4Constellation, propagate_constellation
+    from astroz import load_constellation, propagate_constellation
 
     print("=" * 60)
     print("  Cesium Satellite Visualization")
     print("=" * 60)
 
-    # Download and parse
+    # Load all active satellites with metadata
     print("\n[1/4] Loading catalog...", end=" ", flush=True)
-    tle_data = download_tles()
-    satellites = parse_satellite_metadata(tle_data)
-    print(f"done - {len(satellites):,} satellites")
+    constellation, metadata = load_constellation("all", with_metadata=True)
+    num_sats = constellation.num_satellites
+
+    # Add constellation classification to metadata
+    satellites = []
+    for m in metadata:
+        satellites.append(
+            {
+                "name": m["name"],
+                "constellation": classify_satellite(
+                    m["name"], m["inclination"], m["period"]
+                ),
+                "data": m,
+            }
+        )
+    print(f"done - {num_sats:,} satellites")
 
     # Choose a start time: current UTC time rounded down to the minute
     now = datetime.now(timezone.utc)
     start_time = now.replace(second=0, microsecond=0)
     print(f"       Start time: {start_time.isoformat()}")
 
-    # --- Propagation using Sgp4Constellation (single Zig call) ---
+    # --- Propagation ---
     print("[2/4] Propagating...", end=" ", flush=True)
 
     num_times = 1440  # 1 day at 1-minute resolution
     t0_total = time_module.perf_counter()
 
-    # Parse all TLEs into a constellation (single Zig call)
-    t0_parse = time_module.perf_counter()
-    constellation = Sgp4Constellation.from_tle_text(tle_data)
-    num_sats = constellation.num_satellites
-    parse_time = time_module.perf_counter() - t0_parse
-
-    # Compute epoch offsets: difference between start_time and each TLE epoch
-    # start_time as Julian date
-    start_jd = 2440587.5 + (start_time.timestamp() / 86400.0)
-    epochs = np.array(constellation.epochs, dtype=np.float64)
-    epoch_offsets = (start_jd - epochs) * 1440.0  # JD difference → minutes
-
-    # Propagate all satellites for all time steps in one call, output as ECEF
-    t0_prop = time_module.perf_counter()
     times = np.arange(num_times, dtype=np.float64)
-    positions = propagate_constellation(
-        constellation,
-        times,
-        epoch_offsets=epoch_offsets,
-        output="ecef",
-        reference_jd=start_jd,
-    )
+
+    # Warmup
+    propagate_constellation(constellation, times[:1], start_time=start_time)
+
+    t0_prop = time_module.perf_counter()
+    positions = propagate_constellation(constellation, times, start_time=start_time)
     prop_time = time_module.perf_counter() - t0_prop
 
-    # positions shape: (num_sats, num_times, 3) in km
-    # Convert to (num_times, num_sats, 3) in meters for Cesium
+    # positions shape: (num_times, num_sats, 3) in km → meters
     t0_conv = time_module.perf_counter()
-    positions = np.ascontiguousarray(positions.transpose(1, 0, 2)) * 1000.0
+    positions *= 1000.0
     conv_time = time_module.perf_counter() - t0_conv
 
     total_time = time_module.perf_counter() - t0_total
@@ -185,11 +161,10 @@ def main():
     effective_throughput = total_props / total_time / 1e6
 
     print("done")
-    print(f"       TLE parse:        {parse_time:.2f}s ({num_sats:,} satellites)")
     print(
         f"       SGP4 + ECEF:      {prop_time:.2f}s ({prop_throughput:.1f}M props/sec)"
     )
-    print(f"       Transpose:        {conv_time:.3f}s")
+    print(f"       km → m:           {conv_time:.3f}s")
     print(
         f"       Total:            {total_time:.2f}s ({effective_throughput:.1f}M props/sec effective)"
     )

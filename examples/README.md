@@ -18,12 +18,12 @@ This generates `cesium_fast.html` in the project root. Open it in your browser.
 
 ### Features
 
-- Real-time SGP4 propagation (~6M propagations/sec)
-- Color-coded constellations (Starlink, OneWeb, Planet, Spire, Iridium, etc.)
+- Multithreaded SGP4 propagation (~56M propagations/sec on 16 threads, ~7.7M single threaded)
+- Color coded constellations (Starlink, OneWeb, Planet, Spire, Iridium, etc.)
 - Toggle constellation visibility
 - Search satellites by name (auto-labels when ≤10 results)
 - Click for orbital details, double-click to track
-- Real-time mode showing actual current UTC positions
+- Real time mode showing actual current UTC positions
 
 ### Keyboard Shortcuts
 

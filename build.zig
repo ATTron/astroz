@@ -115,7 +115,6 @@ pub fn build(b: *std.Build) void {
         .root_source_file = b.path("src/lib.zig"),
     });
     astroz_python_mod.addImport("zignal", zignal_dependency.module("zignal"));
-    // Note: No cfitsio import - Python bindings don't need FITS support
 
     const python_mod = b.createModule(.{
         .target = target,
