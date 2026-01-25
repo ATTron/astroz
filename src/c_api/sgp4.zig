@@ -5,6 +5,9 @@ const Sgp4 = astroz.Sgp4;
 const Tle = astroz.Tle;
 const constants = astroz.constants;
 
+/// Batch size from core library (4 for AVX2, 8 for AVX512)
+const BatchSize = astroz.Sgp4Constellation.BatchSize;
+
 const allocator = @import("allocator.zig");
 const err = @import("error.zig");
 const tleApi = @import("tle.zig");
@@ -50,54 +53,36 @@ pub fn propagate(handle: Handle, tsince: f64, pos: *[3]f64, vel: *[3]f64) err.Co
 }
 
 /// Batch propagation - single FFI call for multiple time steps
-/// Uses SIMD which will process 4 time steps at a time
+/// Uses SIMD to process BatchSize time steps at a time
 /// times: array of tsince values (minutes since epoch)
 /// results: output array of [posX, posY, posZ, velX, velY, velZ] for each time
 /// count: number of time steps
 pub fn propagateBatch(handle: Handle, times: [*]const f64, results: [*]f64, count: u32) err.Code {
     const ptr: *Sgp4 = @ptrCast(@alignCast(handle));
 
-    // 4 times per cycle using SIMD
-    const batches = count / 4;
-    for (0..batches) |batch| {
-        const baseTime = batch * 4;
-        const batchTimes: [4]f64 = times[baseTime..][0..4].*;
+    var i: usize = 0;
+    while (i < count) : (i += BatchSize) {
+        const remaining = count - i;
+        var batch: [BatchSize]f64 = undefined;
+        inline for (0..BatchSize) |j| batch[j] = times[i + @min(j, remaining - 1)];
 
-        const batchResult = ptr.propagateV4(batchTimes) catch |e| {
+        const batchResult = ptr.propagateN(BatchSize, batch) catch |e| {
             return switch (e) {
                 Sgp4.Error.SatelliteDecayed => .satelliteDecayed,
                 else => err.fromError(e),
             };
         };
 
-        for (0..4) |i| {
-            const base = (baseTime + i) * 6;
-            results[base + 0] = batchResult[i][0][0];
-            results[base + 1] = batchResult[i][0][1];
-            results[base + 2] = batchResult[i][0][2];
-            results[base + 3] = batchResult[i][1][0];
-            results[base + 4] = batchResult[i][1][1];
-            results[base + 5] = batchResult[i][1][2];
+        const writeCount = @min(remaining, BatchSize);
+        for (0..writeCount) |j| {
+            const base = (i + j) * 6;
+            results[base + 0] = batchResult[j][0][0];
+            results[base + 1] = batchResult[j][0][1];
+            results[base + 2] = batchResult[j][0][2];
+            results[base + 3] = batchResult[j][1][0];
+            results[base + 4] = batchResult[j][1][1];
+            results[base + 5] = batchResult[j][1][2];
         }
-    }
-
-    // handle leftovers with scalar functions
-    const remainderStart = batches * 4;
-    for (remainderStart..count) |i| {
-        const result = ptr.propagate(times[i]) catch |e| {
-            return switch (e) {
-                Sgp4.Error.SatelliteDecayed => .satelliteDecayed,
-                else => err.fromError(e),
-            };
-        };
-
-        const base = i * 6;
-        results[base + 0] = result[0][0];
-        results[base + 1] = result[0][1];
-        results[base + 2] = result[0][2];
-        results[base + 3] = result[1][0];
-        results[base + 4] = result[1][1];
-        results[base + 5] = result[1][2];
     }
 
     return .ok;
@@ -107,6 +92,8 @@ pub fn propagateBatch(handle: Handle, times: [*]const f64, results: [*]f64, coun
 pub const BatchHandle = *anyopaque;
 
 /// Initialize batch propagator for 4 satellites
+const Elements4 = astroz.Sgp4Batch.BatchElements(4);
+
 /// All 4 satellites must use the same gravity model
 pub fn initBatch(tleHandles: [*]const tleApi.Handle, gravModel: i32, out: *BatchHandle) err.Code {
     const grav = if (gravModel == 1) constants.wgs72 else constants.wgs84;
@@ -117,7 +104,7 @@ pub fn initBatch(tleHandles: [*]const tleApi.Handle, gravModel: i32, out: *Batch
         tles[i] = tlePtr.*;
     }
 
-    const elements = Sgp4.initElementsV4(tles, grav) catch |e| {
+    const elements = astroz.Sgp4Batch.initBatchElements(4, tles, grav) catch |e| {
         return switch (e) {
             Sgp4.Error.DeepSpaceNotSupported => .deepSpaceNotSupported,
             Sgp4.Error.InvalidEccentricity => .invalidEccentricity,
@@ -125,7 +112,7 @@ pub fn initBatch(tleHandles: [*]const tleApi.Handle, gravModel: i32, out: *Batch
         };
     };
 
-    const ptr = allocator.get().create(Sgp4.ElementsV4) catch return .allocFailed;
+    const ptr = allocator.get().create(Elements4) catch return .allocFailed;
     ptr.* = elements;
     out.* = @ptrCast(ptr);
     return .ok;
@@ -133,15 +120,15 @@ pub fn initBatch(tleHandles: [*]const tleApi.Handle, gravModel: i32, out: *Batch
 
 /// Free batch propagator handle
 pub fn freeBatch(handle: BatchHandle) void {
-    const ptr: *Sgp4.ElementsV4 = @ptrCast(@alignCast(handle));
+    const ptr: *Elements4 = @ptrCast(@alignCast(handle));
     allocator.get().destroy(ptr);
 }
 
 /// Propagate 4 satellites at a single time point
 pub fn propagateSatellites(handle: BatchHandle, tsince: f64, results: [*]f64) err.Code {
-    const ptr: *Sgp4.ElementsV4 = @ptrCast(@alignCast(handle));
+    const ptr: *Elements4 = @ptrCast(@alignCast(handle));
 
-    const result = Sgp4.propagateSatellitesV4(ptr, tsince) catch |e| {
+    const result = astroz.Sgp4Batch.propagateSatellites(4, ptr, tsince) catch |e| {
         return switch (e) {
             Sgp4.Error.SatelliteDecayed => .satelliteDecayed,
             else => err.fromError(e),
@@ -163,10 +150,10 @@ pub fn propagateSatellites(handle: BatchHandle, tsince: f64, results: [*]f64) er
 
 /// Propagate 4 satellites across multiple time points
 pub fn propagateSatellitesBatch(handle: BatchHandle, times: [*]const f64, results: [*]f64, count: u32) err.Code {
-    const ptr: *Sgp4.ElementsV4 = @ptrCast(@alignCast(handle));
+    const ptr: *Elements4 = @ptrCast(@alignCast(handle));
 
     for (0..count) |t| {
-        const result = Sgp4.propagateSatellitesV4(ptr, times[t]) catch |e| {
+        const result = astroz.Sgp4Batch.propagateSatellites(4, ptr, times[t]) catch |e| {
             return switch (e) {
                 Sgp4.Error.SatelliteDecayed => .satelliteDecayed,
                 else => err.fromError(e),

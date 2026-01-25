@@ -9,6 +9,12 @@ const tle_mod = @import("tle.zig");
 
 const allocator = std.heap.c_allocator;
 
+/// Batch size from core library (4 for AVX2, 8 for AVX512)
+const BatchSize = astroz.Sgp4Constellation.BatchSize;
+
+/// Batch elements type for current batch size
+const BatchElements = astroz.Sgp4Batch.BatchElements(BatchSize);
+
 // Common error message for SGP4 init errors
 fn sgp4ErrorMsg(e: Sgp4.Error) [:0]const u8 {
     return switch (e) {
@@ -156,14 +162,19 @@ fn sgp4_propagate_into(self_obj: [*c]c.PyObject, args: [*c]c.PyObject) callconv(
     const pos_out: [*]f64 = @ptrCast(@alignCast(pos_buf.buf));
     const vel_out: [*]f64 = @ptrCast(@alignCast(vel_buf.buf));
 
-    // SIMD batches of 4
+    // Process in batches of BatchSize, padding remainder with last valid time
     var i: usize = 0;
-    while (i + 4 <= n) : (i += 4) {
-        const results = sgp4.propagateV4(.{ times[i], times[i + 1], times[i + 2], times[i + 3] }) catch {
+    while (i < n) : (i += BatchSize) {
+        const remaining = n - i;
+        var batch: [BatchSize]f64 = undefined;
+        inline for (0..BatchSize) |j| batch[j] = times[i + @min(j, remaining - 1)];
+
+        const results = sgp4.propagateN(BatchSize, batch) catch {
             py.raiseValue("Propagation failed");
             return null;
         };
-        inline for (0..4) |j| {
+        const count = @min(remaining, BatchSize);
+        for (0..count) |j| {
             const idx = (i + j) * 3;
             pos_out[idx] = results[j][0][0];
             pos_out[idx + 1] = results[j][0][1];
@@ -172,20 +183,6 @@ fn sgp4_propagate_into(self_obj: [*c]c.PyObject, args: [*c]c.PyObject) callconv(
             vel_out[idx + 1] = results[j][1][1];
             vel_out[idx + 2] = results[j][1][2];
         }
-    }
-    // Remainder
-    while (i < n) : (i += 1) {
-        const result = sgp4.propagate(times[i]) catch {
-            py.raiseValue("Propagation failed");
-            return null;
-        };
-        const idx = i * 3;
-        pos_out[idx] = result[0][0];
-        pos_out[idx + 1] = result[0][1];
-        pos_out[idx + 2] = result[0][2];
-        vel_out[idx] = result[1][0];
-        vel_out[idx + 1] = result[1][1];
-        vel_out[idx + 2] = result[1][2];
     }
     return py.none();
 }
@@ -196,11 +193,13 @@ const sgp4_methods = [_]c.PyMethodDef{
     .{ .ml_name = null, .ml_meth = null, .ml_flags = 0, .ml_doc = null },
 };
 
-// Sgp4Batch: Multi-satellite batch propagator
+// Sgp4Batch: Multi-satellite batch propagator (fixed at 4 satellites for Python API)
+
+const Elements4 = astroz.Sgp4Batch.BatchElements(4);
 
 pub const Sgp4BatchObject = extern struct {
     ob_base: c.PyObject,
-    elements: ?*Sgp4.ElementsV4,
+    elements: ?*Elements4,
 };
 
 pub var Sgp4BatchType: c.PyTypeObject = undefined;
@@ -267,12 +266,12 @@ fn sgp4batch_init(self_obj: [*c]c.PyObject, args: [*c]c.PyObject, kwds: [*c]c.Py
 
     if (self.elements) |old| allocator.destroy(old);
 
-    const elements = Sgp4.initElementsV4(tles, getGravity(grav_model)) catch |e| {
+    const elements = astroz.Sgp4Batch.initBatchElements(4, tles, getGravity(grav_model)) catch |e| {
         py.raiseValue(sgp4ErrorMsg(e));
         return -1;
     };
 
-    const ptr = allocator.create(Sgp4.ElementsV4) catch {
+    const ptr = allocator.create(Elements4) catch {
         py.raiseRuntime("Out of memory");
         return -1;
     };
@@ -297,7 +296,7 @@ fn sgp4batch_propagate(self_obj: [*c]c.PyObject, args: [*c]c.PyObject) callconv(
         return null;
     };
 
-    const results = Sgp4.propagateSatellitesV4(elements, tsince) catch {
+    const results = astroz.Sgp4Batch.propagateSatellites(4, elements, tsince) catch {
         py.raiseValue("Propagation failed");
         return null;
     };
@@ -364,7 +363,7 @@ fn sgp4batch_propagate_into(self_obj: [*c]c.PyObject, args: [*c]c.PyObject) call
     const vel_out: [*]f64 = @ptrCast(@alignCast(vel_buf.buf));
 
     for (0..n) |t| {
-        const results = Sgp4.propagateSatellitesV4(elements, times[t]) catch {
+        const results = astroz.Sgp4Batch.propagateSatellites(4, elements, times[t]) catch {
             py.raiseValue("Propagation failed");
             return null;
         };
@@ -393,11 +392,11 @@ const sgp4batch_methods = [_]c.PyMethodDef{
 
 pub const Sgp4ConstellationObject = extern struct {
     ob_base: c.PyObject,
-    batches: ?[*]Sgp4.ElementsV4,
+    batches: ?[*]BatchElements,
     num_batches: usize,
     num_satellites: usize,
     epoch_jds: ?[*]f64, // per-satellite epoch Julian dates
-    padded_count: usize, // padded to multiple of 4
+    padded_count: usize, // padded to multiple of BatchSize
 };
 
 pub var Sgp4ConstellationType: c.PyTypeObject = undefined;
@@ -405,7 +404,7 @@ pub var Sgp4ConstellationType: c.PyTypeObject = undefined;
 fn initConstellationType() void {
     Sgp4ConstellationType = std.mem.zeroes(c.PyTypeObject);
     Sgp4ConstellationType.tp_name = "astroz.Sgp4Constellation";
-    Sgp4ConstellationType.tp_doc = "Constellation propagator for many satellites.\n\nArgs:\n    tles: list of Tle objects (will be grouped into batches of 4)\n    gravity_model: WGS84 (default) or WGS72";
+    Sgp4ConstellationType.tp_doc = "Constellation propagator for many satellites.\n\nArgs:\n    tles: list of Tle objects (will be grouped into batches)\n    gravity_model: WGS84 (default) or WGS72";
     Sgp4ConstellationType.tp_basicsize = @sizeOf(Sgp4ConstellationObject);
     Sgp4ConstellationType.tp_flags = c.Py_TPFLAGS_DEFAULT | c.Py_TPFLAGS_BASETYPE;
     Sgp4ConstellationType.tp_new = @ptrCast(&constellation_new);
@@ -490,29 +489,29 @@ fn constellation_init(self_obj: [*c]c.PyObject, args: [*c]c.PyObject, kwds: [*c]
 }
 
 const BatchResult = struct {
-    batches: []Sgp4.ElementsV4,
+    batches: []BatchElements,
     epoch_jds: []f64,
     padded_count: usize,
 };
 
-/// Group TLEs into SIMD batches of 4, pad last batch, and extract epoch JDs.
+/// Group TLEs into SIMD batches of BatchSize, pad last batch, and extract epoch JDs.
 fn buildBatches(tles: []const astroz.Tle, grav: anytype) ?BatchResult {
     const num_tles = tles.len;
-    const padded_count = ((num_tles + 3) / 4) * 4;
-    const num_batches = padded_count / 4;
+    const padded_count = ((num_tles + BatchSize - 1) / BatchSize) * BatchSize;
+    const num_batches = padded_count / BatchSize;
 
-    const batches = allocator.alloc(Sgp4.ElementsV4, num_batches) catch {
+    const batches = allocator.alloc(BatchElements, num_batches) catch {
         py.raiseRuntime("Out of memory");
         return null;
     };
 
     for (0..num_batches) |batch_idx| {
-        var batch_tles: [4]astroz.Tle = undefined;
-        for (0..4) |i| {
-            const tle_idx = batch_idx * 4 + i;
+        var batch_tles: [BatchSize]astroz.Tle = undefined;
+        inline for (0..BatchSize) |i| {
+            const tle_idx = batch_idx * BatchSize + i;
             batch_tles[i] = tles[if (tle_idx < num_tles) tle_idx else num_tles - 1];
         }
-        batches[batch_idx] = Sgp4.initElementsV4(batch_tles, grav) catch |e| {
+        batches[batch_idx] = astroz.Sgp4Batch.initBatchElements(BatchSize, batch_tles, grav) catch |e| {
             allocator.free(batches);
             py.raiseValue(sgp4ErrorMsg(e));
             return null;
@@ -525,8 +524,8 @@ fn buildBatches(tles: []const astroz.Tle, grav: anytype) ?BatchResult {
         return null;
     };
     for (0..num_batches) |bi| {
-        inline for (0..4) |si| {
-            epoch_jds[bi * 4 + si] = batches[bi].epochJd[si];
+        inline for (0..BatchSize) |si| {
+            epoch_jds[bi * BatchSize + si] = batches[bi].epochJd[si];
         }
     }
 
@@ -544,7 +543,7 @@ fn constellation_dealloc(self_obj: [*c]c.PyObject) callconv(.c) void {
     if (c.Py_TYPE(self_obj)) |tp| if (tp.*.tp_free) |free| free(@ptrCast(self));
 }
 
-fn parseOutputMode(output_str: [*c]const u8, output_str_len: c.Py_ssize_t) ?Sgp4.OutputMode {
+fn parseOutputMode(output_str: [*c]const u8, output_str_len: c.Py_ssize_t) ?astroz.Sgp4Constellation.OutputMode {
     if (output_str == null or output_str_len <= 0) return .teme;
     const mode = output_str[0..@intCast(output_str_len)];
     if (std.mem.eql(u8, mode, "teme")) return .teme;
@@ -692,7 +691,7 @@ fn constellation_propagate_into(self_obj: [*c]c.PyObject, args: [*c]c.PyObject, 
     const pos_out: [*]f64 = @ptrCast(@alignCast(pos_buf.buf));
     const out_len = self.num_satellites * num_times * 3;
 
-    Sgp4.propagateConstellation(
+    astroz.Sgp4Constellation.propagateConstellation(
         batches,
         self.num_satellites,
         times[0..num_times],
@@ -719,6 +718,10 @@ fn constellation_get_num_satellites(self_obj: [*c]c.PyObject, _: ?*anyopaque) ca
 fn constellation_get_num_batches(self_obj: [*c]c.PyObject, _: ?*anyopaque) callconv(.c) [*c]c.PyObject {
     const self: *Sgp4ConstellationObject = @ptrCast(@alignCast(self_obj));
     return py.int(@intCast(self.num_batches));
+}
+
+fn constellation_get_batch_size(_: [*c]c.PyObject, _: ?*anyopaque) callconv(.c) [*c]c.PyObject {
+    return py.int(@intCast(BatchSize));
 }
 
 fn constellation_get_epochs(self_obj: [*c]c.PyObject, _: ?*anyopaque) callconv(.c) [*c]c.PyObject {
@@ -826,7 +829,14 @@ const constellation_getset = [_]c.PyGetSetDef{
         .name = "num_batches",
         .get = @ptrCast(&constellation_get_num_batches),
         .set = null,
-        .doc = "Number of 4-satellite batches",
+        .doc = "Number of SIMD batches",
+        .closure = null,
+    },
+    .{
+        .name = "batch_size",
+        .get = @ptrCast(&constellation_get_batch_size),
+        .set = null,
+        .doc = "SIMD batch size (4 for AVX2, 8 for AVX512)",
         .closure = null,
     },
     .{

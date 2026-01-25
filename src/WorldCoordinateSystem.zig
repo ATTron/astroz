@@ -10,7 +10,16 @@ const simdMath = @import("simdMath.zig");
 const Matrix3x3 = [3][3]f64;
 
 pub const Vector3 = [3]f64;
-const Vec4 = simdMath.Vec4;
+const Vec4 = simdMath.VecN(4);
+
+/// Generic result type for N-wide vector coordinate conversion
+pub fn Vec3N(comptime N: usize) type {
+    return struct {
+        x: simdMath.VecN(N),
+        y: simdMath.VecN(N),
+        z: simdMath.VecN(N),
+    };
+}
 
 pub const wgs84A = constants.wgs84.radiusEarthKm;
 pub const wgs84F = constants.wgs84Flattening;
@@ -121,10 +130,11 @@ pub fn ecefToGeodeticDeg(ecef: Vector3) Vector3 {
     };
 }
 
-/// Rotate 4 ECI position vectors to ECEF using a precomputed GMST.
-pub fn eciToEcefV4(x: Vec4, y: Vec4, z: Vec4, gmst: f64) struct { x: Vec4, y: Vec4, z: Vec4 } {
-    const cosG: Vec4 = @splat(@cos(gmst));
-    const sinG: Vec4 = @splat(@sin(gmst));
+/// Rotate N ECI position vectors to ECEF using a precomputed GMST
+pub fn eciToEcefVN(comptime N: usize, x: simdMath.VecN(N), y: simdMath.VecN(N), z: simdMath.VecN(N), gmst: f64) Vec3N(N) {
+    const Vec = simdMath.VecN(N);
+    const cosG: Vec = @splat(@cos(gmst));
+    const sinG: Vec = @splat(@sin(gmst));
     return .{
         .x = x * cosG + y * sinG,
         .y = y * cosG - x * sinG,
@@ -132,7 +142,7 @@ pub fn eciToEcefV4(x: Vec4, y: Vec4, z: Vec4, gmst: f64) struct { x: Vec4, y: Ve
     };
 }
 
-/// Compute GMST (Greenwich Mean Sidereal Time) from Julian date.
+/// Compute GMST (Greenwich Mean Sidereal Time) from Julian date
 pub fn julianToGmst(jd: f64) f64 {
     const jdJ2000 = jd - constants.j2000Jd;
     const t = jdJ2000 / constants.julianDaysPerCentury;
@@ -164,7 +174,7 @@ test "eciToEcefV4 matches scalar eciToEcefGmst" {
     const px = Vec4{ positions[0][0], positions[1][0], positions[2][0], positions[3][0] };
     const py = Vec4{ positions[0][1], positions[1][1], positions[2][1], positions[3][1] };
     const pz = Vec4{ positions[0][2], positions[1][2], positions[2][2], positions[3][2] };
-    const result = eciToEcefV4(px, py, pz, gmst);
+    const result = eciToEcefVN(4, px, py, pz, gmst);
 
     inline for (0..4) |i| {
         try std.testing.expectApproxEqAbs(result.x[i], ref[i][0], 1e-10);

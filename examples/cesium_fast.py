@@ -105,7 +105,7 @@ def generate_legend_html(counts):
 
 
 def main():
-    from astroz import load_constellation, propagate_constellation
+    from astroz import Constellation
 
     print("=" * 60)
     print("  Cesium Satellite Visualization")
@@ -113,8 +113,9 @@ def main():
 
     # Load all active satellites with metadata
     print("\n[1/4] Loading catalog...", end=" ", flush=True)
-    constellation, metadata = load_constellation("all", with_metadata=True)
+    constellation = Constellation("all", with_metadata=True)
     num_sats = constellation.num_satellites
+    metadata = constellation.metadata
 
     # Add constellation classification to metadata
     satellites = []
@@ -144,10 +145,11 @@ def main():
     times = np.arange(num_times, dtype=np.float64)
 
     # Warmup
-    propagate_constellation(constellation, times[:1], start_time=start_time)
+    for _ in range(3):
+        constellation.propagate(times[:10], start_time=start_time)
 
     t0_prop = time_module.perf_counter()
-    positions = propagate_constellation(constellation, times, start_time=start_time)
+    positions = constellation.propagate(times, start_time=start_time)
     prop_time = time_module.perf_counter() - t0_prop
 
     # positions shape: (num_times, num_sats, 3) in km → meters

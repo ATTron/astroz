@@ -3,12 +3,17 @@ const astroz = @import("astroz");
 
 const Tle = astroz.Tle;
 const Sgp4 = astroz.Sgp4;
+const Sgp4Batch = astroz.Sgp4Batch;
+const Sgp4Constellation = astroz.Sgp4Constellation;
 
 // ISS TLE
 const ISS_TLE =
     \\1 25544U 98067A   24127.82853009  .00015698  00000+0  27310-3 0  9995
     \\2 25544  51.6393 160.4574 0003580 140.6673 205.7250 15.50957674452123
 ;
+
+// Batch size from the library (4 for AVX2, 8 for AVX512)
+const BatchSize = Sgp4Batch.BatchSize;
 
 // scenarios
 const scenarios = [_]struct { name: []const u8, points: usize, step_min: f64 }{
@@ -40,6 +45,10 @@ pub fn main() !void {
 
     std.debug.print("\nastroz SGP4 Benchmark\n", .{});
     std.debug.print("==================================================\n", .{});
+    std.debug.print("SIMD Batch Size: {} ({s})\n", .{
+        BatchSize,
+        if (BatchSize == 8) "AVX512" else "AVX2/SSE",
+    });
     std.debug.print("\n--- Scalar Propagation ---\n", .{});
 
     for (scenarios) |scenario| {
@@ -73,7 +82,7 @@ pub fn main() !void {
         });
     }
 
-    std.debug.print("\n--- SIMD Batch4 Propagation ---\n", .{});
+    std.debug.print("\n--- SIMD Batch{} Propagation ---\n", .{BatchSize});
 
     for (scenarios) |scenario| {
         const times = try allocator.alloc(f64, scenario.points);
@@ -88,17 +97,24 @@ pub fn main() !void {
         for (0..iterations) |_| {
             const start = try std.time.Instant.now();
 
-            // Process 4 at a time using SIMD batch
-            const full_batches = scenario.points / 4;
-            for (0..full_batches) |batch| {
-                const base = batch * 4;
-                const batch_times: [4]f64 = times[base..][0..4].*;
-                _ = sgp4.propagateV4(batch_times) catch continue;
+            // Process 8 at a time (AVX512), then 4 (AVX2), then scalar
+            var i: usize = 0;
+
+            // AVX512: 8 times at once
+            while (i + 8 <= scenario.points) : (i += 8) {
+                _ = sgp4.propagateV8(.{
+                    times[i],     times[i + 1], times[i + 2], times[i + 3],
+                    times[i + 4], times[i + 5], times[i + 6], times[i + 7],
+                }) catch continue;
             }
 
-            // Handle remainder with scalar
-            const remainder_start = full_batches * 4;
-            for (remainder_start..scenario.points) |i| {
+            // AVX2: 4 times at once
+            while (i + 4 <= scenario.points) : (i += 4) {
+                _ = sgp4.propagateV4(.{ times[i], times[i + 1], times[i + 2], times[i + 3] }) catch continue;
+            }
+
+            // Scalar remainder
+            while (i < scenario.points) : (i += 1) {
                 _ = sgp4.propagate(times[i]) catch continue;
             }
 

@@ -33,11 +33,23 @@ pub fn main() !void {
         std.debug.print("t={d:6.1} min: r={d:8.1} km, v={d:.3} km/s\n", .{ tsince, r, v });
     }
 
-    // Example 1.5: Using SIMD (4 steps at once, 2x faster)
-    std.debug.print("\n=== SIMD Batch Propagation ===\n", .{});
-    const batchTimes = [4]f64{ 0, 30, 60, 90 };
-    const batchResults = try sgp4.propagateV4(batchTimes);
-    for (batchTimes, batchResults) |tsince, result| {
+    // Example 1.5: Using SIMD V4 (4 steps at once)
+    std.debug.print("\n=== SIMD V4 Batch Propagation (4 times) ===\n", .{});
+    const batchTimes4 = [4]f64{ 0, 30, 60, 90 };
+    const batchResults4 = try sgp4.propagateV4(batchTimes4);
+    for (batchTimes4, batchResults4) |tsince, result| {
+        const pos = result[0];
+        const vel = result[1];
+        const r = @sqrt(pos[0] * pos[0] + pos[1] * pos[1] + pos[2] * pos[2]);
+        const v = @sqrt(vel[0] * vel[0] + vel[1] * vel[1] + vel[2] * vel[2]);
+        std.debug.print("t={d:6.1} min: r={d:8.1} km, v={d:.3} km/s\n", .{ tsince, r, v });
+    }
+
+    // Example 1.6: Using SIMD V8 (8 steps at once, AVX512)
+    std.debug.print("\n=== SIMD V8 Batch Propagation (8 times) ===\n", .{});
+    const batchTimes8 = [8]f64{ 0, 15, 30, 45, 60, 75, 90, 105 };
+    const batchResults8 = try sgp4.propagateV8(batchTimes8);
+    for (batchTimes8, batchResults8) |tsince, result| {
         const pos = result[0];
         const vel = result[1];
         const r = @sqrt(pos[0] * pos[0] + pos[1] * pos[1] + pos[2] * pos[2]);

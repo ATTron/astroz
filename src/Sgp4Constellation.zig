@@ -1,5 +1,5 @@
 //! Multi-batch constellation propagation with threading support
-//! Propagates multiple batches of 4 satellites across multiple time points
+//! Propagates multiple batches of N satellites (N=4 or N=8 based on AVX512) across multiple time points
 //! with optional coordinate transformations (TEME, ECEF, Geodetic)
 
 const std = @import("std");
@@ -8,9 +8,16 @@ const Sgp4 = @import("Sgp4.zig");
 const simdMath = @import("simdMath.zig");
 const WCS = @import("WorldCoordinateSystem.zig");
 
-const Vec4 = simdMath.Vec4;
-const ElementsV4 = Sgp4Batch.ElementsV4;
 const Error = Sgp4.Error;
+
+/// Compile-time batch size: 8 for AVX512, 4 for AVX2/SSE
+pub const BatchSize: usize = Sgp4Batch.BatchSize;
+
+/// Generic vector type for current batch size
+const Vec = simdMath.VecN(BatchSize);
+
+/// Batch elements type for current batch size
+const BatchElements = Sgp4Batch.BatchElements(BatchSize);
 
 /// Output coordinate modes for propagation
 pub const OutputMode = enum(u8) {
@@ -29,7 +36,7 @@ pub const Layout = enum(u1) {
 
 /// All the data needed for propagation (passed to threads)
 const PropagateCtx = struct {
-    batches: []const ElementsV4,
+    batches: []const BatchElements,
     numSatellites: usize,
     times: []const f64,
     epochOffsets: []const f64,
@@ -37,11 +44,13 @@ const PropagateCtx = struct {
     resultsVel: ?[]f64,
     referenceJd: f64,
     satelliteMask: ?[]const u8,
+    gmstSin: []const f64, // Precomputed sin(GMST) values
+    gmstCos: []const f64, // Precomputed cos(GMST) values
 };
 
 /// Propagate constellation with specified memory layout and threading strategy
 pub fn propagateConstellation(
-    batches: []const ElementsV4,
+    batches: []const BatchElements,
     numSatellites: usize,
     times: []const f64,
     epochOffsets: []const f64,
@@ -58,6 +67,17 @@ pub fn propagateConstellation(
         if (rv.len < requiredSize) return Error.SatelliteDecayed;
     }
 
+    // Precompute GMST sin/cos for non-TEME modes (GMST depends only on time, not satellite)
+    var sinBuf: [4096]f64 = undefined;
+    var cosBuf: [4096]f64 = undefined;
+    if (outputMode != .teme) {
+        for (times, 0..) |time, i| {
+            const gmst = WCS.julianToGmst(referenceJd + time / 1440.0);
+            sinBuf[i] = @sin(gmst);
+            cosBuf[i] = @cos(gmst);
+        }
+    }
+
     const ctx = PropagateCtx{
         .batches = batches,
         .numSatellites = numSatellites,
@@ -67,6 +87,8 @@ pub fn propagateConstellation(
         .resultsVel = resultsVel,
         .referenceJd = referenceJd,
         .satelliteMask = satelliteMask,
+        .gmstSin = sinBuf[0..times.len],
+        .gmstCos = cosBuf[0..times.len],
     };
 
     // Dispatch: 2 layouts × 3 modes × 2 velocity = 12 variants
@@ -99,37 +121,18 @@ fn propagateThreaded(
     // Thread over batches for satellite major, over time ranges for time major
     const workItems = if (layout == .satelliteMajor) ctx.batches.len else numTimes;
 
-    // Memory tuning: limit threads to avoid cache thrashing
-    // Each thread should have enough work to amortize thread overhead
-    const minWorkPerThread: usize = 16;
-    const effectiveThreads = @max(1, workItems / minWorkPerThread);
-    const numThreads = @min(effectiveThreads, @min(workItems, maxThreads));
+    const numThreads = @min(workItems, maxThreads);
     const perThread = (workItems + numThreads - 1) / numThreads;
-    const maxHandles = 64;
-    const clampedThreads = @min(numThreads, maxHandles);
-    var handles: [maxHandles]?std.Thread = .{null} ** maxHandles;
+    var handles: [64]?std.Thread = .{null} ** 64;
 
-    for (0..clampedThreads) |tid| {
+    for (0..numThreads) |tid| {
         const start = tid * perThread;
         const end = @min(start + perThread, workItems);
         if (start >= end) break;
-
         handles[tid] = std.Thread.spawn(.{}, propagateRange, .{
-            layout,
-            mode,
-            hasVel,
-            ctx,
-            start,
-            end,
+            layout, mode, hasVel, ctx, start, end,
         }) catch {
-            propagateRange(
-                layout,
-                mode,
-                hasVel,
-                ctx,
-                start,
-                end,
-            );
+            propagateRange(layout, mode, hasVel, ctx, start, end);
             continue;
         };
     }
@@ -177,19 +180,19 @@ inline fn propagateCore(
     comptime mode: OutputMode,
     comptime hasVel: bool,
     ctx: PropagateCtx,
-    batch: *const ElementsV4,
+    batch: *const BatchElements,
     batchIdx: usize,
     timeIdx: usize,
-    batchOffsets: Vec4,
-    active: [4]bool,
+    batchOffsets: Vec,
+    active: [BatchSize]bool,
 ) void {
     const time = ctx.times[timeIdx];
-    const baseTime: Vec4 = @splat(time);
-    const satBase = batchIdx * 4;
+    const baseTime: Vec = @splat(time);
+    const satBase = batchIdx * BatchSize;
     const numTimes = ctx.times.len;
 
-    const pv = Sgp4Batch.propagateBatchV4Direct(batch, baseTime + batchOffsets) catch {
-        inline for (0..4) |s| {
+    const pv = Sgp4Batch.propagateBatchDirect(BatchSize, batch, baseTime + batchOffsets) catch {
+        inline for (0..BatchSize) |s| {
             if (active[s]) {
                 const ob = outBase(layout, satBase + s, timeIdx, numTimes, ctx.numSatellites);
                 ctx.resultsPos[ob..][0..3].* = .{ 0, 0, 0 };
@@ -199,24 +202,22 @@ inline fn propagateCore(
         return;
     };
 
-    // Compute GMST once for coordinate rotation (comptime eliminated for TEME)
-    const gmst = if (mode != .teme) WCS.julianToGmst(ctx.referenceJd + time / 1440.0) else undefined;
-
-    // Transform to output coordinate system
+    // Transform to output coordinate system using precomputed sin/cos
     const pos = if (mode != .teme)
-        WCS.eciToEcefV4(pv.rx, pv.ry, pv.rz, gmst)
+        eciToEcefDirect(BatchSize, pv.rx, pv.ry, pv.rz, ctx.gmstSin[timeIdx], ctx.gmstCos[timeIdx])
     else
         .{ .x = pv.rx, .y = pv.ry, .z = pv.rz };
 
-    const vel = if (hasVel) blk: {
-        break :blk if (mode != .teme)
-            WCS.eciToEcefV4(pv.vx, pv.vy, pv.vz, gmst)
+    const vel = if (hasVel)
+        (if (mode != .teme)
+            eciToEcefDirect(BatchSize, pv.vx, pv.vy, pv.vz, ctx.gmstSin[timeIdx], ctx.gmstCos[timeIdx])
         else
-            .{ .x = pv.vx, .y = pv.vy, .z = pv.vz };
-    } else undefined;
+            .{ .x = pv.vx, .y = pv.vy, .z = pv.vz })
+    else
+        undefined;
 
     // Write results for each active satellite in the batch
-    inline for (0..4) |s| {
+    inline for (0..BatchSize) |s| {
         if (active[s]) {
             const ob = outBase(layout, satBase + s, timeIdx, numTimes, ctx.numSatellites);
             if (mode == .geodetic) {
@@ -236,11 +237,23 @@ inline fn outBase(comptime layout: Layout, satIdx: usize, timeIdx: usize, numTim
         timeIdx * numSatellites * 3 + satIdx * 3;
 }
 
+/// Rotate N ECI position vectors to ECEF using precomputed sin/cos values
+inline fn eciToEcefDirect(comptime N: usize, x: simdMath.VecN(N), y: simdMath.VecN(N), z: simdMath.VecN(N), sinG: f64, cosG: f64) WCS.Vec3N(N) {
+    const VecT = simdMath.VecN(N);
+    const cosVec: VecT = @splat(cosG);
+    const sinVec: VecT = @splat(sinG);
+    return .{
+        .x = x * cosVec + y * sinVec,
+        .y = y * cosVec - x * sinVec,
+        .z = z,
+    };
+}
+
 inline fn batchIsActive(batchIdx: usize, numSatellites: usize, satelliteMask: ?[]const u8) bool {
     if (satelliteMask) |mask| {
-        const base = batchIdx * 4;
+        const base = batchIdx * BatchSize;
         var anyActive = false;
-        inline for (0..4) |s| {
+        inline for (0..BatchSize) |s| {
             if (base + s < numSatellites and mask[base + s] != 0) {
                 anyActive = true;
             }
@@ -250,15 +263,19 @@ inline fn batchIsActive(batchIdx: usize, numSatellites: usize, satelliteMask: ?[
     return true;
 }
 
-inline fn loadBatchOffsets(batchIdx: usize, epochOffsets: []const f64) Vec4 {
-    const base = batchIdx * 4;
-    return Vec4{ epochOffsets[base], epochOffsets[base + 1], epochOffsets[base + 2], epochOffsets[base + 3] };
+inline fn loadBatchOffsets(batchIdx: usize, epochOffsets: []const f64) Vec {
+    const base = batchIdx * BatchSize;
+    var arr: [BatchSize]f64 = undefined;
+    inline for (0..BatchSize) |i| {
+        arr[i] = epochOffsets[base + i];
+    }
+    return arr;
 }
 
-inline fn computeActive(batchIdx: usize, numSatellites: usize, satelliteMask: ?[]const u8) [4]bool {
-    var active: [4]bool = undefined;
-    inline for (0..4) |s| {
-        const satIdx = batchIdx * 4 + s;
+inline fn computeActive(batchIdx: usize, numSatellites: usize, satelliteMask: ?[]const u8) [BatchSize]bool {
+    var active: [BatchSize]bool = undefined;
+    inline for (0..BatchSize) |s| {
+        const satIdx = batchIdx * BatchSize + s;
         active[s] = if (satelliteMask) |mask|
             (satIdx < numSatellites and mask[satIdx] != 0)
         else
@@ -267,13 +284,21 @@ inline fn computeActive(batchIdx: usize, numSatellites: usize, satelliteMask: ?[
     return active;
 }
 
+/// Cached thread count to avoid repeated syscalls
+var cachedMaxThreads: usize = 0;
+
 fn getMaxThreads() usize {
+    // Fast path: return cached value
+    if (cachedMaxThreads != 0) return cachedMaxThreads;
+
+    // Slow path: compute and cache
+    var result: usize = std.Thread.getCpuCount() catch 1;
     if (@hasDecl(std, "c")) {
         const envVal = std.c.getenv("ASTROZ_THREADS");
         if (envVal) |val| {
-            return std.fmt.parseInt(usize, std.mem.sliceTo(val, 0), 10) catch
-                std.Thread.getCpuCount() catch 1;
+            result = std.fmt.parseInt(usize, std.mem.sliceTo(val, 0), 10) catch result;
         }
     }
-    return std.Thread.getCpuCount() catch 1;
+    cachedMaxThreads = result;
+    return result;
 }

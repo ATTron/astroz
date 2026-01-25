@@ -19,7 +19,7 @@
 
 ### Performance
 
-Sub-meter accuracy validated against reference implementations. Uses SIMD (AVX2/SSE) to process 4 satellites simultaneously, with multithreaded constellation propagation across all available cores.
+Sub-meter accuracy validated against reference implementations. Uses SIMD (AVX512/AVX2) to process 8 satellites simultaneously, with multithreaded constellation propagation across all available cores.
 
 #### Single-Threaded (1.2M propagations, single satellite)
 
@@ -35,7 +35,7 @@ Sub-meter accuracy validated against reference implementations. Uses SIMD (AVX2/
 
 | Implementation | 1 Thread | 16 Threads |
 |----------------|----------|------------|
-| **astroz** | 30.8M/s | **212.1M/s** |
+| **astroz** | 37.7M/s | **303M/s** |
 | heyoka | 15.7M/s | 155.6M/s |
 | Rust sgp4 (rayon) | 4.4M/s | 47.9M/s |
 | satkit | 3.5M/s | 3.5M/s |
@@ -43,7 +43,7 @@ Sub-meter accuracy validated against reference implementations. Uses SIMD (AVX2/
 
 *Benchmarked on AMD Ryzen 7 7840U (16 threads). All implementations using their optimal configurations (SIMD, pre-allocated outputs, batch mode).*
 
-Uses SIMD (AVX2/SSE) to process 4 satellites per batch with optional multithreaded time-major iteration. Validated against Vallado AIAA 2006-6753 reference vectors (< 10m position error, < 1µm/s velocity error). Set `ASTROZ_THREADS` environment variable to control thread count (defaults to all available cores).
+Uses SIMD (AVX512 for 8-wide, AVX2/SSE for 4-wide) with multithreaded time-major iteration. Validated against Vallado AIAA 2006-6753 reference vectors (< 10m position error, < 1µm/s velocity error). Set `ASTROZ_THREADS` environment variable to control thread count (defaults to all available cores).
 
 The [Cesium visualization example](examples/README.md) propagates the entire active satellite catalog (~13,000 satellites) at interactive rates. **[Try the live demo →](https://attron.github.io/astroz-demo/)**
 
@@ -54,43 +54,31 @@ pip install astroz
 ```
 
 ```python
-from astroz import Tle, Sgp4
+from astroz import Constellation
 import numpy as np
+
+# Load and propagate - automatically optimized for maximum performance
+constellation = Constellation("starlink")
+positions = constellation.propagate(np.arange(1440))  # 1 day at 1-min intervals
+# shape: (1440, num_satellites, 3) in km, ECEF coordinates
+
+# With options
+from datetime import datetime, timezone
+positions = constellation.propagate(
+    np.arange(1440),
+    start_time=datetime(2024, 6, 15, tzinfo=timezone.utc),
+    output="geodetic",  # "ecef" (default), "teme", or "geodetic"
+)
+
+# With velocities
+positions, velocities = constellation.propagate(np.arange(1440), velocities=True)
+
+# Single satellite
+from astroz import Tle, Sgp4
 
 tle = Tle("1 25544U 98067A   24127.82853009 ...\n2 25544  51.6393 ...")
 sgp4 = Sgp4(tle)
-
-# Single propagation
 pos, vel = sgp4.propagate(30.0)  # 30 min after epoch
-
-# Batch propagation (convenience method)
-times = np.arange(1209600, dtype=np.float64) / 60.0  # 2 weeks in minutes
-positions, velocities = sgp4.propagate_batch(times)
-
-# Or use propagate_into for zero-copy into pre-allocated arrays
-positions = np.empty((len(times), 3), dtype=np.float64)
-velocities = np.empty((len(times), 3), dtype=np.float64)
-sgp4.propagate_into(times, positions, velocities)
-
-# Multi-satellite constellation (SIMD + multithreaded)
-from astroz import load_constellation, propagate_constellation
-
-# Load from CelesTrak group, file, URL, or TLE string
-constellation = load_constellation("starlink")  # or load_constellation(norad_id=25544)
-
-# Propagate for 1 day at 1-minute intervals (defaults to current UTC time)
-times = np.arange(1440, dtype=np.float64)
-positions = propagate_constellation(constellation, times, output="ecef")
-# shape: (num_times, num_sats, 3)
-
-# With velocities and custom start time
-from datetime import datetime, timezone
-positions, velocities = propagate_constellation(
-    constellation, times,
-    start_time=datetime(2024, 6, 15, tzinfo=timezone.utc),
-    output="ecef",
-    velocities=True,
-)
 ```
 
 ### Usage
@@ -133,7 +121,7 @@ exe.root_module.addImport("astroz", astroz_mod);
 
 - #### [Cesium Satellite Visualization](examples/README.md) — **[Live Demo](https://attron.github.io/astroz-demo/)**
 
-  Interactive 3D visualization of the entire near-earth satellite catalog (~13,000 satellites) using Cesium. Features multithreaded SGP4 propagation at ~210M props/sec, constellation filtering, search, and satellite tracking.
+  Interactive 3D visualization of the entire near-earth satellite catalog (~13,000 satellites) using Cesium. Features multithreaded SGP4 propagation at ~300M props/sec, constellation filtering, search, and satellite tracking.
 
 #### Spacecraft Operations
 

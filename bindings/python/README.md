@@ -1,43 +1,43 @@
 # astroz Python Bindings
 
-High-performance SGP4 satellite propagation, powered by Zig with SIMD acceleration.
+High-performance SGP4 satellite propagation, powered by Zig with SIMD acceleration (AVX512/AVX2).
 
 **Platforms:** macOS, Linux | **Requires:** Python 3.10+
 
 ## Quick Start
 
 ```python
-from astroz import load_constellation, propagate_constellation
+from astroz import Constellation
 import numpy as np
 
-# Load Starlink satellites and propagate for 1 day
-constellation = load_constellation("starlink")
-positions = propagate_constellation(constellation, np.arange(1440))
+# Load and propagate - automatically optimized for 300M+ props/sec
+constellation = Constellation("starlink")
+positions = constellation.propagate(np.arange(1440))  # 1 day at 1-min intervals
 # positions: (1440, num_satellites, 3) in km, ECEF coordinates
 ```
 
-## Loading TLEs
+## Loading Constellations
 
 ```python
-from astroz import load_constellation
+from astroz import Constellation
 
 # CelesTrak groups
-constellation = load_constellation("starlink")
-constellation = load_constellation("iss")
-constellation = load_constellation("gps")
-constellation = load_constellation("all")  # ~10k active satellites
+constellation = Constellation("starlink")
+constellation = Constellation("iss")
+constellation = Constellation("gps")
+constellation = Constellation("all")  # ~13k active satellites
 
 # By NORAD ID
-constellation = load_constellation(norad_id=25544)  # ISS
-constellation = load_constellation(norad_id=[25544, 48274])  # Multiple
+constellation = Constellation(norad_id=25544)  # ISS
+constellation = Constellation(norad_id=[25544, 48274])  # Multiple
 
 # Local file or URL
-constellation = load_constellation("satellites.tle")
-constellation = load_constellation("https://example.com/tles.txt")
+constellation = Constellation("satellites.tle")
+constellation = Constellation("https://example.com/tles.txt")
 
 # With metadata (name, norad_id, inclination, period, etc.)
-constellation, metadata = load_constellation("starlink", with_metadata=True)
-for sat in metadata:
+constellation = Constellation("starlink", with_metadata=True)
+for sat in constellation.metadata:
     print(f"{sat['name']}: {sat['inclination']:.1f}° inc, {sat['period']:.1f} min period")
 ```
 
@@ -46,27 +46,24 @@ Groups: `all`, `starlink`, `oneweb`, `planet`, `spire`, `gps`, `glonass`, `galil
 ## Propagation
 
 ```python
-from astroz import load_constellation, propagate_constellation
+from astroz import Constellation
 from datetime import datetime, timezone
 import numpy as np
 
-constellation = load_constellation("starlink")
+constellation = Constellation("starlink")
 
-# Simple (defaults: now, ECEF)
-positions = propagate_constellation(constellation, np.arange(1440))
+# Simple (defaults: now UTC, ECEF output)
+positions = constellation.propagate(np.arange(1440))
 
 # With options
-positions = propagate_constellation(
-    constellation,
+positions = constellation.propagate(
     np.arange(14 * 1440),  # 2 weeks
     start_time=datetime(2024, 6, 1, tzinfo=timezone.utc),
     output="geodetic",  # "ecef" (default), "teme", or "geodetic"
 )
 
 # With velocities
-positions, velocities = propagate_constellation(
-    constellation, np.arange(1440), velocities=True
-)
+positions, velocities = constellation.propagate(np.arange(1440), velocities=True)
 ```
 
 ## Single Satellite
@@ -86,14 +83,11 @@ positions, velocities = sgp4.propagate_batch(np.arange(1440))
 ## Collision Screening
 
 ```python
-from astroz import load_constellation, propagate_constellation, coarse_screen, min_distances
+from astroz import Constellation, coarse_screen, min_distances
 import numpy as np
 
-constellation = load_constellation("starlink")
-positions = propagate_constellation(
-    constellation, np.arange(1440),
-    output="teme", layout="satellite_major"
-)
+constellation = Constellation("starlink")
+positions = constellation.propagate(np.arange(1440), output="teme")
 
 # Find pairs within 10km
 pairs, t_indices = coarse_screen(positions, threshold=10.0)
@@ -105,12 +99,32 @@ min_dists, min_times = min_distances(positions, pairs_array)
 
 ## Performance
 
-| Constellation (13,448 sats × 1,440 steps) | Throughput |
+| Constellation (13,478 sats × 1,440 steps) | Throughput |
 |--------------------------------------------|------------|
-| 1 thread | 7.7M props/sec |
-| 16 threads | 56M props/sec |
+| 1 thread | 37.7M props/sec |
+| 16 threads | 303M props/sec |
 
-Set `ASTROZ_THREADS` to control thread count.
+*Benchmarked on AMD Ryzen 7 7840U with AVX512. The `Constellation` class automatically handles buffer reuse and warmup for optimal performance.*
+
+Set `ASTROZ_THREADS` to control thread count (defaults to all cores).
+
+## Advanced: Pre-allocated Buffers
+
+For maximum performance with repeated propagations, pre-allocate output buffers:
+
+```python
+from astroz import Constellation
+import numpy as np
+
+constellation = Constellation("starlink")
+times = np.arange(1440, dtype=np.float64)
+
+# Pre-allocate buffer
+out = np.empty((len(times), constellation.num_satellites, 3), dtype=np.float64)
+positions = constellation.propagate(times, out=out)
+```
+
+Note: The `Constellation` class automatically reuses buffers internally when the output shape matches previous calls.
 
 ## Building
 

@@ -10,8 +10,6 @@ const Tle = @import("Tle.zig");
 
 const Sgp4 = @This();
 
-const Vec4 = simdMath.Vec4;
-
 // Atmospheric drag model parameters (km)
 const perigeeSAdjustment = 156.0; // adjust s parameter if below this value
 const perigeeSMinimum = 98.0; // use minimum s, if below this value
@@ -613,128 +611,139 @@ fn computePositionVelocity(el: *const Elements, state: CorrectedState) [2][3]f64
     return .{ r, v };
 }
 
-// SIMD FUNCTIONS
-// keeping the scalar functions to compare as they are gonna be
-// easier to debug if shit breaks
+/// Generic secular state for N-wide time batching
+pub fn SecularStateN(comptime N: usize) type {
+    const Vec = simdMath.VecN(N);
+    return struct {
+        mm: Vec,
+        argpm: Vec,
+        nodem: Vec,
+        em: Vec,
+        a: Vec,
+    };
+}
 
-pub const SecularStateV4 = struct {
-    mm: Vec4,
-    argpm: Vec4,
-    nodem: Vec4,
-    em: Vec4,
-    a: Vec4,
-};
+/// Generic Kepler state for N-wide time batching
+pub fn KeplerStateN(comptime N: usize) type {
+    const Vec = simdMath.VecN(N);
+    return struct {
+        u: Vec,
+        r: Vec,
+        rdot: Vec,
+        rvdot: Vec,
+        betal: Vec,
+        sin2u: Vec,
+        cos2u: Vec,
+        nodem: Vec,
+        pl: Vec,
+    };
+}
 
-pub const KeplerStateV4 = struct {
-    u: Vec4,
-    r: Vec4,
-    rdot: Vec4,
-    rvdot: Vec4,
-    betal: Vec4,
-    sin2u: Vec4,
-    cos2u: Vec4,
-    nodem: Vec4,
-    pl: Vec4,
-};
+/// Generic corrected state for N-wide time batching
+pub fn CorrectedStateN(comptime N: usize) type {
+    const Vec = simdMath.VecN(N);
+    return struct {
+        r: Vec,
+        rdot: Vec,
+        rvdot: Vec,
+        u: Vec,
+        xnode: Vec,
+        xinc: Vec,
+    };
+}
 
-pub const CorrectedStateV4 = struct {
-    r: Vec4,
-    rdot: Vec4,
-    rvdot: Vec4,
-    u: Vec4,
-    xnode: Vec4,
-    xinc: Vec4,
-};
-
-pub fn propagateV4(self: *const Sgp4, times: [4]f64) Error![4][2][3]f64 {
+/// Propagate one satellite at N times simultaneously (time-major SIMD)
+pub fn propagateN(self: *const Sgp4, comptime N: usize, times: [N]f64) Error![N][2][3]f64 {
+    const Vec = simdMath.VecN(N);
     const el = &self.elements;
-    const timeV4 = Vec4{ times[0], times[1], times[2], times[3] };
+    const timeVec: Vec = times;
 
-    const secular = updateSecularV4(el, timeV4);
+    const secular = updateSecularN(N, el, timeVec);
 
-    const emFloor: Vec4 = @splat(eccentricityFloor);
+    const emFloor: Vec = @splat(eccentricityFloor);
     const decayed = secular.em < emFloor;
     if (@reduce(.Or, decayed)) {
         return Error.SatelliteDecayed;
     }
 
-    const nm: Vec4 = @as(Vec4, @splat(el.grav.xke)) / simdMath.pow15V4(secular.a);
-    const kepler = solveKeplerV4(el, secular);
-    const corrected = applyShortPeriodCorrectionsV4(el, kepler, nm);
-    return computePositionVelocityV4(el, corrected);
+    const nm: Vec = @as(Vec, @splat(el.grav.xke)) / simdMath.pow15N(N, secular.a);
+    const kepler = solveKeplerN(N, el, secular);
+    const corrected = applyShortPeriodCorrectionsN(N, el, kepler, nm);
+    return computePositionVelocityN(N, el, corrected);
 }
 
-fn updateSecularV4(el: *const Elements, tsince: Vec4) SecularStateV4 {
+fn updateSecularN(comptime N: usize, el: *const Elements, tsince: simdMath.VecN(N)) SecularStateN(N) {
+    const Vec = simdMath.VecN(N);
     const t2 = tsince * tsince;
 
-    const one: Vec4 = @splat(1.0);
-    const cc1V4: Vec4 = @splat(el.cc1);
-    const cc4V4: Vec4 = @splat(el.cc4);
-    const bstarV4: Vec4 = @splat(el.bstar);
-    const t2cofV4: Vec4 = @splat(el.t2cof);
+    const one: Vec = @splat(1.0);
+    const cc1Vec: Vec = @splat(el.cc1);
+    const cc4Vec: Vec = @splat(el.cc4);
+    const bstarVec: Vec = @splat(el.bstar);
+    const t2cofVec: Vec = @splat(el.t2cof);
 
-    var tempa = one - cc1V4 * tsince;
-    var tempe = bstarV4 * cc4V4 * tsince;
-    var templ = t2cofV4 * t2;
+    var tempa = one - cc1Vec * tsince;
+    var tempe = bstarVec * cc4Vec * tsince;
+    var templ = t2cofVec * t2;
 
-    const moV4: Vec4 = @splat(el.mo);
-    const mdotV4: Vec4 = @splat(el.mdot);
-    const argpoV4: Vec4 = @splat(el.argpo);
-    const argpdotV4: Vec4 = @splat(el.argpdot);
-    const nodeoV4: Vec4 = @splat(el.nodeo);
-    const nodedotV4: Vec4 = @splat(el.nodedot);
-    const xnodcfV4: Vec4 = @splat(el.xnodcf);
+    const moVec: Vec = @splat(el.mo);
+    const mdotVec: Vec = @splat(el.mdot);
+    const argpoVec: Vec = @splat(el.argpo);
+    const argpdotVec: Vec = @splat(el.argpdot);
+    const nodeoVec: Vec = @splat(el.nodeo);
+    const nodedotVec: Vec = @splat(el.nodedot);
+    const xnodcfVec: Vec = @splat(el.xnodcf);
 
-    const xmdf = moV4 + mdotV4 * tsince;
-    const argpdf = argpoV4 + argpdotV4 * tsince;
-    const nodedf = nodeoV4 + nodedotV4 * tsince;
+    const xmdf = moVec + mdotVec * tsince;
+    const argpdf = argpoVec + argpdotVec * tsince;
+    const nodedf = nodeoVec + nodedotVec * tsince;
     var argpm = argpdf;
     var mm = xmdf;
-    var nodem = nodedf + xnodcfV4 * t2;
+    var nodem = nodedf + xnodcfVec * t2;
 
     if (!el.isimp) {
-        const omgcofV4: Vec4 = @splat(el.omgcof);
-        const etaV4: Vec4 = @splat(el.eta);
-        const xmcofV4: Vec4 = @splat(el.xmcof);
-        const delmoV4: Vec4 = @splat(el.delmo);
-        const d2V4: Vec4 = @splat(el.d2);
-        const d3V4: Vec4 = @splat(el.d3);
-        const d4V4: Vec4 = @splat(el.d4);
-        const cc5V4: Vec4 = @splat(el.cc5);
-        const t3cofV4: Vec4 = @splat(el.t3cof);
-        const t4cofV4: Vec4 = @splat(el.t4cof);
-        const t5cofV4: Vec4 = @splat(el.t5cof);
-        const sinmaoV4: Vec4 = @splat(el.sinmao);
+        const omgcofVec: Vec = @splat(el.omgcof);
+        const etaVec: Vec = @splat(el.eta);
+        const xmcofVec: Vec = @splat(el.xmcof);
+        const delmoVec: Vec = @splat(el.delmo);
+        const d2Vec: Vec = @splat(el.d2);
+        const d3Vec: Vec = @splat(el.d3);
+        const d4Vec: Vec = @splat(el.d4);
+        const cc5Vec: Vec = @splat(el.cc5);
+        const t3cofVec: Vec = @splat(el.t3cof);
+        const t4cofVec: Vec = @splat(el.t4cof);
+        const t5cofVec: Vec = @splat(el.t5cof);
+        const sinmaoVec: Vec = @splat(el.sinmao);
 
-        const delomg = omgcofV4 * tsince;
-        const delmtemp = one + etaV4 * simdMath.cosV4(xmdf);
-        const delm = xmcofV4 * (delmtemp * delmtemp * delmtemp - delmoV4);
+        const delomg = omgcofVec * tsince;
+        const delmtemp = one + etaVec * simdMath.cosN(N, xmdf);
+        const delm = xmcofVec * (delmtemp * delmtemp * delmtemp - delmoVec);
         const temp = delomg + delm;
         mm = xmdf + temp;
         argpm = argpdf - temp;
 
         const t3 = t2 * tsince;
         const t4 = t3 * tsince;
-        tempa = tempa - d2V4 * t2 - d3V4 * t3 - d4V4 * t4;
-        tempe = tempe + bstarV4 * cc5V4 * (simdMath.sinV4(mm) - sinmaoV4);
-        templ = templ + t3cofV4 * t3 + t4 * (t4cofV4 + tsince * t5cofV4);
+        tempa = tempa - d2Vec * t2 - d3Vec * t3 - d4Vec * t4;
+        tempe = tempe + bstarVec * cc5Vec * (simdMath.sinN(N, mm) - sinmaoVec);
+        templ = templ + t3cofVec * t3 + t4 * (t4cofVec + tsince * t5cofVec);
     }
 
-    const aBaseV4: Vec4 = @splat(el.aBase);
-    const eccoV4: Vec4 = @splat(el.ecco);
-    const noUnkozaiV4: Vec4 = @splat(el.noUnkozai);
+    const aBaseVec: Vec = @splat(el.aBase);
+    const eccoVec: Vec = @splat(el.ecco);
+    const noUnkozaiVec: Vec = @splat(el.noUnkozai);
 
-    const am = aBaseV4 * tempa * tempa;
-    const eccFloorV4: Vec4 = @splat(eccentricityFloor);
-    var em = eccoV4 - tempe;
-    em = @max(em, eccFloorV4);
+    const am = aBaseVec * tempa * tempa;
+    const eccFloorVec: Vec = @splat(eccentricityFloor);
+    var em = eccoVec - tempe;
+    em = @max(em, eccFloorVec);
 
-    mm = mm + noUnkozaiV4 * templ;
+    mm = mm + noUnkozaiVec * templ;
     const xlm = mm + argpm + nodem;
 
-    nodem = simdMath.modTwoPiV4(nodem);
-    argpm = simdMath.modTwoPiV4(argpm);
-    mm = simdMath.modTwoPiV4(xlm - argpm - nodem);
+    nodem = simdMath.modTwoPiN(N, nodem);
+    argpm = simdMath.modTwoPiN(N, argpm);
+    mm = simdMath.modTwoPiN(N, xlm - argpm - nodem);
 
     return .{
         .mm = mm,
@@ -745,29 +754,30 @@ fn updateSecularV4(el: *const Elements, tsince: Vec4) SecularStateV4 {
     };
 }
 
-fn solveKeplerV4(el: *const Elements, sec: SecularStateV4) KeplerStateV4 {
-    const one: Vec4 = @splat(1.0);
+fn solveKeplerN(comptime N: usize, el: *const Elements, sec: SecularStateN(N)) KeplerStateN(N) {
+    const Vec = simdMath.VecN(N);
+    const one: Vec = @splat(1.0);
 
-    const aycofV4: Vec4 = @splat(el.aycof);
-    const xlcofV4: Vec4 = @splat(el.xlcof);
+    const aycofVec: Vec = @splat(el.aycof);
+    const xlcofVec: Vec = @splat(el.xlcof);
 
     const temp = one / (sec.a * (one - sec.em * sec.em));
-    const sc_argpm = simdMath.sincosV4(sec.argpm);
+    const sc_argpm = simdMath.sincosN(N, sec.argpm);
     const axnl = sec.em * sc_argpm.cos;
-    const aynl = sec.em * sc_argpm.sin + temp * aycofV4;
-    const xl = simdMath.modTwoPiV4(sec.mm + sec.argpm + sec.nodem + temp * xlcofV4 * axnl);
+    const aynl = sec.em * sc_argpm.sin + temp * aycofVec;
+    const xl = simdMath.modTwoPiN(N, sec.mm + sec.argpm + sec.nodem + temp * xlcofVec * axnl);
 
-    var u = simdMath.modTwoPiV4(xl - sec.nodem);
+    var u = simdMath.modTwoPiN(N, xl - sec.nodem);
     var eo1 = u;
-    var sineo1: Vec4 = @splat(0.0);
-    var coseo1: Vec4 = @splat(1.0);
+    var sineo1: Vec = @splat(0.0);
+    var coseo1: Vec = @splat(1.0);
 
-    const tolerance: Vec4 = @splat(1.0e-12);
-    const clampVal: Vec4 = @splat(0.95);
+    const tolerance: Vec = @splat(1.0e-12);
+    const clampVal: Vec = @splat(0.95);
 
     var ktr: u32 = 0;
     while (ktr < 10) : (ktr += 1) {
-        const sc_eo1 = simdMath.sincosV4(eo1);
+        const sc_eo1 = simdMath.sincosN(N, eo1);
         sineo1 = sc_eo1.sin;
         coseo1 = sc_eo1.cos;
         var tem5 = one - coseo1 * axnl - sineo1 * aynl;
@@ -797,34 +807,36 @@ fn solveKeplerV4(el: *const Elements, sec: SecularStateV4) KeplerStateV4 {
     const esineTerm = esine / (one + betal);
     const sinu = aOverR * (sineo1 - aynl - axnl * esineTerm);
     const cosu = aOverR * (coseo1 - axnl + aynl * esineTerm);
-    u = simdMath.atan2SIMD(sinu, cosu);
+    u = simdMath.atan2N(N, sinu, cosu);
 
+    const two: Vec = @splat(2.0);
     return .{
         .u = u,
         .r = rl,
         .rdot = rdotl,
         .rvdot = rvdotl,
         .betal = betal,
-        .sin2u = @as(Vec4, @splat(2.0)) * sinu * cosu,
-        .cos2u = one - @as(Vec4, @splat(2.0)) * sinu * sinu,
+        .sin2u = two * sinu * cosu,
+        .cos2u = one - two * sinu * sinu,
         .nodem = sec.nodem,
         .pl = pl,
     };
 }
 
-fn applyShortPeriodCorrectionsV4(el: *const Elements, kep: KeplerStateV4, nm: Vec4) CorrectedStateV4 {
-    const quarter: Vec4 = @splat(0.25);
-    const half: Vec4 = @splat(0.5);
-    const one: Vec4 = @splat(1.0);
-    const oneHalf: Vec4 = @splat(1.5);
-    const sinio: Vec4 = @splat(el.sinio);
-    const con41: Vec4 = @splat(el.con41);
-    const x1mth2: Vec4 = @splat(el.x1mth2);
-    const x7thm1: Vec4 = @splat(el.x7thm1);
-    const cosio: Vec4 = @splat(el.cosio);
-    const inclo: Vec4 = @splat(el.inclo);
-    const j2: Vec4 = @splat(el.grav.j2);
-    const xke: Vec4 = @splat(el.grav.xke);
+fn applyShortPeriodCorrectionsN(comptime N: usize, el: *const Elements, kep: KeplerStateN(N), nm: simdMath.VecN(N)) CorrectedStateN(N) {
+    const Vec = simdMath.VecN(N);
+    const quarter: Vec = @splat(0.25);
+    const half: Vec = @splat(0.5);
+    const one: Vec = @splat(1.0);
+    const oneHalf: Vec = @splat(1.5);
+    const sinio: Vec = @splat(el.sinio);
+    const con41: Vec = @splat(el.con41);
+    const x1mth2: Vec = @splat(el.x1mth2);
+    const x7thm1: Vec = @splat(el.x7thm1);
+    const cosio: Vec = @splat(el.cosio);
+    const inclo: Vec = @splat(el.inclo);
+    const j2: Vec = @splat(el.grav.j2);
+    const xke: Vec = @splat(el.grav.xke);
 
     const temp = one / kep.pl;
     const temp1 = half * j2 * temp;
@@ -840,17 +852,18 @@ fn applyShortPeriodCorrectionsV4(el: *const Elements, kep: KeplerStateV4, nm: Ve
     return .{ .r = mrt, .rdot = mvt, .rvdot = rvdot, .u = su, .xnode = xnode, .xinc = xinc };
 }
 
-fn computePositionVelocityV4(el: *const Elements, state: CorrectedStateV4) [4][2][3]f64 {
-    const radiusV4: Vec4 = @splat(el.grav.radiusEarthKm);
-    const vkmpersecV4: Vec4 = @splat(el.vkmpersec);
+fn computePositionVelocityN(comptime N: usize, el: *const Elements, state: CorrectedStateN(N)) [N][2][3]f64 {
+    const Vec = simdMath.VecN(N);
+    const radiusVec: Vec = @splat(el.grav.radiusEarthKm);
+    const vkmpersecVec: Vec = @splat(el.vkmpersec);
 
-    const sc_u = simdMath.sincosV4(state.u);
+    const sc_u = simdMath.sincosN(N, state.u);
     const sinsu = sc_u.sin;
     const cossu = sc_u.cos;
-    const sc_node = simdMath.sincosV4(state.xnode);
+    const sc_node = simdMath.sincosN(N, state.xnode);
     const snod = sc_node.sin;
     const cnod = sc_node.cos;
-    const sc_inc = simdMath.sincosV4(state.xinc);
+    const sc_inc = simdMath.sincosN(N, state.xinc);
     const sini = sc_inc.sin;
     const cosi = sc_inc.cos;
 
@@ -863,18 +876,18 @@ fn computePositionVelocityV4(el: *const Elements, state: CorrectedStateV4) [4][2
     const vy = xmy * cossu - snod * sinsu;
     const vz = sini * cossu;
 
-    const rScaled = state.r * radiusV4;
+    const rScaled = state.r * radiusVec;
     const rx = rScaled * ux;
     const ry = rScaled * uy;
     const rz = rScaled * uz;
 
-    const vxOut = (state.rdot * ux + state.rvdot * vx) * vkmpersecV4;
-    const vyOut = (state.rdot * uy + state.rvdot * vy) * vkmpersecV4;
-    const vzOut = (state.rdot * uz + state.rvdot * vz) * vkmpersecV4;
+    const vxOut = (state.rdot * ux + state.rvdot * vx) * vkmpersecVec;
+    const vyOut = (state.rdot * uy + state.rvdot * vy) * vkmpersecVec;
+    const vzOut = (state.rdot * uz + state.rvdot * vz) * vkmpersecVec;
 
-    // need to extract the return from the SIMD vectors
-    var results: [4][2][3]f64 = undefined;
-    inline for (0..4) |i| {
+    // Extract results from SIMD vectors
+    var results: [N][2][3]f64 = undefined;
+    inline for (0..N) |i| {
         results[i][0][0] = rx[i];
         results[i][0][1] = ry[i];
         results[i][0][2] = rz[i];
@@ -889,15 +902,9 @@ fn computePositionVelocityV4(el: *const Elements, state: CorrectedStateV4) [4][2
 // Re-exports for batch and constellation modules
 pub const Sgp4Batch = @import("Sgp4Batch.zig");
 pub const Sgp4Constellation = @import("Sgp4Constellation.zig");
-pub const ElementsV4 = Sgp4Batch.ElementsV4;
-pub const initElementsV4 = Sgp4Batch.initElementsV4;
-pub const propagateSatellitesV4 = Sgp4Batch.propagateSatellitesV4;
-pub const propagateSatellitesV4Vec = Sgp4Batch.propagateSatellitesV4Vec;
 pub const OutputMode = Sgp4Constellation.OutputMode;
 pub const ConstellationLayout = Sgp4Constellation.Layout;
 pub const propagateConstellation = Sgp4Constellation.propagateConstellation;
-pub const PositionVelocityV4 = Sgp4Batch.PositionVelocityV4;
-pub const propagateBatchV4Direct = Sgp4Batch.propagateBatchV4Direct;
 
 test "sgp4 basic init" {
     const testTle =
@@ -980,7 +987,7 @@ test "sgp4 vallado reference ISS" {
     try std.testing.expect(velErr < 0.00001);
 }
 
-test "SIMD matches scalar" {
+test "propagateN(4) matches scalar" {
     const allocator = std.testing.allocator;
 
     // ISS TLE
@@ -1005,12 +1012,46 @@ test "SIMD matches scalar" {
     }
 
     // SIMD run
-    const simdResults = try sgp4.propagateV4(times);
+    const simdResults = try sgp4.propagateN(4, times);
 
     // Tolerance accounts for vectorized atan2 polynomial approximation (~1e-7 radians)
     // This translates to ~10mm position error at LEO distances - well within SGP4's accuracy
     const tol = 1e-4;
     for (0..4) |i| {
+        for (0..3) |j| {
+            try std.testing.expectApproxEqAbs(scalarResults[i][0][j], simdResults[i][0][j], tol);
+            try std.testing.expectApproxEqAbs(scalarResults[i][1][j], simdResults[i][1][j], tol);
+        }
+    }
+}
+
+test "propagateN(8) matches scalar" {
+    const allocator = std.testing.allocator;
+    const tleStr =
+        \\1 55909U 23035B   24187.51050877  .00023579  00000+0  16099-2 0  9998
+        \\2 55909  43.9978 311.8012 0011446 278.6226  81.3336 15.05761711 71371
+    ;
+
+    var tle = try Tle.parse(tleStr, allocator);
+    defer tle.deinit();
+
+    var sgp4 = try Sgp4.init(tle, constants.wgs84);
+
+    const times = [8]f64{ 0.0, 10.0, 60.0, 120.0, 360.0, 720.0, 1080.0, 1440.0 };
+
+    // scalar run
+    var scalarResults: [8][2][3]f64 = undefined;
+    for (0..8) |i| {
+        const result = try sgp4.propagate(times[i]);
+        scalarResults[i][0] = result[0];
+        scalarResults[i][1] = result[1];
+    }
+
+    // SIMD run
+    const simdResults = try sgp4.propagateN(8, times);
+
+    const tol = 1e-4;
+    for (0..8) |i| {
         for (0..3) |j| {
             try std.testing.expectApproxEqAbs(scalarResults[i][0][j], simdResults[i][0][j], tol);
             try std.testing.expectApproxEqAbs(scalarResults[i][1][j], simdResults[i][1][j], tol);
