@@ -55,7 +55,7 @@ def _celestrak_url(group=None, norad_id=None):
 
 
 def _parse_tle_metadata(tle_text):
-    """Parse TLE text into list of metadata dicts (name, norad_id, epoch, etc.)."""
+    """Parse TLE text into list of metadata dicts."""
     lines = tle_text.strip().replace("\r", "").split("\n")
     metadata = []
     i = 0
@@ -83,115 +83,109 @@ def _parse_tle_metadata(tle_text):
     return metadata
 
 
-def load_constellation(source=None, *, norad_id=None, with_metadata=False):
-    """Load a constellation from TLE data.
-
-    Args:
-        source: File path, URL, TLE string, or CelesTrak group name
-            (e.g., "starlink", "iss", "gps", "all")
-        norad_id: NORAD catalog ID or list of IDs (e.g., 25544 for ISS)
-        with_metadata: If True, also return satellite metadata (name, norad_id, etc.)
-
-    Returns:
-        constellation, or (constellation, metadata) if with_metadata=True
-
-    Examples:
-        load_constellation("starlink")
-        load_constellation(norad_id=25544)
-        constellation, metadata = load_constellation("starlink", with_metadata=True)
-    """
-    if norad_id is not None:
-        tle_text = _fetch_url(_celestrak_url(norad_id=norad_id))
-    elif source is None:
-        raise ValueError("Must specify 'source' or 'norad_id'")
-    elif source.startswith(("http://", "https://")):
-        tle_text = _fetch_url(source)
-    elif Path(source).exists():
-        tle_text = Path(source).read_text()
-    elif "1 " in source and "2 " in source:
-        tle_text = source
-    else:
-        tle_text = _fetch_url(_celestrak_url(group=source))
-
-    constellation = _Sgp4Constellation.from_tle_text(tle_text)
-
-    if with_metadata:
-        return constellation, _parse_tle_metadata(tle_text)
-    return constellation
-
-
-def propagate_constellation(
-    constellation,
-    times,
-    *,
-    start_time=None,
-    output="ecef",
-    velocities=False,
-    # Advanced options (rarely needed)
-    epoch_offsets=None,
-    reference_jd=None,
-    satellite_mask=None,
-    layout="time_major",
-):
-    """Propagate constellation and return positions.
-
-    Args:
-        constellation: from load_constellation()
-        times: minutes from start_time (e.g., np.arange(1440) for 1 day)
-        start_time: datetime (defaults to now UTC)
-        output: "ecef" (default), "teme", or "geodetic"
-        velocities: if True, also return velocities
-
-    Returns:
-        positions array (num_times, num_sats, 3), or (positions, velocities) tuple
+class Constellation:
+    """SGP4 constellation propagator with automatic buffer reuse.
 
     Example:
-        positions = propagate_constellation(constellation, np.arange(1440))
+        constellation = Constellation("starlink")
+        positions = constellation.propagate(np.arange(1440))
     """
-    times = np.ascontiguousarray(times, dtype=np.float64)
-    n_sats, n_times = constellation.num_satellites, len(times)
-    time_major = layout == "time_major"
 
-    # Default to current UTC time
-    if start_time is None and epoch_offsets is None:
-        start_time = datetime.now(timezone.utc)
+    def __init__(self, source=None, *, norad_id=None, with_metadata=False):
+        """Load constellation from TLE source.
 
-    if start_time is not None:
+        Args:
+            source: File path, URL, TLE string, or CelesTrak group name
+            norad_id: NORAD catalog ID or list of IDs
+            with_metadata: If True, parse satellite metadata
+        """
+        if norad_id is not None:
+            tle_text = _fetch_url(_celestrak_url(norad_id=norad_id))
+        elif source is None:
+            raise ValueError("Must specify 'source' or 'norad_id'")
+        elif source.startswith(("http://", "https://")):
+            tle_text = _fetch_url(source)
+        elif Path(source).exists():
+            tle_text = Path(source).read_text()
+        elif "1 " in source and "2 " in source:
+            tle_text = source
+        else:
+            tle_text = _fetch_url(_celestrak_url(group=source))
+
+        self._zig = _Sgp4Constellation.from_tle_text(tle_text)
+        self._metadata = _parse_tle_metadata(tle_text) if with_metadata else None
+        self._pos_buffer = None
+        self._buffer_shape = None
+
+    @property
+    def num_satellites(self):
+        return self._zig.num_satellites
+
+    @property
+    def metadata(self):
+        return self._metadata
+
+    @property
+    def epochs(self):
+        return self._zig.epochs
+
+    @property
+    def batch_size(self):
+        return self._zig.batch_size
+
+    def propagate(
+        self, times, *, start_time=None, output="ecef", velocities=False, out=None
+    ):
+        """Propagate constellation and return positions.
+
+        Args:
+            times: minutes from start_time (e.g., np.arange(1440) for 1 day)
+            start_time: datetime (defaults to now UTC)
+            output: "ecef" (default), "teme", or "geodetic"
+            velocities: if True, also return velocities
+            out: optional pre-allocated output array
+
+        Returns:
+            positions (num_times, num_sats, 3), or (positions, velocities) tuple
+        """
+        times = np.ascontiguousarray(times, dtype=np.float64)
+        n_sats, n_times = self._zig.num_satellites, len(times)
+        shape = (n_times, n_sats, 3)
+
+        if start_time is None:
+            start_time = datetime.now(timezone.utc)
+
         start_jd = 2440587.5 + (start_time.timestamp() / 86400.0)
-        epochs = np.array(constellation.epochs, dtype=np.float64)
+        epochs = np.array(self._zig.epochs, dtype=np.float64)
         epoch_offsets = (start_jd - epochs) * 1440.0
-        reference_jd = start_jd
-    elif output != "teme" and reference_jd is None:
-        raise ValueError(f"output='{output}' requires start_time")
 
-    shape = (n_times, n_sats, 3) if time_major else (n_sats, n_times, 3)
-    pos = np.empty(shape, dtype=np.float64)
-    vel = np.empty(shape, dtype=np.float64) if velocities else None
+        # Use provided buffer, cached buffer, or allocate new
+        if out is not None:
+            pos = out
+        elif self._buffer_shape == shape:
+            pos = self._pos_buffer
+        else:
+            self._pos_buffer = np.empty(shape, dtype=np.float64)
+            self._buffer_shape = shape
+            pos = self._pos_buffer
 
-    constellation.propagate_into(
-        times,
-        pos,
-        vel,
-        epoch_offsets=epoch_offsets,
-        satellite_mask=satellite_mask,
-        output=output,
-        reference_jd=reference_jd or 0.0,
-        time_major=time_major,
-    )
-    return (pos, vel) if velocities else pos
+        vel = np.empty(shape, dtype=np.float64) if velocities else None
+
+        self._zig.propagate_into(
+            times,
+            pos,
+            vel,
+            epoch_offsets=epoch_offsets,
+            satellite_mask=None,
+            output=output,
+            reference_jd=start_jd,
+            time_major=True,
+        )
+        return (pos, vel) if velocities else pos
 
 
 def min_distances(positions, pairs, velocities=None):
-    """Find minimum distance between satellite pairs across all time steps.
-
-    Args:
-        positions: (num_sats, num_times, 3) array
-        pairs: (num_pairs, 2) array of satellite index pairs
-        velocities: optional (num_sats, num_times, 3) array
-
-    Returns:
-        (min_dists, time_indices) or (min_dists, time_indices, rel_velocities)
-    """
+    """Find minimum distance between satellite pairs across all time steps."""
     positions = np.ascontiguousarray(positions, dtype=np.float64)
     pairs = np.ascontiguousarray(pairs, dtype=np.uint32)
     num_sats = positions.shape[0]
@@ -210,17 +204,18 @@ def min_distances(positions, pairs, velocities=None):
 
 
 def coarse_screen(positions, threshold=10.0):
-    """Find satellite pairs within threshold distance at any time step.
-
-    Args:
-        positions: (num_sats, num_times, 3) array
-        threshold: distance in km (default: 10.0)
-
-    Returns:
-        (pairs, time_indices) - pairs is list of (i, j) tuples
-    """
+    """Find satellite pairs within threshold distance at any time step."""
     positions = np.ascontiguousarray(positions, dtype=np.float64)
     return _coarse_screen(positions, positions.shape[0], threshold, None)
+
+
+# Backward compatibility aliases
+def load_constellation(source=None, *, norad_id=None, with_metadata=False):
+    """Load constellation. Returns Constellation object (or tuple with metadata)."""
+    c = Constellation(source, norad_id=norad_id, with_metadata=with_metadata)
+    if with_metadata:
+        return c, c.metadata
+    return c
 
 
 __version__ = "0.4.4"
@@ -230,8 +225,8 @@ __all__ = [
     "Tle",
     "Sgp4",
     "WGS84",
+    "Constellation",
     "load_constellation",
-    "propagate_constellation",
     "min_distances",
     "coarse_screen",
 ]
