@@ -36,7 +36,7 @@ pub fn main() !void {
     // Example 1.5: Using SIMD V4 (4 steps at once)
     std.debug.print("\n=== SIMD V4 Batch Propagation (4 times) ===\n", .{});
     const batchTimes4 = [4]f64{ 0, 30, 60, 90 };
-    const batchResults4 = try sgp4.propagateV4(batchTimes4);
+    const batchResults4 = try sgp4.propagateN(4, batchTimes4);
     for (batchTimes4, batchResults4) |tsince, result| {
         const pos = result[0];
         const vel = result[1];
@@ -48,7 +48,7 @@ pub fn main() !void {
     // Example 1.6: Using SIMD V8 (8 steps at once, AVX512)
     std.debug.print("\n=== SIMD V8 Batch Propagation (8 times) ===\n", .{});
     const batchTimes8 = [8]f64{ 0, 15, 30, 45, 60, 75, 90, 105 };
-    const batchResults8 = try sgp4.propagateV8(batchTimes8);
+    const batchResults8 = try sgp4.propagateN(8, batchTimes8);
     for (batchTimes8, batchResults8) |tsince, result| {
         const pos = result[0];
         const vel = result[1];
