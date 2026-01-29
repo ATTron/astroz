@@ -302,3 +302,87 @@ fn getMaxThreads() usize {
     cachedMaxThreads = result;
     return result;
 }
+
+/// Fused propagate+screen: propagate constellation and screen against target on-the-fly
+/// Returns min_distances and min_t_indices per satellite (excluding target)
+pub fn screenConstellation(
+    batches: []const BatchElements,
+    numSatellites: usize,
+    times: []const f64,
+    epochOffsets: []const f64,
+    targetIdx: usize,
+    targetEpochOffset: f64,
+    threshold: f64,
+    referenceJd: f64,
+    outMinDists: []f64,
+    outMinTIndices: []u32,
+) Error!void {
+    if (outMinDists.len < numSatellites or outMinTIndices.len < numSatellites)
+        return Error.SatelliteDecayed;
+
+    const thresholdSq = threshold * threshold;
+    const targetBatchIdx = targetIdx / BatchSize;
+    const targetLane = targetIdx % BatchSize;
+    const targetBatch = &batches[targetBatchIdx];
+
+    // Store squared distances, sqrt at the end
+    for (0..numSatellites) |i| {
+        outMinDists[i] = thresholdSq; // Only track if closer than threshold
+        outMinTIndices[i] = 0;
+    }
+
+    // Precompute GMST sin/cos for ECEF output
+    var sinBuf: [4096]f64 = undefined;
+    var cosBuf: [4096]f64 = undefined;
+    for (times, 0..) |time, i| {
+        const gmst = WCS.julianToGmst(referenceJd + time / 1440.0);
+        sinBuf[i] = @sin(gmst);
+        cosBuf[i] = @cos(gmst);
+    }
+
+    for (times, 0..) |time, timeIdx| {
+        const targetTime: Vec = @splat(time + targetEpochOffset);
+        const targetPv = Sgp4Batch.propagateBatchDirect(BatchSize, targetBatch, targetTime) catch continue;
+        const targetPos = eciToEcefDirect(BatchSize, targetPv.rx, targetPv.ry, targetPv.rz, sinBuf[timeIdx], cosBuf[timeIdx]);
+        const tArr: [BatchSize]f64 = targetPos.x;
+        const tx = tArr[targetLane];
+        const tyArr: [BatchSize]f64 = targetPos.y;
+        const ty = tyArr[targetLane];
+        const tzArr: [BatchSize]f64 = targetPos.z;
+        const tz = tzArr[targetLane];
+
+        for (batches, 0..) |*batch, batchIdx| {
+            const satBase = batchIdx * BatchSize;
+            var batchTimes: Vec = undefined;
+            inline for (0..BatchSize) |i| {
+                batchTimes[i] = time + epochOffsets[satBase + i];
+            }
+
+            const pv = Sgp4Batch.propagateBatchDirect(BatchSize, batch, batchTimes) catch continue;
+            const pos = eciToEcefDirect(BatchSize, pv.rx, pv.ry, pv.rz, sinBuf[timeIdx], cosBuf[timeIdx]);
+            const xArr: [BatchSize]f64 = pos.x;
+            const yArr: [BatchSize]f64 = pos.y;
+            const zArr: [BatchSize]f64 = pos.z;
+
+            for (0..BatchSize) |lane| {
+                const satIdx = satBase + lane;
+                if (satIdx >= numSatellites or satIdx == targetIdx) continue;
+
+                const dx = tx - xArr[lane];
+                const dy = ty - yArr[lane];
+                const dz = tz - zArr[lane];
+                const distSq = dx * dx + dy * dy + dz * dz;
+
+                if (distSq < outMinDists[satIdx]) {
+                    outMinDists[satIdx] = distSq;
+                    outMinTIndices[satIdx] = @intCast(timeIdx);
+                }
+            }
+        }
+    }
+
+    // Convert squared distances to distances
+    for (0..numSatellites) |i| {
+        outMinDists[i] = @sqrt(outMinDists[i]);
+    }
+}

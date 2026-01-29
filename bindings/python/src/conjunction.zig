@@ -333,6 +333,122 @@ pub fn py_coarse_screen(_: [*c]c.PyObject, args: [*c]c.PyObject) callconv(.c) [*
     return result;
 }
 
+/// Single-object screening: find all satellites within threshold of target at any time
+/// Expects time-major layout: positions[t * num_sats * 3 + s * 3 + c]
+pub fn screenObject(
+    positions: [*]const f64,
+    num_sats: usize,
+    num_times: usize,
+    target_idx: usize,
+    threshold: f64,
+    out_sat_indices: [*]u32,
+    out_t_indices: [*]u32,
+    max_results: usize,
+) usize {
+    const threshold_sq = threshold * threshold;
+    var result_count: usize = 0;
+
+    // Time-major layout: index = t * num_sats * 3 + s * 3 + c
+    const stride_t = num_sats * 3;
+
+    for (0..num_times) |t| {
+        const t_base = t * stride_t;
+        const target_base = t_base + target_idx * 3;
+
+        for (0..num_sats) |s| {
+            if (s == target_idx) continue;
+
+            const sat_base = t_base + s * 3;
+            const dx = positions[target_base] - positions[sat_base];
+            const dy = positions[target_base + 1] - positions[sat_base + 1];
+            const dz = positions[target_base + 2] - positions[sat_base + 2];
+            const dist_sq = dx * dx + dy * dy + dz * dz;
+
+            if (dist_sq < threshold_sq) {
+                if (result_count >= max_results) return result_count;
+                out_sat_indices[result_count] = @intCast(s);
+                out_t_indices[result_count] = @intCast(t);
+                result_count += 1;
+            }
+        }
+    }
+    return result_count;
+}
+
+/// Python wrapper for screenObject
+pub fn py_screen_object(_: [*c]c.PyObject, args: [*c]c.PyObject) callconv(.c) [*c]c.PyObject {
+    var pos_obj: [*c]c.PyObject = null;
+    var num_sats_long: c_long = 0;
+    var target_idx_long: c_long = 0;
+    var threshold: f64 = 0;
+
+    if (c.PyArg_ParseTuple(args, "Olld", &pos_obj, &num_sats_long, &target_idx_long, &threshold) == 0) return null;
+
+    const num_sats: usize = @intCast(num_sats_long);
+    const target_idx: usize = @intCast(target_idx_long);
+
+    // Get positions buffer
+    var pos_buf = std.mem.zeroes(c.Py_buffer);
+    if (c.PyObject_GetBuffer(pos_obj, &pos_buf, c.PyBUF_SIMPLE | c.PyBUF_FORMAT) < 0) return null;
+    defer c.PyBuffer_Release(&pos_buf);
+
+    const positions: [*]const f64 = @ptrCast(@alignCast(pos_buf.buf));
+    const total_elements = @as(usize, @intCast(pos_buf.len)) / @sizeOf(f64);
+
+    if (num_sats == 0 or total_elements % (num_sats * 3) != 0) {
+        py.raiseValue("positions array size not consistent with num_sats");
+        return null;
+    }
+    const num_times = total_elements / (num_sats * 3);
+
+    if (target_idx >= num_sats) {
+        py.raiseValue("target_idx out of range");
+        return null;
+    }
+
+    // Allocate output buffers
+    const max_results: usize = 10_000_000;
+    const out_sat_indices = allocator.alloc(u32, max_results) catch {
+        py.raiseRuntime("Out of memory for screen_object results");
+        return null;
+    };
+    defer allocator.free(out_sat_indices);
+
+    const out_t_indices = allocator.alloc(u32, max_results) catch {
+        py.raiseRuntime("Out of memory for screen_object results");
+        return null;
+    };
+    defer allocator.free(out_t_indices);
+
+    // Run the kernel
+    const count = screenObject(
+        positions,
+        num_sats,
+        num_times,
+        target_idx,
+        threshold,
+        out_sat_indices.ptr,
+        out_t_indices.ptr,
+        max_results,
+    );
+
+    // Build Python result: (sat_indices, t_indices)
+    const sat_list = py.listFromU32(out_sat_indices[0..count]) orelse return null;
+    const times_list = py.listFromU32(out_t_indices[0..count]) orelse {
+        c.Py_DECREF(sat_list);
+        return null;
+    };
+
+    const result = py.tuple(2) orelse {
+        c.Py_DECREF(sat_list);
+        c.Py_DECREF(times_list);
+        return null;
+    };
+    py.tupleSet(result, 0, sat_list);
+    py.tupleSet(result, 1, times_list);
+    return result;
+}
+
 /// Python wrapper for minDistancesBatch
 pub fn py_min_distances(_: [*c]c.PyObject, args: [*c]c.PyObject) callconv(.c) [*c]c.PyObject {
     var pos_obj: [*c]c.PyObject = null;

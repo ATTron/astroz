@@ -13,7 +13,6 @@ fn astroz_version(_: [*c]c.PyObject, _: [*c]c.PyObject) callconv(.c) [*c]c.PyObj
 
 var module_methods = [_]c.PyMethodDef{
     .{ .ml_name = "version", .ml_meth = @ptrCast(&astroz_version), .ml_flags = c.METH_NOARGS, .ml_doc = "Return version" },
-    .{ .ml_name = "min_distances", .ml_meth = @ptrCast(&conjunction.py_min_distances), .ml_flags = c.METH_VARARGS, .ml_doc = "min_distances(positions, pairs, [velocities], [num_sats]) -> (dists, indices[, rel_vels])\n\nCompute minimum pairwise distances between satellites across time steps." },
     .{ .ml_name = "coarse_screen", .ml_meth = @ptrCast(&conjunction.py_coarse_screen), .ml_flags = c.METH_VARARGS, .ml_doc = "coarse_screen(positions, num_sats, threshold, [valid_mask]) -> (pairs, t_indices)\n\nFind all satellite pairs within threshold distance at any time step using cell-list spatial indexing." },
     .{ .ml_name = null, .ml_meth = null, .ml_flags = 0, .ml_doc = null },
 };
@@ -37,16 +36,8 @@ pub export fn PyInit__astroz() ?*c.PyObject {
     c.Py_INCREF(@as(*c.PyObject, @ptrCast(&tle.TleType)));
     if (c.PyModule_AddObject(m, "Tle", @ptrCast(&tle.TleType)) < 0) return null;
 
-    c.Py_INCREF(@as(*c.PyObject, @ptrCast(&sgp4.Sgp4Type)));
-    if (c.PyModule_AddObject(m, "Sgp4", @ptrCast(&sgp4.Sgp4Type)) < 0) return null;
-
-    c.Py_INCREF(@as(*c.PyObject, @ptrCast(&sgp4.Sgp4BatchType)));
-    if (c.PyModule_AddObject(m, "Sgp4Batch", @ptrCast(&sgp4.Sgp4BatchType)) < 0) return null;
-
     c.Py_INCREF(@as(*c.PyObject, @ptrCast(&sgp4.Sgp4ConstellationType)));
     if (c.PyModule_AddObject(m, "Sgp4Constellation", @ptrCast(&sgp4.Sgp4ConstellationType)) < 0) return null;
 
-    _ = c.PyModule_AddIntConstant(m, "WGS84", sgp4.WGS84);
-    _ = c.PyModule_AddIntConstant(m, "WGS72", sgp4.WGS72);
     return m;
 }

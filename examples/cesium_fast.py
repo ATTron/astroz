@@ -104,8 +104,24 @@ def generate_legend_html(counts):
     return "\n            ".join(items)
 
 
+def load_tle_text(source):
+    """Load TLE text from CelesTrak."""
+    import urllib.request
+
+    aliases = {
+        "all": "active",
+        "iss": "stations",
+        "gps": "gps-ops",
+        "glonass": "glo-ops",
+    }
+    group = aliases.get(source.lower(), source)
+    url = f"https://celestrak.org/NORAD/elements/gp.php?GROUP={group}&FORMAT=tle"
+    req = urllib.request.Request(url, headers={"User-Agent": "astroz"})
+    return urllib.request.urlopen(req, timeout=60).read().decode("utf-8")
+
+
 def main():
-    from astroz import Constellation
+    from astroz import propagate, Constellation
 
     print("=" * 60)
     print("  Cesium Satellite Visualization")
@@ -113,22 +129,10 @@ def main():
 
     # Load all active satellites with metadata
     print("\n[1/4] Loading catalog...", end=" ", flush=True)
-    constellation = Constellation("all", with_metadata=True)
+    tle_text = load_tle_text("all")
+    constellation = Constellation(tle_text)  # Pre-parse for performance
+    satellites = parse_satellite_metadata(tle_text)
     num_sats = constellation.num_satellites
-    metadata = constellation.metadata
-
-    # Add constellation classification to metadata
-    satellites = []
-    for m in metadata:
-        satellites.append(
-            {
-                "name": m["name"],
-                "constellation": classify_satellite(
-                    m["name"], m["inclination"], m["period"]
-                ),
-                "data": m,
-            }
-        )
     print(f"done - {num_sats:,} satellites")
 
     # Choose a start time: current UTC time rounded down to the minute
@@ -146,10 +150,10 @@ def main():
 
     # Warmup
     for _ in range(3):
-        constellation.propagate(times[:10], start_time=start_time)
+        propagate(constellation, times[:10], start_time=start_time)
 
     t0_prop = time_module.perf_counter()
-    positions = constellation.propagate(times, start_time=start_time)
+    positions = propagate(constellation, times, start_time=start_time)
     prop_time = time_module.perf_counter() - t0_prop
 
     # positions shape: (num_times, num_sats, 3) in km → meters

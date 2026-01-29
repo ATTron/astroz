@@ -796,12 +796,108 @@ fn constellation_from_tle_text(cls: [*c]c.PyObject, args: [*c]c.PyObject, kwds: 
     return @ptrCast(self);
 }
 
+fn constellation_screen_conjunction(self_obj: [*c]c.PyObject, args: [*c]c.PyObject, kwds: [*c]c.PyObject) callconv(.c) [*c]c.PyObject {
+    const self: *Sgp4ConstellationObject = @ptrCast(@alignCast(self_obj));
+
+    var times_obj: [*c]c.PyObject = null;
+    var target_idx_long: c_long = 0;
+    var threshold: f64 = 10.0;
+    var offsets_obj: [*c]c.PyObject = null;
+    var reference_jd: f64 = 0.0;
+
+    const kwlist = [_:null]?[*:0]const u8{
+        "times", "target_idx", "threshold", "epoch_offsets", "reference_jd", null,
+    };
+    if (c.PyArg_ParseTupleAndKeywords(args, kwds, "Ol|dOd", @ptrCast(@constCast(&kwlist)), &times_obj, &target_idx_long, &threshold, &offsets_obj, &reference_jd) == 0)
+        return null;
+
+    const batches = (self.batches orelse {
+        py.raiseRuntime("Constellation not initialized");
+        return null;
+    })[0..self.num_batches];
+
+    const target_idx: usize = @intCast(target_idx_long);
+    if (target_idx >= self.num_satellites) {
+        py.raiseValue("target_idx out of range");
+        return null;
+    }
+
+    // Get times buffer
+    var times_buf = std.mem.zeroes(c.Py_buffer);
+    if (c.PyObject_GetBuffer(times_obj, &times_buf, c.PyBUF_SIMPLE | c.PyBUF_FORMAT) < 0) return null;
+    defer c.PyBuffer_Release(&times_buf);
+
+    const num_times = @as(usize, @intCast(times_buf.len)) / @sizeOf(f64);
+    const times: [*]const f64 = @ptrCast(@alignCast(times_buf.buf));
+
+    // Prepare epoch offsets
+    var offsets_buf = std.mem.zeroes(c.Py_buffer);
+    var offsets = prepareOffsets(offsets_obj, &offsets_buf, self.num_satellites, self.padded_count) orelse return null;
+    defer offsets.deinit();
+    defer if (!offsets.owned) c.PyBuffer_Release(&offsets_buf);
+
+    // Get target's epoch offset
+    const target_epoch_offset = offsets.data[target_idx];
+
+    // Allocate output arrays
+    const out_min_dists = allocator.alloc(f64, self.num_satellites) catch {
+        py.raiseRuntime("Out of memory");
+        return null;
+    };
+    defer allocator.free(out_min_dists);
+
+    const out_min_t_indices = allocator.alloc(u32, self.num_satellites) catch {
+        py.raiseRuntime("Out of memory");
+        return null;
+    };
+    defer allocator.free(out_min_t_indices);
+
+    // Run the kernel
+    astroz.Sgp4Constellation.screenConstellation(
+        batches,
+        self.num_satellites,
+        times[0..num_times],
+        offsets.data,
+        target_idx,
+        target_epoch_offset,
+        threshold,
+        reference_jd,
+        out_min_dists,
+        out_min_t_indices,
+    ) catch {
+        py.raiseValue("Screening failed");
+        return null;
+    };
+
+    // Build Python result: (min_distances, min_t_indices)
+    const dists_list = py.listFromF64(out_min_dists[0..self.num_satellites]) orelse return null;
+    const indices_list = py.listFromU32(out_min_t_indices[0..self.num_satellites]) orelse {
+        c.Py_DECREF(dists_list);
+        return null;
+    };
+
+    const result = py.tuple(2) orelse {
+        c.Py_DECREF(dists_list);
+        c.Py_DECREF(indices_list);
+        return null;
+    };
+    py.tupleSet(result, 0, dists_list);
+    py.tupleSet(result, 1, indices_list);
+    return result;
+}
+
 const constellation_methods = [_]c.PyMethodDef{
     .{
         .ml_name = "propagate_into",
         .ml_meth = @ptrCast(&constellation_propagate_into),
         .ml_flags = c.METH_VARARGS | c.METH_KEYWORDS,
         .ml_doc = "propagate_into(times, positions, velocities=None, *, epoch_offsets=None, output='teme', reference_jd=0.0) -> None\n\nPropagates all satellites. positions shape: (num_sats, num_times, 3)",
+    },
+    .{
+        .ml_name = "screen_conjunction",
+        .ml_meth = @ptrCast(&constellation_screen_conjunction),
+        .ml_flags = c.METH_VARARGS | c.METH_KEYWORDS,
+        .ml_doc = "screen_conjunction(times, target_idx, threshold=10.0, *, epoch_offsets=None, reference_jd=0.0) -> (min_distances, min_t_indices)\n\nFused propagate+screen: find minimum distance to target for each satellite.",
     },
     .{
         .ml_name = "from_tle_text",
