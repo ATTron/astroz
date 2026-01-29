@@ -246,8 +246,8 @@ pub fn readImage(self: *Fits, hdu_number: c_int, output_path: ?[]const u8, optio
 
     // this checks if the image would be empty
     if (naxes[0] > 0 and naxes[1] > 0) {
-        const width: usize = @intCast(naxes[0]);
-        const height: usize = @intCast(naxes[1]);
+        const width: u32 = @intCast(naxes[0]);
+        const height: u32 = @intCast(naxes[1]);
         const pixels: []f32 = try self.allocator.alloc(f32, width * height);
         defer self.allocator.free(pixels);
 
@@ -343,7 +343,7 @@ pub fn readImageAsTable(self: *Fits, hdu_number: c_int, output_path: ?[]const u8
     }
 }
 
-fn applyStretch(self: *Fits, pixels: []f32, width: usize, height: usize, output_path: ?[]const u8, options: StretchOptions) !void {
+fn applyStretch(self: *Fits, pixels: []f32, width: u32, height: u32, output_path: ?[]const u8, options: StretchOptions) !void {
     const sorted_pixels = try self.allocator.dupe(f32, pixels);
     defer self.allocator.free(sorted_pixels);
     std.sort.heap(f32, sorted_pixels, {}, std.sort.asc(f32));
