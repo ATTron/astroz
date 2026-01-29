@@ -188,7 +188,7 @@ def min_distances(positions, pairs, velocities=None):
     """Find minimum distance between satellite pairs across all time steps."""
     positions = np.ascontiguousarray(positions, dtype=np.float64)
     pairs = np.ascontiguousarray(pairs, dtype=np.uint32)
-    num_sats = positions.shape[0]
+    num_sats = positions.shape[1]
 
     if velocities is not None:
         velocities = np.ascontiguousarray(velocities, dtype=np.float64)
@@ -206,7 +206,7 @@ def min_distances(positions, pairs, velocities=None):
 def coarse_screen(positions, threshold=10.0):
     """Find satellite pairs within threshold distance at any time step."""
     positions = np.ascontiguousarray(positions, dtype=np.float64)
-    return _coarse_screen(positions, positions.shape[0], threshold, None)
+    return _coarse_screen(positions, positions.shape[1], threshold, None)
 
 
 # Backward compatibility aliases
