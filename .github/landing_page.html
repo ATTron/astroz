@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>astroz - High-Performance Astrodynamics Library</title>
+    <style>
+        :root {
+            --bg-color: #0d1117;
+            --text-color: #e6edf3;
+            --accent-color: #58a6ff;
+            --secondary-color: #8b949e;
+            --card-bg: #161b22;
+            --border-color: #30363d;
+            --code-bg: #1f2428;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            line-height: 1.6;
+            min-height: 100vh;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 2rem;
+        }
+
+        header {
+            text-align: center;
+            padding: 4rem 0;
+            border-bottom: 1px solid var(--border-color);
+            margin-bottom: 3rem;
+        }
+
+        h1 {
+            font-size: 3.5rem;
+            font-weight: 600;
+            margin-bottom: 1rem;
+            background: linear-gradient(135deg, var(--accent-color), #a371f7);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .tagline {
+            font-size: 1.25rem;
+            color: var(--secondary-color);
+            margin-bottom: 2rem;
+        }
+
+        .badges {
+            display: flex;
+            gap: 0.5rem;
+            justify-content: center;
+            flex-wrap: wrap;
+            margin-bottom: 2rem;
+        }
+
+        .badges img {
+            height: 20px;
+        }
+
+        .doc-links {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 2rem;
+            margin-bottom: 4rem;
+        }
+
+        .doc-card {
+            background: var(--card-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 2rem;
+            text-decoration: none;
+            color: inherit;
+            transition: transform 0.2s, border-color 0.2s;
+        }
+
+        .doc-card:hover {
+            transform: translateY(-4px);
+            border-color: var(--accent-color);
+        }
+
+        .doc-card h2 {
+            font-size: 1.5rem;
+            margin-bottom: 0.5rem;
+            color: var(--accent-color);
+        }
+
+        .doc-card p {
+            color: var(--secondary-color);
+        }
+
+        .doc-card .lang-icon {
+            font-size: 2.5rem;
+            margin-bottom: 1rem;
+        }
+
+        .examples {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+            gap: 2rem;
+            margin-bottom: 4rem;
+        }
+
+        .example {
+            background: var(--card-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            overflow: hidden;
+        }
+
+        .example-header {
+            background: var(--code-bg);
+            padding: 0.75rem 1rem;
+            border-bottom: 1px solid var(--border-color);
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .example pre {
+            padding: 1.5rem;
+            overflow-x: auto;
+            font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+            font-size: 0.875rem;
+            line-height: 1.5;
+        }
+
+        .example code {
+            color: var(--text-color);
+        }
+
+        .comment { color: #8b949e; }
+        .keyword { color: #ff7b72; }
+        .string { color: #a5d6ff; }
+        .function { color: #d2a8ff; }
+        .number { color: #79c0ff; }
+        .type { color: #7ee787; }
+
+        .links {
+            display: flex;
+            justify-content: center;
+            gap: 2rem;
+            flex-wrap: wrap;
+            padding: 2rem 0;
+            border-top: 1px solid var(--border-color);
+        }
+
+        .links a {
+            color: var(--accent-color);
+            text-decoration: none;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            font-weight: 500;
+        }
+
+        .links a:hover {
+            text-decoration: underline;
+        }
+
+        footer {
+            text-align: center;
+            padding: 2rem;
+            color: var(--secondary-color);
+            font-size: 0.875rem;
+        }
+
+        @media (max-width: 600px) {
+            h1 {
+                font-size: 2.5rem;
+            }
+
+            .examples {
+                grid-template-columns: 1fr;
+            }
+
+            .example pre {
+                font-size: 0.75rem;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>astroz</h1>
+            <p class="tagline">High-performance astrodynamics library with SIMD-accelerated SGP4 propagation</p>
+            <div class="badges">
+                <a href="https://github.com/ATTron/astroz"><img src="https://img.shields.io/github/stars/ATTron/astroz?style=flat-square&logo=github" alt="GitHub stars"></a>
+                <a href="https://pypi.org/project/astroz/"><img src="https://img.shields.io/pypi/v/astroz?style=flat-square&logo=python&logoColor=white" alt="PyPI version"></a>
+                <img src="https://img.shields.io/badge/license-MIT-blue?style=flat-square" alt="License">
+            </div>
+        </header>
+
+        <section class="doc-links">
+            <a href="zig/" class="doc-card">
+                <div class="lang-icon">&#9889;</div>
+                <h2>Zig Documentation</h2>
+                <p>Core library API reference. SIMD kernels, SGP4/SDP4 implementation, coordinate transforms, and low-level interfaces.</p>
+            </a>
+            <a href="python/" class="doc-card">
+                <div class="lang-icon">&#128013;</div>
+                <h2>Python Documentation</h2>
+                <p>Python bindings API reference. High-level propagation, constellation screening, and NumPy integration.</p>
+            </a>
+        </section>
+
+        <section class="examples">
+            <div class="example">
+                <div class="example-header">
+                    <span>&#128013;</span> Python
+                </div>
+                <pre><code><span class="keyword">import</span> astroz
+
+<span class="comment"># Propagate Starlink constellation</span>
+positions = astroz.<span class="function">propagate</span>(<span class="string">"starlink"</span>, [<span class="number">0</span>, <span class="number">60</span>, <span class="number">120</span>])
+
+<span class="comment"># Screen for close approaches</span>
+pairs, times = astroz.<span class="function">screen</span>(
+    <span class="string">"starlink"</span>,
+    <span class="function">range</span>(<span class="number">1440</span>),
+    threshold=<span class="number">5.0</span>
+)
+
+<span class="comment"># Get ISS position in geodetic coords</span>
+geo = astroz.<span class="function">propagate</span>(
+    <span class="type">None</span>,
+    [<span class="number">0</span>],
+    norad_id=<span class="number">25544</span>,
+    output=<span class="string">"geodetic"</span>
+)</code></pre>
+            </div>
+            <div class="example">
+                <div class="example-header">
+                    <span>&#9889;</span> Zig
+                </div>
+                <pre><code><span class="keyword">const</span> astroz = <span class="function">@import</span>(<span class="string">"astroz"</span>);
+
+<span class="comment">// Parse TLE and create propagator</span>
+<span class="keyword">const</span> tle = <span class="keyword">try</span> astroz.Tle.<span class="function">parse</span>(tle_line1, tle_line2);
+<span class="keyword">var</span> sgp4 = <span class="keyword">try</span> astroz.Sgp4.<span class="function">init</span>(tle);
+
+<span class="comment">// Propagate to 60 minutes after epoch</span>
+<span class="keyword">const</span> state = sgp4.<span class="function">propagate</span>(<span class="number">60.0</span>);
+
+<span class="comment">// SIMD batch propagation</span>
+<span class="keyword">var</span> times: [<span class="number">8</span>]<span class="type">f64</span> = .{ <span class="number">0</span>, <span class="number">15</span>, <span class="number">30</span>, <span class="number">45</span>, <span class="number">60</span>, <span class="number">75</span>, <span class="number">90</span>, <span class="number">105</span> };
+<span class="keyword">const</span> results = sgp4.<span class="function">propagateN</span>(&times);</code></pre>
+            </div>
+        </section>
+
+        <div class="links">
+            <a href="https://github.com/ATTron/astroz">
+                <svg height="20" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"></path></svg>
+                GitHub
+            </a>
+            <a href="https://pypi.org/project/astroz/">
+                <svg height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.373 0 0 5.373 0 12s5.373 12 12 12 12-5.373 12-12S18.627 0 12 0zm-.004 4.428c.748 0 1.354.605 1.354 1.354 0 .748-.606 1.354-1.354 1.354-.749 0-1.354-.606-1.354-1.354 0-.749.605-1.354 1.354-1.354zm3.578 3.063h.001c.749 0 1.354.605 1.354 1.354 0 .748-.605 1.354-1.354 1.354-.748 0-1.354-.606-1.354-1.354 0-.749.606-1.354 1.353-1.354zm-7.156 0c.748 0 1.354.605 1.354 1.354 0 .748-.606 1.354-1.354 1.354-.749 0-1.354-.606-1.354-1.354 0-.749.605-1.354 1.354-1.354zm3.578 3.063c.748 0 1.354.606 1.354 1.354s-.606 1.354-1.354 1.354c-.749 0-1.354-.606-1.354-1.354s.605-1.354 1.354-1.354zm3.578 3.062c.749 0 1.354.606 1.354 1.354 0 .749-.605 1.354-1.354 1.354-.748 0-1.354-.605-1.354-1.354 0-.748.606-1.354 1.354-1.354zm-7.156 0c.748 0 1.354.606 1.354 1.354 0 .749-.606 1.354-1.354 1.354-.749 0-1.354-.605-1.354-1.354 0-.748.605-1.354 1.354-1.354zm3.578 3.063c.748 0 1.354.605 1.354 1.354 0 .748-.606 1.354-1.354 1.354-.749 0-1.354-.606-1.354-1.354 0-.749.605-1.354 1.354-1.354z"/></svg>
+                PyPI
+            </a>
+            <a href="https://github.com/ATTron/astroz/tree/main/examples">
+                <svg height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg>
+                Examples
+            </a>
+        </div>
+
+        <footer>
+            <p>astroz is open source under the MIT license</p>
+        </footer>
+    </div>
+</body>
+</html>

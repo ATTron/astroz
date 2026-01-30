@@ -20,8 +20,33 @@ jobs:
           version: master
           use-cache: false
 
-      - name: Run `doc`
-        run: zig build doc
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install pdoc
+        run: pip install pdoc
+
+      - name: Build Python extension
+        run: |
+          cd bindings/python
+          pip install -e .
+
+      - name: Create docs directory structure
+        run: mkdir -p zig-out/doc/zig zig-out/doc/python
+
+      - name: Generate Zig documentation
+        run: |
+          zig build doc
+          mv zig-out/doc/*.* zig-out/doc/zig/ 2>/dev/null || true
+          mv zig-out/doc/src zig-out/doc/zig/ 2>/dev/null || true
+
+      - name: Generate Python documentation
+        run: pdoc bindings/python/astroz -o zig-out/doc/python
+
+      - name: Create landing page
+        run: cp .github/landing_page.html zig-out/doc/index.html
 
       - name: Upload artifact for GitHub Pages
         uses: actions/upload-pages-artifact@v3
