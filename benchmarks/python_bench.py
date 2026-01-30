@@ -4,6 +4,10 @@
 import time
 import numpy as np
 
+ISS_TLE = """ISS (ZARYA)
+1 25544U 98067A   24127.82853009  .00015698  00000+0  27310-3 0  9995
+2 25544  51.6393 160.4574 0003580 140.6673 205.7250 15.50957674452123"""
+
 ISS_TLE_LINE1 = "1 25544U 98067A   24127.82853009  .00015698  00000+0  27310-3 0  9995"
 ISS_TLE_LINE2 = "2 25544  51.6393 160.4574 0003580 140.6673 205.7250 15.50957674452123"
 
@@ -11,7 +15,6 @@ SCENARIOS = [
     ("1 day (minute)", 1440, 1.0),
     ("1 week (minute)", 10080, 1.0),
     ("2 weeks (minute)", 20160, 1.0),
-    ("2 weeks (second)", 1209600, 1.0 / 60.0),
     ("1 month (minute)", 43200, 1.0),
 ]
 
@@ -20,27 +23,27 @@ ITERATIONS = 10
 
 def bench_astroz():
     try:
-        from astroz import Tle, Sgp4
+        from astroz import Constellation, propagate
     except ImportError:
         print(
             "astroz not installed... run: zig build python-bindings && pip install -e bindings/python/"
         )
         return None
 
-    tle = Tle(f"{ISS_TLE_LINE1}\n{ISS_TLE_LINE2}")
-    sgp4 = Sgp4(tle)
-    for i in range(100):  # warmup
-        sgp4.propagate(float(i))
+    # Pre-parse constellation to avoid parsing overhead in benchmark
+    c = Constellation(ISS_TLE)
+
+    # Warmup
+    for _ in range(10):
+        propagate(c, np.arange(100, dtype=np.float64))
 
     results = {}
     for name, points, step in SCENARIOS:
         times = np.arange(points, dtype=np.float64) * step
-        positions = np.empty((points, 3), dtype=np.float64)
-        velocities = np.empty((points, 3), dtype=np.float64)
         total = 0
         for _ in range(ITERATIONS):
             start = time.perf_counter_ns()
-            sgp4.propagate_into(times, positions, velocities)
+            propagate(c, times)
             total += time.perf_counter_ns() - start
         results[name] = total / ITERATIONS / 1_000_000
     return results

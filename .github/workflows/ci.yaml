@@ -94,26 +94,21 @@ jobs:
 
       - name: Test import and basic functionality
         run: |
-          python -c "from astroz import Tle, Sgp4, __version__; print(f'astroz {__version__}')"
+          python -c "from astroz import Tle, Constellation, propagate, __version__; print(f'astroz {__version__}')"
           python -c "
-          from astroz import Tle, Sgp4
+          from astroz import Tle, propagate
           import numpy as np
 
+          tle_text = '1 25544U 98067A   24127.82853009  .00015698  00000+0  27310-3 0  9995\n2 25544  51.6393 160.4574 0003580 140.6673 205.7250 15.50957674452123'
+
           # Test TLE parsing
-          tle = Tle('1 25544U 98067A   24127.82853009  .00015698  00000+0  27310-3 0  9995\n2 25544  51.6393 160.4574 0003580 140.6673 205.7250 15.50957674452123')
+          tle = Tle(tle_text)
           print(f'Satellite: {tle.satellite_number}')
 
-          # Test single propagation
-          sgp4 = Sgp4(tle)
-          pos, vel = sgp4.propagate(30.0)
-          print(f'Position: {pos}')
-
-          # Test batch propagation
+          # Test propagation
           times = np.arange(100, dtype=np.float64)
-          positions = np.empty((100, 3), dtype=np.float64)
-          velocities = np.empty((100, 3), dtype=np.float64)
-          sgp4.propagate_into(times, positions, velocities)
-          print(f'Batch: {len(positions)} points')
+          positions = propagate(tle_text, times)
+          print(f'Batch: {positions.shape}')
           "
 
       - name: Run Python example

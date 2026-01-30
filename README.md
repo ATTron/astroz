@@ -54,31 +54,28 @@ pip install astroz
 ```
 
 ```python
-from astroz import Constellation
+from astroz import propagate, Constellation
 import numpy as np
 
 # Load and propagate - automatically optimized for maximum performance
-constellation = Constellation("starlink")
-positions = constellation.propagate(np.arange(1440))  # 1 day at 1-min intervals
+positions = propagate("starlink", np.arange(1440))  # 1 day at 1-min intervals
 # shape: (1440, num_satellites, 3) in km, ECEF coordinates
 
 # With options
 from datetime import datetime, timezone
-positions = constellation.propagate(
+positions = propagate(
+    "starlink",
     np.arange(1440),
     start_time=datetime(2024, 6, 15, tzinfo=timezone.utc),
     output="geodetic",  # "ecef" (default), "teme", or "geodetic"
 )
 
 # With velocities
-positions, velocities = constellation.propagate(np.arange(1440), velocities=True)
+positions, velocities = propagate("starlink", np.arange(1440), velocities=True)
 
-# Single satellite
-from astroz import Tle, Sgp4
-
-tle = Tle("1 25544U 98067A   24127.82853009 ...\n2 25544  51.6393 ...")
-sgp4 = Sgp4(tle)
-pos, vel = sgp4.propagate(30.0)  # 30 min after epoch
+# For repeated propagation, pre-parse to avoid overhead
+c = Constellation("starlink")
+positions = propagate(c, np.arange(1440))
 ```
 
 ### Usage
