@@ -68,9 +68,15 @@ pub fn propagateConstellation(
     }
 
     // Precompute GMST sin/cos for non-TEME modes (GMST depends only on time, not satellite)
-    var sinBuf: [4096]f64 = undefined;
-    var cosBuf: [4096]f64 = undefined;
+    const page_alloc = std.heap.page_allocator;
+    var sinBuf: []f64 = &.{};
+    var cosBuf: []f64 = &.{};
+    defer if (sinBuf.len > 0) page_alloc.free(sinBuf);
+    defer if (cosBuf.len > 0) page_alloc.free(cosBuf);
+
     if (outputMode != .teme) {
+        sinBuf = page_alloc.alloc(f64, times.len) catch return Error.OutOfMemory;
+        cosBuf = page_alloc.alloc(f64, times.len) catch return Error.OutOfMemory;
         for (times, 0..) |time, i| {
             const gmst = WCS.julianToGmst(referenceJd + time / 1440.0);
             sinBuf[i] = @sin(gmst);
@@ -87,8 +93,8 @@ pub fn propagateConstellation(
         .resultsVel = resultsVel,
         .referenceJd = referenceJd,
         .satelliteMask = satelliteMask,
-        .gmstSin = sinBuf[0..times.len],
-        .gmstCos = cosBuf[0..times.len],
+        .gmstSin = sinBuf,
+        .gmstCos = cosBuf,
     };
 
     // Dispatch: 2 layouts × 3 modes × 2 velocity = 12 variants
@@ -123,7 +129,7 @@ fn propagateThreaded(
 
     const numThreads = @min(workItems, maxThreads);
     const perThread = (workItems + numThreads - 1) / numThreads;
-    var handles: [64]?std.Thread = .{null} ** 64;
+    var handles: [MaxThreads]?std.Thread = .{null} ** MaxThreads;
 
     for (0..numThreads) |tid| {
         const start = tid * perThread;
@@ -287,6 +293,8 @@ inline fn computeActive(batchIdx: usize, numSatellites: usize, satelliteMask: ?[
 /// Cached thread count to avoid repeated syscalls
 var cachedMaxThreads: usize = 0;
 
+const MaxThreads: usize = 128;
+
 fn getMaxThreads() usize {
     // Fast path: return cached value
     if (cachedMaxThreads != 0) return cachedMaxThreads;
@@ -299,6 +307,7 @@ fn getMaxThreads() usize {
             result = std.fmt.parseInt(usize, std.mem.sliceTo(val, 0), 10) catch result;
         }
     }
+    result = @min(result, MaxThreads);
     cachedMaxThreads = result;
     return result;
 }
@@ -332,8 +341,12 @@ pub fn screenConstellation(
     }
 
     // Precompute GMST sin/cos for ECEF output
-    var sinBuf: [4096]f64 = undefined;
-    var cosBuf: [4096]f64 = undefined;
+    const page_alloc = std.heap.page_allocator;
+    const sinBuf = page_alloc.alloc(f64, times.len) catch return Error.OutOfMemory;
+    defer page_alloc.free(sinBuf);
+    const cosBuf = page_alloc.alloc(f64, times.len) catch return Error.OutOfMemory;
+    defer page_alloc.free(cosBuf);
+
     for (times, 0..) |time, i| {
         const gmst = WCS.julianToGmst(referenceJd + time / 1440.0);
         sinBuf[i] = @sin(gmst);
