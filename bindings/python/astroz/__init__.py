@@ -98,10 +98,12 @@ def _load_tle_text(source, norad_id=None):
         raise ValueError("Must specify 'source' or 'norad_id'")
     if source.startswith(("http://", "https://")):
         return _fetch_url(source)
-    if Path(source).exists():
-        return Path(source).read_text()
+    # Check for raw TLE text before file path (TLE lines start with "1 " and "2 ")
     if "1 " in source and "2 " in source:
         return source
+    # Only check file existence for short strings (avoid OSError for long TLE text)
+    if len(source) < 256 and Path(source).exists():
+        return Path(source).read_text()
     return _fetch_url(_celestrak_url(group=source))
 
 

@@ -9,6 +9,7 @@ const simdMath = @import("simdMath.zig");
 const WCS = @import("WorldCoordinateSystem.zig");
 
 const Error = Sgp4.Error;
+const allocator = std.heap.page_allocator;
 
 /// Compile-time batch size: 8 for AVX512, 4 for AVX2/SSE
 pub const BatchSize: usize = Sgp4Batch.BatchSize;
@@ -67,9 +68,14 @@ pub fn propagateConstellation(
         if (rv.len < requiredSize) return Error.SatelliteDecayed;
     }
 
+    // Dynamically allocate GMST sin/cos buffers based on actual time count
+    const sinBuf = allocator.alloc(f64, times.len) catch return Error.OutOfMemory;
+    defer allocator.free(sinBuf);
+
+    const cosBuf = allocator.alloc(f64, times.len) catch return Error.OutOfMemory;
+    defer allocator.free(cosBuf);
+
     // Precompute GMST sin/cos for non-TEME modes (GMST depends only on time, not satellite)
-    var sinBuf: [4096]f64 = undefined;
-    var cosBuf: [4096]f64 = undefined;
     if (outputMode != .teme) {
         for (times, 0..) |time, i| {
             const gmst = WCS.julianToGmst(referenceJd + time / 1440.0);
@@ -87,8 +93,8 @@ pub fn propagateConstellation(
         .resultsVel = resultsVel,
         .referenceJd = referenceJd,
         .satelliteMask = satelliteMask,
-        .gmstSin = sinBuf[0..times.len],
-        .gmstCos = cosBuf[0..times.len],
+        .gmstSin = sinBuf,
+        .gmstCos = cosBuf,
     };
 
     // Dispatch: 2 layouts × 3 modes × 2 velocity = 12 variants
@@ -331,9 +337,13 @@ pub fn screenConstellation(
         outMinTIndices[i] = 0;
     }
 
+    // Dynamically allocate GMST sin/cos buffers based on actual time count
+    const sinBuf = allocator.alloc(f64, times.len) catch return Error.OutOfMemory;
+    defer allocator.free(sinBuf);
+    const cosBuf = allocator.alloc(f64, times.len) catch return Error.OutOfMemory;
+    defer allocator.free(cosBuf);
+
     // Precompute GMST sin/cos for ECEF output
-    var sinBuf: [4096]f64 = undefined;
-    var cosBuf: [4096]f64 = undefined;
     for (times, 0..) |time, i| {
         const gmst = WCS.julianToGmst(referenceJd + time / 1440.0);
         sinBuf[i] = @sin(gmst);
