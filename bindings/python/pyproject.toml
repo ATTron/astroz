@@ -23,6 +23,7 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["sgp4"]  # For benchmarks and testing
+docs = ["pdoc"]
 
 [project.urls]
 Repository = "https://github.com/ATTron/astroz"
