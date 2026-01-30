@@ -21,6 +21,7 @@ fn sgp4ErrorMsg(e: Sgp4.Error) [:0]const u8 {
         Sgp4.Error.DeepSpaceNotSupported => "Deep space not supported",
         Sgp4.Error.InvalidEccentricity => "Invalid eccentricity",
         Sgp4.Error.SatelliteDecayed => "Satellite decayed",
+        Sgp4.Error.OutOfMemory => "Out of memory",
     };
 }
 

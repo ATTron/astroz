@@ -27,6 +27,7 @@ pub const Error = error{
     DeepSpaceNotSupported,
     InvalidEccentricity,
     SatelliteDecayed,
+    OutOfMemory,
 };
 
 pub const Elements = struct {
