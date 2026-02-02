@@ -53,6 +53,54 @@ The [Cesium visualization example](examples/README.md) propagates the entire act
 pip install astroz
 ```
 
+#### python-sgp4 Compatible API (Recommended)
+
+Drop-in replacement for [python-sgp4](https://github.com/brandon-rhodes/python-sgp4). Just change the import for instant speedup:
+
+```python
+# Before                                    # After
+from sgp4.api import Satrec, jday      →    from astroz.api import Satrec, jday
+```
+
+| Your Code | python-sgp4 | astroz | Speedup |
+|-----------|-------------|--------|---------|
+| `sat.sgp4()` loop | 1.3M/s | 2.5M/s | **2x** |
+| `sat.sgp4_array()` | 2.7M/s | 15M/s | **5x** |
+| `SatrecArray.sgp4()` | 3M/s | 290M/s | **100x** |
+
+See [migration guide](bindings/python/README.md#migrating-from-python-sgp4) for optimization tips.
+
+```python
+from astroz.api import Satrec, SatrecArray, jday, WGS72
+import numpy as np
+
+# Single satellite (same syntax as python-sgp4)
+line1 = "1 25544U 98067A   24127.82853009  .00015698  00000+0  27310-3 0  9995"
+line2 = "2 25544  51.6393 160.4574 0003580 140.6673 205.7250 15.50957674452123"
+sat = Satrec.twoline2rv(line1, line2, WGS72)
+
+jd, fr = jday(2024, 5, 6, 12, 0, 0.0)
+error, position, velocity = sat.sgp4(jd, fr)
+
+# Batch propagation (270-330M props/sec with SIMD)
+sat_array = SatrecArray([sat1, sat2, ...])  # List of Satrec objects
+
+# Single time point (scalars)
+e, r, v = sat_array.sgp4(2460000.5, 0.5)
+
+# Multiple time points (arrays)
+jd = np.full(1440, 2460000.5)
+fr = np.linspace(0, 1, 1440)
+e, r, v = sat_array.sgp4(jd, fr)  # (n_sats, n_times, 3)
+
+# Skip velocities for 30% faster propagation
+e, r, _ = sat_array.sgp4(jd, fr, velocities=False)
+```
+
+#### High-Level API
+
+Convenience functions for common workflows:
+
 ```python
 from astroz import propagate, Constellation
 import numpy as np

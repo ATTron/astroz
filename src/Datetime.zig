@@ -228,6 +228,28 @@ pub fn yearDoyToJulianDate(year: u16, doy: f64) f64 {
     return jdJan1 + doy - 1.0;
 }
 
+/// python-sgp4 compatible: calendar to (jd_int, fr) tuple
+/// Returns Julian date split into integer day (at noon) and fractional part
+pub fn jday(year: u16, month: u8, day: u8, hour: u8, minute: u8, second: f64) struct { jd: f64, fr: f64 } {
+    const dt = Datetime.initDatetime(year, month, day, hour, minute, @floatCast(second));
+    const full_jd = dt.toJulianDate();
+    const jd_int = @floor(full_jd - 0.5) + 0.5; // JD at noon
+    return .{ .jd = jd_int, .fr = full_jd - jd_int };
+}
+
+/// python-sgp4 compatible: fractional doy to (month, day, hour, minute, second)
+/// Converts year and fractional day-of-year to calendar components
+pub fn days2mdhms(year: u16, days: f64) struct { month: u8, day: u8, hour: u8, minute: u8, second: f64 } {
+    const dt = fromYearDoy(year, days);
+    return .{
+        .month = dt.month.?,
+        .day = dt.day.?,
+        .hour = dt.hours.?,
+        .minute = dt.minutes.?,
+        .second = @floatCast(dt.seconds.?),
+    };
+}
+
 test "Test Date" {
     const dt = Datetime.initDate(2024, 6, 24);
 
@@ -278,4 +300,23 @@ test "Test J2000" {
 
     try std.testing.expectEqual(2453581.5, j2000.convertToJ2000());
     try std.testing.expectEqual(53581.0, j2000.convertToModifiedJd());
+}
+
+test "Test jday" {
+    // Test jday: 2019-01-05 04:28:31.5 should give JD ~2458488.686
+    const result = Datetime.jday(2019, 1, 5, 4, 28, 31.5);
+    // JD at noon should be 2458488.5
+    try std.testing.expectEqual(2458488.5, result.jd);
+    // Fractional part should be about 0.186... (4:28:31.5 from noon)
+    try std.testing.expectApproxEqAbs(0.18647569444444444, result.fr, 1e-9);
+}
+
+test "Test days2mdhms" {
+    // Test days2mdhms: day 5.186475... of 2019 should give Jan 5, 04:28:31.5
+    const result = Datetime.days2mdhms(2019, 5.186475694444444);
+    try std.testing.expectEqual(1, result.month);
+    try std.testing.expectEqual(5, result.day);
+    try std.testing.expectEqual(4, result.hour);
+    try std.testing.expectEqual(28, result.minute);
+    try std.testing.expectApproxEqAbs(31.5, result.second, 0.01);
 }
