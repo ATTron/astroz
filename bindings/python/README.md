@@ -164,6 +164,17 @@ e, r, _ = sat_array.sgp4(jd, fr, velocities=False)
 | `sat.sgp4_array()` | 2.7M/s | 15M/s | **5x** |
 | `SatrecArray.sgp4()` | 3M/s | 290M/s | **100x** |
 
+### Compatibility Notes
+
+astroz supports the core python-sgp4 API for satellite propagation. Some rarely-used attributes are not implemented:
+
+- **TLE metadata**: `classification`, `intldesg`, `elnum`, `revnum`, `ephtype`
+- **Intermediate elements**: `Om`, `am`, `em`, `im`, `mm`, `nm`, `om` (osculating elements after propagation)
+- **Element rates**: `argpdot`, `mdot`, `nodedot`
+- **Gravity constants**: `j2`, `j3`, `j4`, `mu`, etc. (available via `astroz.constants`)
+
+For typical satellite tracking and visualization, astroz is a full drop-in replacement.
+
 ## Performance
 
 | Constellation (13,478 sats x 1,440 steps) | Throughput |

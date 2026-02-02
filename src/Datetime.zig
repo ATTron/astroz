@@ -218,14 +218,16 @@ pub fn fromYearDoy(year: u16, doy: f64) Datetime {
 }
 
 /// Convert year and fractional day-of-year directly to Julian Date
+/// DOY 1.0 = Jan 1 00:00:00 (midnight), matching TLE epoch convention
 pub fn yearDoyToJulianDate(year: u16, doy: f64) f64 {
     const y: f64 = @floatFromInt(year);
     const a = @floor((14.0 - 1.0) / 12.0);
     const yy = y + 4800.0 - a;
     const mm = 1.0 + 12.0 * a - 3.0;
+    // jdJan1 is JD at noon on Jan 1; subtract 0.5 to get midnight
     const jdJan1 = 1.0 + @floor((153.0 * mm + 2.0) / 5.0) + 365.0 * yy +
         @floor(yy / 4.0) - @floor(yy / 100.0) + @floor(yy / 400.0) - 32045.0;
-    return jdJan1 + doy - 1.0;
+    return jdJan1 + doy - 1.5; // -1.5 = -1 for DOY offset, -0.5 for noon→midnight
 }
 
 /// python-sgp4 compatible: calendar to (jd_int, fr) tuple

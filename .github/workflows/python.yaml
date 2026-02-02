@@ -119,6 +119,19 @@ jobs:
           pos = propagate(tle_text, [30.0])
           print(f'Position: {pos[0, 0]}')
           "
+          python -c "
+          from astroz.api import Satrec, SatrecArray, jday, WGS72
+          import numpy as np
+          line1 = '1 25544U 98067A   24127.82853009  .00015698  00000+0  27310-3 0  9995'
+          line2 = '2 25544  51.6393 160.4574 0003580 140.6673 205.7250 15.50957674452123'
+          sat = Satrec.twoline2rv(line1, line2, WGS72)
+          jd, fr = jday(2024, 5, 6, 12, 0, 0.0)
+          e, r, v = sat.sgp4(jd, fr)
+          print(f'astroz.api: pos=({r[0]:.1f}, {r[1]:.1f}, {r[2]:.1f})')
+          arr = SatrecArray([sat])
+          e, r, v = arr.sgp4(np.array([jd]), np.array([fr]))
+          print(f'SatrecArray: shape={r.shape}')
+          "
 
       - name: Upload wheels
         uses: actions/upload-artifact@v4

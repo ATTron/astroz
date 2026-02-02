@@ -20,7 +20,7 @@ Method                           python-sgp4  astroz     Speedup
 ``sat.sgp4()`` loop              1.3M/s       2.5M/s     **2x**
 ``sat.sgp4_array()``             2.7M/s       15M/s      **5x**
 ``SatrecArray.sgp4()``           3M/s         290M/s     **100x**
-``SatrecArray.sgp4(vel=False)``  3M/s         330M/s     **110x**
+``SatrecArray.sgp4(velocities=False)``  3M/s   330M/s     **110x**
 ===============================  ===========  =========  =========
 
 Example
@@ -55,6 +55,8 @@ Notes
 - All orbital elements match python-sgp4 units (radians, Earth radii)
 - Error codes match python-sgp4 conventions (0=success)
 - Use ``velocities=False`` when positions are sufficient
+- Some rarely-used python-sgp4 attributes are not implemented (intermediate
+  osculating elements, element rates, TLE metadata). See README for details.
 
 See Also
 --------
