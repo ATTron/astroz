@@ -62,7 +62,7 @@ fn satrec_dealloc(self_obj: [*c]c.PyObject) callconv(.c) void {
         tle_copy.deinit();
         allocator.destroy(t);
     }
-    if (py.pyType(self_obj)) |tp| if (tp.*.tp_free) |free| free(@ptrCast(self));
+    if (py.pyType(self_obj)) |tp| if (tp.*.tp_free) |free| free(@as(?*anyopaque, @ptrCast(self)));
 }
 
 /// Class method: twoline2rv(line1, line2, whichconst=WGS72) -> Satrec
@@ -97,7 +97,7 @@ fn satrec_twoline2rv(cls: [*c]c.PyObject, args: [*c]c.PyObject, kwds: [*c]c.PyOb
     // Parse TLE
     const tle = Tle.parseLines(line1, line2, allocator) catch {
         py.raiseValue("Failed to parse TLE lines");
-        c.Py_DECREF(@ptrCast(self));
+        c.Py_DECREF(@as([*c]c.PyObject, @ptrCast(self)));
         return null;
     };
 
@@ -105,7 +105,7 @@ fn satrec_twoline2rv(cls: [*c]c.PyObject, args: [*c]c.PyObject, kwds: [*c]c.PyOb
         py.raiseRuntime("Out of memory");
         var tle_copy = tle;
         tle_copy.deinit();
-        c.Py_DECREF(@ptrCast(self));
+        c.Py_DECREF(@as([*c]c.PyObject, @ptrCast(self)));
         return null;
     };
     tle_ptr.* = tle;
@@ -131,7 +131,7 @@ fn satrec_twoline2rv(cls: [*c]c.PyObject, args: [*c]c.PyObject, kwds: [*c]c.PyOb
 
     const sgp4_ptr = allocator.create(Sgp4) catch {
         py.raiseRuntime("Out of memory");
-        c.Py_DECREF(@ptrCast(self));
+        c.Py_DECREF(@as([*c]c.PyObject, @ptrCast(self)));
         return null;
     };
     sgp4_ptr.* = sgp4;
@@ -561,7 +561,7 @@ fn satrecarray_init(self_obj: [*c]c.PyObject, args: [*c]c.PyObject, _: [*c]c.PyO
 fn satrecarray_dealloc(self_obj: [*c]c.PyObject) callconv(.c) void {
     const self: *SatrecArrayObject = @ptrCast(@alignCast(self_obj));
     shared.freeBatchFields(self);
-    if (py.pyType(self_obj)) |tp| if (tp.*.tp_free) |free| free(@ptrCast(self));
+    if (py.pyType(self_obj)) |tp| if (tp.*.tp_free) |free| free(@as(?*anyopaque, @ptrCast(self)));
 }
 
 /// propagate_into(times, positions, velocities, epoch_offsets) -> None
