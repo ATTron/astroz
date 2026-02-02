@@ -1,18 +1,30 @@
 """astroz - High-performance astrodynamics library.
 
 A Python library for satellite orbit propagation and conjunction screening,
-powered by a Zig backend with SIMD acceleration.
+powered by a Zig backend with SIMD acceleration (AVX2/AVX512).
+
+APIs
+----
+astroz (this module)
+    High-level API for quick propagation and screening with automatic
+    TLE loading from CelesTrak, files, or URLs.
+
+astroz.api
+    python-sgp4 compatible API. Drop-in replacement - just change the import
+    for 2-100x speedup. See :mod:`astroz.api` for migration guide.
 
 Quick Start
 -----------
->>> import astroz
->>> # Propagate Starlink satellites for 24 hours
->>> positions = astroz.propagate("starlink", [0, 60, 120])  # 0, 1, 2 hours
->>> positions.shape
-(3, 6000+, 3)  # (times, satellites, xyz)
+**High-level API** (easiest)::
 
->>> # Screen for close approaches
->>> pairs, times = astroz.screen("starlink", range(1440), threshold=5.0)
+    import astroz
+    positions = astroz.propagate("starlink", [0, 60, 120])
+
+**python-sgp4 compatible** (drop-in replacement)::
+
+    from astroz.api import Satrec, jday  # was: from sgp4.api import ...
+    sat = Satrec.twoline2rv(line1, line2)
+    e, r, v = sat.sgp4(jd, fr)
 
 Main Functions
 --------------
@@ -38,18 +50,21 @@ The library supports multiple TLE data sources:
 - **Local files**: Path to a TLE file
 - **Raw TLE text**: Direct TLE string input
 
-Performance Notes
------------------
-- SIMD-accelerated SGP4 propagation (8-wide AVX2/AVX-512)
-- Multi-threaded constellation propagation
-- Fused propagate+screen for single-target mode (fastest path)
-- Zero-copy NumPy array output
+Performance
+-----------
+=================================  ============
+Operation                          Throughput
+=================================  ============
+Multi-satellite batch              290M props/s
+Single satellite ``sgp4_array()``  15M props/s
+Single ``sgp4()`` call             2.5M props/s
+=================================  ============
 
 See Also
 --------
+- python-sgp4 migration: :mod:`astroz.api`
 - Zig documentation: https://attron.github.io/astroz/zig/
-- GitHub repository: https://github.com/ATTron/astroz
-- PyPI: https://pypi.org/project/astroz/
+- GitHub: https://github.com/ATTron/astroz
 """
 
 import numpy as np

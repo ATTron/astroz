@@ -111,5 +111,48 @@ jobs:
           print(f'Batch: {positions.shape}')
           "
 
+      - name: Test python-sgp4 compatible API
+        run: |
+          pip install sgp4
+          python -c "
+          from astroz.api import Satrec, SatrecArray, jday, WGS72
+          from sgp4.api import Satrec as Sgp4Satrec, jday as sgp4_jday, WGS72 as SGP4_WGS72
+          import numpy as np
+
+          line1 = '1 25544U 98067A   24127.82853009  .00015698  00000+0  27310-3 0  9995'
+          line2 = '2 25544  51.6393 160.4574 0003580 140.6673 205.7250 15.50957674452123'
+
+          # Test Satrec
+          sat = Satrec.twoline2rv(line1, line2, WGS72)
+          print(f'Satrec: satnum={sat.satnum}, error={sat.error}')
+
+          # Test jday
+          jd, fr = jday(2024, 5, 6, 12, 0, 0.0)
+          print(f'jday: {jd} + {fr}')
+
+          # Test sgp4
+          e, r, v = sat.sgp4(jd, fr)
+          print(f'sgp4: error={e}, pos=({r[0]:.1f}, {r[1]:.1f}, {r[2]:.1f})')
+
+          # Test sgp4_array
+          jd_arr = np.full(100, jd)
+          fr_arr = fr + np.arange(100) / 1440.0
+          e, r, v = sat.sgp4_array(jd_arr, fr_arr)
+          print(f'sgp4_array: shape={r.shape}')
+
+          # Test SatrecArray
+          arr = SatrecArray([sat])
+          e, r, v = arr.sgp4(jd_arr, fr_arr)
+          print(f'SatrecArray: shape={r.shape}')
+
+          # Accuracy test vs python-sgp4
+          sgp4_sat = Sgp4Satrec.twoline2rv(line1, line2, SGP4_WGS72)
+          az_e, az_r, az_v = sat.sgp4(jd, fr)
+          sg_e, sg_r, sg_v = sgp4_sat.sgp4(jd, fr)
+          pos_diff = np.linalg.norm(np.array(az_r) - np.array(sg_r))
+          assert pos_diff < 0.001, f'Position error {pos_diff*1000:.1f}m exceeds 1mm'
+          print(f'Accuracy: {pos_diff*1000:.3f}mm (< 1mm OK)')
+          "
+
       - name: Run Python example
         run: python examples/python_sgp4.py

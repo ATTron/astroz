@@ -46,9 +46,10 @@ def classify_satellite(name, inc, period):
     return "Other"
 
 
-def parse_satellite_metadata(data):
-    """Parse TLE data into satellite metadata (names, categories, orbital params)."""
+def parse_tles_and_metadata(data):
+    """Parse TLE data into (line1, line2) pairs and satellite metadata."""
     lines = data.strip().split("\n")
+    tle_pairs = []
     satellites = []
     i = 0
     while i < len(lines) - 2:
@@ -62,6 +63,7 @@ def parse_satellite_metadata(data):
             mean_motion = float(line2[52:63])
             period = 1440.0 / mean_motion
             if period <= 225:  # Near-earth only (SGP4 limitation)
+                tle_pairs.append((line1, line2))
                 satellites.append(
                     {
                         "name": name,
@@ -79,7 +81,7 @@ def parse_satellite_metadata(data):
             i += 3
         else:
             i += 1
-    return satellites
+    return tle_pairs, satellites
 
 
 def generate_legend_html(counts):
@@ -121,18 +123,32 @@ def load_tle_text(source):
 
 
 def main():
-    from astroz import propagate, Constellation
+    from astroz.api import Satrec, SatrecArray, jday, WGS72
 
     print("=" * 60)
-    print("  Cesium Satellite Visualization")
+    print("  Cesium Satellite Visualization (python-sgp4 compatible API)")
     print("=" * 60)
 
     # Load all active satellites with metadata
     print("\n[1/4] Loading catalog...", end=" ", flush=True)
     tle_text = load_tle_text("all")
-    constellation = Constellation(tle_text)  # Pre-parse for performance
-    satellites = parse_satellite_metadata(tle_text)
-    num_sats = constellation.num_satellites
+    tle_pairs, satellites = parse_tles_and_metadata(tle_text)
+
+    # Create Satrec objects (python-sgp4 compatible)
+    satrecs = []
+    valid_satellites = []
+    for i, (line1, line2) in enumerate(tle_pairs):
+        try:
+            sat = Satrec.twoline2rv(line1, line2, WGS72)
+            if sat.error == 0:
+                satrecs.append(sat)
+                valid_satellites.append(satellites[i])
+        except Exception:
+            pass
+
+    satellites = valid_satellites
+    sat_array = SatrecArray(satrecs)
+    num_sats = len(satrecs)
     print(f"done - {num_sats:,} satellites")
 
     # Choose a start time: current UTC time rounded down to the minute
@@ -146,19 +162,31 @@ def main():
     num_times = 1440  # 1 day at 1-minute resolution
     t0_total = time_module.perf_counter()
 
-    times = np.arange(num_times, dtype=np.float64)
+    # Convert start_time to Julian Date arrays (python-sgp4 compatible)
+    base_jd, base_fr = jday(
+        start_time.year,
+        start_time.month,
+        start_time.day,
+        start_time.hour,
+        start_time.minute,
+        float(start_time.second),
+    )
+    # Create time arrays: jd stays constant, fr increments by minutes
+    jd = np.full(num_times, base_jd, dtype=np.float64)
+    fr = base_fr + np.arange(num_times, dtype=np.float64) / 1440.0  # minutes to days
 
     # Warmup
     for _ in range(3):
-        propagate(constellation, times[:10], start_time=start_time)
+        sat_array.sgp4(jd[:10], fr[:10], velocities=False)
 
     t0_prop = time_module.perf_counter()
-    positions = propagate(constellation, times, start_time=start_time)
+    errors, positions, _ = sat_array.sgp4(jd, fr, velocities=False)
     prop_time = time_module.perf_counter() - t0_prop
 
-    # positions shape: (num_times, num_sats, 3) in km → meters
+    # positions shape from sgp4: (num_sats, num_times, 3) -> transpose to (num_times, num_sats, 3)
+    # and convert km → meters
     t0_conv = time_module.perf_counter()
-    positions *= 1000.0
+    positions = np.transpose(positions, (1, 0, 2)) * 1000.0
     conv_time = time_module.perf_counter() - t0_conv
 
     total_time = time_module.perf_counter() - t0_total

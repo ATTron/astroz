@@ -7,6 +7,13 @@ pub const c = @cImport({
 
 const std = @import("std");
 
+/// Get PyTypeObject from a PyObject - workaround for Py_TYPE being a static inline function in Python 3.10+
+pub inline fn pyType(obj: [*c]c.PyObject) ?*c.PyTypeObject {
+    if (obj == null) return null;
+    // Access ob_type directly from the PyObject structure
+    return obj.*.ob_type;
+}
+
 /// Manual PyModuleDef since C macro doesn't translate
 pub const PyModuleDef_Base = extern struct {
     ob_base: c.PyObject,

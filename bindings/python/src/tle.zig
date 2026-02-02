@@ -3,6 +3,7 @@
 const std = @import("std");
 const py = @import("python.zig");
 const c = py.c;
+const shared = @import("shared.zig");
 const astroz = @import("astroz");
 const Tle = astroz.Tle;
 
@@ -11,7 +12,7 @@ pub const TleObject = extern struct {
     tle: ?*Tle,
 };
 
-const allocator = std.heap.c_allocator;
+const allocator = shared.allocator;
 pub var TleType: c.PyTypeObject = undefined;
 
 fn initType() void {
@@ -61,7 +62,7 @@ fn tle_dealloc(self_obj: [*c]c.PyObject) callconv(.c) void {
         tle.deinit();
         allocator.destroy(tle);
     }
-    if (c.Py_TYPE(self_obj)) |tp| if (tp.*.tp_free) |free| free(@ptrCast(self));
+    if (py.pyType(self_obj)) |tp| if (tp.*.tp_free) |free| free(@ptrCast(self));
 }
 
 // Comptime-generated property getters

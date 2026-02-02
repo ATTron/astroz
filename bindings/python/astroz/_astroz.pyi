@@ -37,6 +37,80 @@ def version() -> str:
     '0.4.4'
     """
 
+def jday(
+    year: int,
+    month: int,
+    day: int,
+    hour: int,
+    minute: int,
+    second: float,
+) -> Tuple[float, float]:
+    """Convert calendar date to Julian date.
+
+    Returns Julian date split into integer (at noon) and fractional parts,
+    matching python-sgp4 convention.
+
+    Parameters
+    ----------
+    year : int
+        Year (e.g., 2024).
+    month : int
+        Month (1-12).
+    day : int
+        Day of month (1-31).
+    hour : int
+        Hour (0-23).
+    minute : int
+        Minute (0-59).
+    second : float
+        Second (0.0-59.999...).
+
+    Returns
+    -------
+    jd : float
+        Julian date integer part (at noon).
+    fr : float
+        Fractional part of Julian date.
+
+    Examples
+    --------
+    >>> jd, fr = jday(2024, 5, 6, 12, 0, 0.0)
+    >>> jd + fr  # Full Julian date
+    2460437.0
+    """
+
+def days2mdhms(
+    year: int,
+    days: float,
+) -> Tuple[int, int, int, int, float]:
+    """Convert day of year to month, day, hour, minute, second.
+
+    Parameters
+    ----------
+    year : int
+        Year (used to determine leap year).
+    days : float
+        Fractional day of year (1.0 = Jan 1 00:00:00).
+
+    Returns
+    -------
+    month : int
+        Month (1-12).
+    day : int
+        Day of month (1-31).
+    hour : int
+        Hour (0-23).
+    minute : int
+        Minute (0-59).
+    second : float
+        Second (0.0-59.999...).
+
+    Examples
+    --------
+    >>> days2mdhms(2024, 127.5)  # May 6, noon
+    (5, 6, 12, 0, 0.0)
+    """
+
 def coarse_screen(
     positions: npt.NDArray[np.float64],
     n_satellites: int,
@@ -358,4 +432,324 @@ class Sgp4Constellation:
         See Also
         --------
         coarse_screen : All-vs-all screening on pre-computed positions.
+        """
+
+class Satrec:
+    """SGP4 satellite record (python-sgp4 compatible).
+
+    This class provides a drop-in replacement for python-sgp4's Satrec class,
+    using the high-performance astroz Zig backend with SIMD acceleration.
+
+    Use ``Satrec.twoline2rv()`` class method to create from TLE lines.
+
+    Attributes
+    ----------
+    satnum : int
+        NORAD catalog number.
+    epochyr : int
+        Epoch year (2-digit).
+    epochdays : float
+        Epoch day of year (fractional).
+    jdsatepoch : float
+        Epoch Julian date (integer part).
+    jdsatepochF : float
+        Epoch Julian date (fractional part).
+    ecco : float
+        Eccentricity.
+    inclo : float
+        Inclination (radians).
+    nodeo : float
+        Right ascension of ascending node (radians).
+    argpo : float
+        Argument of perigee (radians).
+    mo : float
+        Mean anomaly (radians).
+    no_kozai : float
+        Mean motion (radians/minute, Kozai).
+    bstar : float
+        B* drag term.
+    ndot : float
+        First derivative of mean motion (rad/min^2).
+    a : float
+        Semi-major axis (Earth radii).
+    alta : float
+        Apoapsis altitude (Earth radii).
+    altp : float
+        Periapsis altitude (Earth radii).
+    error : int
+        Last error code (0 = success).
+    t : float
+        Last propagation time (minutes from epoch).
+
+    Examples
+    --------
+    >>> from astroz.api import Satrec, jday, WGS72
+    >>> line1 = "1 25544U 98067A   24127.82853009  .00015698  00000+0  27310-3 0  9995"
+    >>> line2 = "2 25544  51.6393 160.4574 0003580 140.6673 205.7250 15.50957674452123"
+    >>> sat = Satrec.twoline2rv(line1, line2, WGS72)
+    >>> jd, fr = jday(2024, 5, 6, 19, 52, 0.0)
+    >>> error, position, velocity = sat.sgp4(jd, fr)
+    >>> print(f"Position: {position}")  # (x, y, z) in km
+
+    See Also
+    --------
+    jday : Convert calendar date to Julian date.
+    days2mdhms : Convert day of year to calendar components.
+    """
+
+    @classmethod
+    def twoline2rv(
+        cls,
+        line1: str,
+        line2: str,
+        whichconst: int = WGS72,
+    ) -> "Satrec":
+        """Create Satrec from TLE lines.
+
+        Parameters
+        ----------
+        line1 : str
+            First line of TLE (69 characters).
+        line2 : str
+            Second line of TLE (69 characters).
+        whichconst : int, default WGS72
+            Gravity model. Either ``WGS72`` or ``WGS84``.
+
+        Returns
+        -------
+        Satrec
+            Initialized satellite record ready for propagation.
+
+        Examples
+        --------
+        >>> sat = Satrec.twoline2rv(line1, line2, WGS72)
+        """
+
+    def sgp4(
+        self,
+        jd: float,
+        fr: float,
+    ) -> Tuple[int, Tuple[float, float, float], Tuple[float, float, float]]:
+        """Propagate to given Julian date.
+
+        Parameters
+        ----------
+        jd : float
+            Julian date (integer part, from jday()).
+        fr : float
+            Julian date (fractional part, from jday()).
+
+        Returns
+        -------
+        error : int
+            Error code (0 = success).
+        position : tuple of float
+            (x, y, z) position in km, TEME frame.
+        velocity : tuple of float
+            (vx, vy, vz) velocity in km/s, TEME frame.
+
+        Examples
+        --------
+        >>> jd, fr = jday(2024, 5, 6, 12, 0, 0.0)
+        >>> error, position, velocity = sat.sgp4(jd, fr)
+        >>> if error == 0:
+        ...     print(f"Position: {position}")
+        """
+
+    def sgp4_array(
+        self,
+        jd: npt.NDArray[np.float64],
+        fr: npt.NDArray[np.float64],
+    ) -> Tuple[
+        npt.NDArray[np.uint8],
+        npt.NDArray[np.float64],
+        npt.NDArray[np.float64],
+    ]:
+        """Propagate to multiple times using SIMD acceleration.
+
+        Parameters
+        ----------
+        jd : ndarray
+            Julian date integer parts, shape (n_times,).
+        fr : ndarray
+            Julian date fractional parts, shape (n_times,).
+
+        Returns
+        -------
+        e : ndarray
+            Error codes, shape (n_times,). 0 = success.
+        r : ndarray
+            Positions in km (TEME), shape (n_times, 3).
+        v : ndarray
+            Velocities in km/s (TEME), shape (n_times, 3).
+
+        Examples
+        --------
+        >>> jd = np.array([2458826, 2458826, 2458826])
+        >>> fr = np.array([0.0001, 0.0002, 0.0003])
+        >>> e, r, v = sat.sgp4_array(jd, fr)
+        """
+
+    # Properties
+    @property
+    def satnum(self) -> int:
+        """NORAD catalog number."""
+
+    @property
+    def epochyr(self) -> int:
+        """Epoch year (2-digit)."""
+
+    @property
+    def epochdays(self) -> float:
+        """Epoch day of year (fractional)."""
+
+    @property
+    def jdsatepoch(self) -> float:
+        """Epoch Julian date (integer part)."""
+
+    @property
+    def jdsatepochF(self) -> float:
+        """Epoch Julian date (fractional part)."""
+
+    @property
+    def ecco(self) -> float:
+        """Eccentricity."""
+
+    @property
+    def inclo(self) -> float:
+        """Inclination (radians)."""
+
+    @property
+    def nodeo(self) -> float:
+        """Right ascension of ascending node (radians)."""
+
+    @property
+    def argpo(self) -> float:
+        """Argument of perigee (radians)."""
+
+    @property
+    def mo(self) -> float:
+        """Mean anomaly (radians)."""
+
+    @property
+    def no_kozai(self) -> float:
+        """Mean motion (radians/minute, Kozai)."""
+
+    @property
+    def bstar(self) -> float:
+        """B* drag term."""
+
+    @property
+    def ndot(self) -> float:
+        """First derivative of mean motion (rad/min^2)."""
+
+    @property
+    def a(self) -> float:
+        """Semi-major axis (Earth radii)."""
+
+    @property
+    def alta(self) -> float:
+        """Apoapsis altitude (Earth radii)."""
+
+    @property
+    def altp(self) -> float:
+        """Periapsis altitude (Earth radii)."""
+
+    @property
+    def error(self) -> int:
+        """Last error code (0 = success)."""
+
+    @property
+    def t(self) -> float:
+        """Last propagation time (minutes from epoch)."""
+
+class SatrecArray:
+    """Batch SGP4 propagator for multiple satellites (python-sgp4 compatible).
+
+    This class provides SIMD-accelerated batch propagation for multiple satellites,
+    achieving 270-330M propagations/second (positions only) or ~200M props/sec
+    (with velocities).
+
+    Parameters
+    ----------
+    satrecs : list of Satrec
+        List of Satrec objects to propagate as a batch.
+
+    Attributes
+    ----------
+    num_satellites : int
+        Number of satellites in the array.
+    epochs : list of float
+        Epoch Julian dates for each satellite.
+
+    Examples
+    --------
+    >>> from astroz.api import Satrec, SatrecArray, jday, WGS72
+    >>> import numpy as np
+    >>>
+    >>> # Create satellites
+    >>> sats = [Satrec.twoline2rv(l1, l2, WGS72) for l1, l2 in tle_pairs]
+    >>> sat_array = SatrecArray(sats)
+    >>>
+    >>> # Propagate to multiple times
+    >>> jd = np.full(1440, 2460000.5)
+    >>> fr = np.linspace(0, 1, 1440)
+    >>> e, r, v = sat_array.sgp4(jd, fr)
+    >>>
+    >>> # Faster: skip velocity computation
+    >>> e, r, _ = sat_array.sgp4(jd, fr, velocities=False)
+
+    See Also
+    --------
+    Satrec : Single satellite record.
+    """
+
+    def __init__(self, satrecs: List[Satrec]) -> None: ...
+    @property
+    def num_satellites(self) -> int:
+        """Number of satellites in the array."""
+
+    @property
+    def epochs(self) -> List[float]:
+        """Epoch Julian dates for each satellite."""
+
+    def sgp4(
+        self,
+        jd: float | npt.NDArray[np.float64],
+        fr: float | npt.NDArray[np.float64],
+        *,
+        velocities: bool = True,
+    ) -> Tuple[
+        npt.NDArray[np.uint8],
+        npt.NDArray[np.float64],
+        npt.NDArray[np.float64],
+    ]:
+        """Propagate all satellites to the given Julian dates.
+
+        Uses SIMD internally for high throughput.
+
+        Parameters
+        ----------
+        jd : float or ndarray
+            Julian date integer parts. Scalar or array of shape (n_times,).
+        fr : float or ndarray
+            Julian date fractional parts. Scalar or array of shape (n_times,).
+        velocities : bool, default True
+            If True, compute velocities. Set False for ~30% faster propagation.
+
+        Returns
+        -------
+        e : ndarray
+            Error codes, shape (n_sats, n_times). 0 = success.
+        r : ndarray
+            Positions in km (TEME), shape (n_sats, n_times, 3).
+        v : ndarray
+            Velocities in km/s (TEME), shape (n_sats, n_times, 3).
+            All zeros if velocities=False.
+
+        Examples
+        --------
+        >>> e, r, v = sat_array.sgp4(2458826.5, 0.8625)  # Single time (scalars)
+        >>> e, r, v = sat_array.sgp4(jd_arr, fr_arr)  # Multiple times (arrays)
+        >>> e, r, _ = sat_array.sgp4(jd, fr, velocities=False)  # Faster
         """

@@ -6,6 +6,29 @@ High-performance SGP4 satellite propagation, powered by Zig with SIMD accelerati
 
 ## Quick Start
 
+### python-sgp4 Compatible API (Recommended)
+
+Drop-in replacement for [python-sgp4](https://github.com/brandon-rhodes/python-sgp4):
+
+```python
+from astroz.api import Satrec, SatrecArray, jday, WGS72
+import numpy as np
+
+# Single satellite (same syntax as python-sgp4)
+sat = Satrec.twoline2rv(line1, line2, WGS72)
+jd, fr = jday(2024, 5, 6, 12, 0, 0.0)
+error, position, velocity = sat.sgp4(jd, fr)
+
+# Batch propagation (270-330M props/sec with SIMD)
+sat_array = SatrecArray(satrecs)
+e, r, v = sat_array.sgp4(jd, fr)  # Scalars or arrays
+
+# Skip velocities for 30% faster propagation
+e, r, _ = sat_array.sgp4(jd_array, fr_array, velocities=False)
+```
+
+### High-Level API
+
 ```python
 from astroz import propagate
 import numpy as np
@@ -82,6 +105,75 @@ min_dists, min_t_indices = screen("starlink", times, threshold=50.0, target=0)
 pairs, t_indices = screen("starlink", times, threshold=10.0)
 # Returns all conjunction events within threshold
 ```
+
+## Migrating from python-sgp4
+
+### Step 1: Change the Import (2x faster)
+
+```python
+# Before
+from sgp4.api import Satrec, SatrecArray, jday
+
+# After
+from astroz.api import Satrec, SatrecArray, jday
+```
+
+That's it. Your existing code works unchanged and runs **2x faster**.
+
+### Step 2: Use Batch Methods (5-12x faster)
+
+If you have loops, switch to batch methods:
+
+```python
+# Before: loop (1.3M props/sec)
+results = []
+for jd, fr in zip(jd_list, fr_list):
+    e, r, v = sat.sgp4(jd, fr)
+    results.append(r)
+
+# After: batch (15M props/sec) - 12x faster
+jd_array = np.array(jd_list)
+fr_array = np.array(fr_list)
+e, r, v = sat.sgp4_array(jd_array, fr_array)
+```
+
+### Step 3: Use SatrecArray for Multiple Satellites (100x faster)
+
+```python
+# Before: loop over satellites (1.3M props/sec)
+for sat in satellites:
+    e, r, v = sat.sgp4_array(jd, fr)
+
+# After: batch all satellites (290M props/sec) - 100x faster
+sat_array = SatrecArray(satellites)
+e, r, v = sat_array.sgp4(jd, fr)
+```
+
+### Step 4: Skip Velocities If Not Needed (30% faster)
+
+```python
+# If you only need positions
+e, r, _ = sat_array.sgp4(jd, fr, velocities=False)
+```
+
+### Performance Summary
+
+| Pattern | python-sgp4 | astroz | Speedup |
+|---------|-------------|--------|---------|
+| `sat.sgp4()` loop | 1.3M/s | 2.5M/s | **2x** |
+| `sat.sgp4_array()` | 2.7M/s | 15M/s | **5x** |
+| `SatrecArray.sgp4()` | 3M/s | 290M/s | **100x** |
+
+### Compatibility Notes
+
+astroz supports the core python-sgp4 API for satellite propagation. Some rarely-used attributes are not implemented:
+
+- **TLE metadata**: `classification`, `intldesg`, `elnum`, `revnum`, `ephtype`
+- **Intermediate elements**: `Om`, `am`, `em`, `im`, `mm`, `nm`, `om` (osculating elements after propagation)
+- **Element rates**: `argpdot`, `mdot`, `nodedot`
+- **Gravity constants**: `j2`, `j3`, `j4`, `mu`, etc. (available via `astroz.constants`)
+
+For typical satellite tracking and visualization, astroz is a full drop-in replacement.
 
 ## Performance
 
