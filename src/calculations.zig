@@ -335,6 +335,16 @@ pub fn velMag(state: StateV) f64 {
     return @sqrt(state[3] * state[3] + state[4] * state[4] + state[5] * state[5]);
 }
 
+/// Extract position vector from state
+pub fn posVec(state: StateV) [3]f64 {
+    return .{ state[0], state[1], state[2] };
+}
+
+/// Extract velocity vector from state
+pub fn velVec(state: StateV) [3]f64 {
+    return .{ state[3], state[4], state[5] };
+}
+
 pub fn transposeMatrix(m: [3][3]f64) [3][3]f64 {
     return .{
         .{ m[0][0], m[1][0], m[2][0] },

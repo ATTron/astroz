@@ -23,4 +23,5 @@ pub const propagators = @import("propagators/propagators.zig");
 
 test {
     std.testing.refAllDecls(@This());
+    _ = @import("validation_tests.zig");
 }
