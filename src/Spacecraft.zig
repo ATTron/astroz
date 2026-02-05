@@ -178,16 +178,16 @@ pub fn propagate(self: *Spacecraft, t0: f64, days: f64, h: f64, impulseList: ?[]
     // setup force models and integrator
     var forces = self.createForceModels();
     const models = [_]propagators.ForceModel{
-        forces.twobody.forceModel(),
-        forces.j2.forceModel(),
-        forces.drag.forceModel(),
+        propagators.ForceModel.wrap(propagators.TwoBody, &forces.twobody),
+        propagators.ForceModel.wrap(propagators.J2, &forces.j2),
+        propagators.ForceModel.wrap(propagators.Drag, &forces.drag),
     };
     var composite = try propagators.Composite.init(self.allocator, &models);
     defer composite.deinit();
 
     var rk4 = propagators.Rk4{};
     const integrator = rk4.integrator();
-    const force = composite.forceModel();
+    const force = propagators.ForceModel.wrap(propagators.Composite, &composite);
 
     try self.orbitPredictions.append(self.allocator, .{ .time = t, .state = y });
     var impulseIndex: usize = 0;

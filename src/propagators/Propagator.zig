@@ -86,7 +86,7 @@ test "rk4 twobody orbit" {
     var propagator = Propagator.init(
         std.testing.allocator,
         rk4.integrator(),
-        twobody.forceModel(),
+        ForceModel.wrap(TwoBody, &twobody),
     );
 
     // Circular orbit at ~7000 km radius
