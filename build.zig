@@ -236,6 +236,8 @@ pub fn build(b: *std.Build) void {
 }
 
 const EXAMPLE_NAMES = &.{
+    "maneuver_planning",
+    "constellation_phasing",
     "create_ccsds_packet_config",
     "create_ccsds_packet",
     "orbit_maneuvers",
