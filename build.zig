@@ -6,12 +6,44 @@ pub fn build(b: *std.Build) void {
     const root_source_file = b.path("src/lib.zig");
     const use_llvm = b.option(bool, "use-llvm", "Use Zig's llvm backend");
 
+    // CSPICE configuration
+    // Override with: -Dcspice-include=/path/to/cspice/include -Dcspice-lib=/path/to/cspice/lib
+    const cspice_include = b.option([]const u8, "cspice-include", "CSPICE include path (containing SpiceUsr.h)");
+    const cspice_lib = b.option([]const u8, "cspice-lib", "CSPICE library path (containing libcspice.a)");
+    const enable_cspice = b.option(bool, "enable-cspice", "Enable CSPICE support (requires CSPICE to be installed)") orelse false;
+
+    // Build options for conditional compilation
+    const build_options = b.addOptions();
+    build_options.addOption(bool, "enable_cspice", enable_cspice);
+
     // Module
     const astroz_mod = b.addModule("astroz", .{
         .target = target,
         .optimize = optimize,
         .root_source_file = root_source_file,
     });
+
+    astroz_mod.addOptions("build_options", build_options);
+
+    // CSPICE setup
+    if (enable_cspice) {
+        if (cspice_include) |inc| {
+            astroz_mod.addIncludePath(.{ .cwd_relative = inc });
+        } else {
+            astroz_mod.addIncludePath(.{ .cwd_relative = "/usr/include" });
+            astroz_mod.addIncludePath(.{ .cwd_relative = "/usr/local/include" });
+            astroz_mod.addIncludePath(.{ .cwd_relative = "/usr/local/include/cspice" });
+            astroz_mod.addIncludePath(.{ .cwd_relative = "/opt/cspice/include" });
+        }
+
+        if (cspice_lib) |lib_path| {
+            astroz_mod.addObjectFile(.{ .cwd_relative = lib_path });
+        } else {
+            // Try AUR location first, then fallback to standard locations
+            astroz_mod.addObjectFile(.{ .cwd_relative = "/usr/lib/cspice.a" });
+        }
+        astroz_mod.link_libc = true;
+    }
 
     // Library
     const lib_step = b.step("lib", "Install library");
@@ -204,8 +236,11 @@ pub fn build(b: *std.Build) void {
 }
 
 const EXAMPLE_NAMES = &.{
+    "conjunction_screening",
+    "constellation_phasing",
     "create_ccsds_packet_config",
     "create_ccsds_packet",
+    "maneuver_planning",
     "orbit_maneuvers",
     "parse_ccsds_file_sync",
     "parse_ccsds",
