@@ -34,11 +34,14 @@ pub const Rk4 = struct {
         const k3 = derivative(addScaled(state, k2, 0.5 * dt), t + 0.5 * dt, fm);
         const k4 = derivative(addScaled(state, k3, dt), t + dt, fm);
 
-        var result: [6]f64 = undefined;
-        for (0..6) |i| {
-            result[i] = state[i] + (dt / 6.0) * (k1[i] + 2.0 * k2[i] + 2.0 * k3[i] + k4[i]);
-        }
-        return result;
+        const k1v: @Vector(6, f64) = k1;
+        const k2v: @Vector(6, f64) = k2;
+        const k3v: @Vector(6, f64) = k3;
+        const k4v: @Vector(6, f64) = k4;
+        const sv: @Vector(6, f64) = state;
+        const factor: @Vector(6, f64) = @splat(dt / 6.0);
+        const two: @Vector(6, f64) = @splat(2.0);
+        return sv + factor * (k1v + two * k2v + two * k3v + k4v);
     }
 
     fn derivative(state: [6]f64, t: f64, force: ForceModel) [6]f64 {
@@ -47,11 +50,10 @@ pub const Rk4 = struct {
     }
 
     fn addScaled(state: [6]f64, delta: [6]f64, scale: f64) [6]f64 {
-        var result: [6]f64 = undefined;
-        for (0..6) |i| {
-            result[i] = state[i] + scale * delta[i];
-        }
-        return result;
+        const s: @Vector(6, f64) = state;
+        const d: @Vector(6, f64) = delta;
+        const scaled = d * @as(@Vector(6, f64), @splat(scale));
+        return s + scaled;
     }
 };
 
@@ -66,8 +68,8 @@ pub const DormandPrince87 = struct {
     safety: f64 = 0.9, // safety factor for step size control
     maxSubsteps: u32 = 10000, // prevent infinite loops
 
-    // Dormand-Prince 8(7) Butcher tableau (Prince & Dormand 1981)
-    // c_i coefficients (time fractions for each stage)
+    // Dormand-Prince 8(7) coefficients (Prince & Dormand 1981)
+    // c coefficients (time nodes)
     const c = [13]f64{
         0.0,
         1.0 / 18.0,
@@ -84,7 +86,7 @@ pub const DormandPrince87 = struct {
         1.0,
     };
 
-    // a_ij coefficients (stage coupling matrix)
+    // a coefficients (Butcher tableau, lower triangular)
     const a = [13][12]f64{
         .{ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 },
         .{ 1.0 / 18.0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 },
@@ -101,18 +103,38 @@ pub const DormandPrince87 = struct {
         .{ 403863854.0 / 491063109.0, 0, 0, -5068492393.0 / 434740067.0, -411421997.0 / 543043805.0, 652783627.0 / 914296604.0, 11173962825.0 / 925320556.0, -13158990841.0 / 6184727034.0, 3936647629.0 / 1978049680.0, -160528059.0 / 685178525.0, 248638103.0 / 1413531060.0, 0 },
     };
 
-    // b_i coefficients for 8th order solution
+    // b coefficients for 8th order solution
     const b8 = [13]f64{
-        14005451.0 / 335480064.0,   0,                           0,                         0,                            0,
-        -59238493.0 / 1068277825.0, 181606767.0 / 758867731.0,   561292985.0 / 797845732.0, -1041891430.0 / 1371343529.0, 760417239.0 / 1151165299.0,
-        118820643.0 / 751138087.0,  -528747749.0 / 2220607170.0, 1.0 / 4.0,
+        14005451.0 / 335480064.0,
+        0,
+        0,
+        0,
+        0,
+        -59238493.0 / 1068277825.0,
+        181606767.0 / 758867731.0,
+        561292985.0 / 797845732.0,
+        -1041891430.0 / 1371343529.0,
+        760417239.0 / 1151165299.0,
+        118820643.0 / 751138087.0,
+        -528747749.0 / 2220607170.0,
+        1.0 / 4.0,
     };
 
-    // b_i coefficients for 7th order error estimate
+    // b coefficients for 7th order solution (for error estimation)
     const b7 = [13]f64{
-        13451932.0 / 455176623.0,   0,                           0,                         0,                            0,
-        -808719846.0 / 976000145.0, 1757004468.0 / 5645159321.0, 656045339.0 / 265891186.0, -3867574721.0 / 1518517206.0, 465885868.0 / 322736535.0,
-        53011238.0 / 667516719.0,   2.0 / 45.0,                  0,
+        13451932.0 / 455176623.0,
+        0,
+        0,
+        0,
+        0,
+        -808719846.0 / 976000145.0,
+        1757004468.0 / 5645159321.0,
+        656045339.0 / 265891186.0,
+        -3867574721.0 / 1518517206.0,
+        465885868.0 / 322736535.0,
+        53011238.0 / 667516719.0,
+        2.0 / 45.0,
+        0,
     };
 
     pub fn init() DormandPrince87 {
@@ -143,7 +165,7 @@ pub const DormandPrince87 = struct {
             h = @min(h, remaining);
             h = @max(h, self.hMin);
 
-            const result = adaptiveStep(self, currentState, currentT, h, fm);
+            const result = self.adaptiveStep(currentState, currentT, h, fm);
 
             if (result.accepted) {
                 currentState = result.yNew;
@@ -151,6 +173,7 @@ pub const DormandPrince87 = struct {
                 remaining -= h;
                 substeps += 1;
             }
+
             h = result.hNew;
         }
 
@@ -158,51 +181,81 @@ pub const DormandPrince87 = struct {
         return currentState;
     }
 
-    const StepResult = struct { yNew: [6]f64, hNew: f64, accepted: bool };
+    const StepResult = struct {
+        yNew: [6]f64,
+        hNew: f64,
+        accepted: bool,
+    };
 
     fn adaptiveStep(self: *const DormandPrince87, y: [6]f64, t: f64, h: f64, fm: ForceModel) StepResult {
         var k: [13][6]f64 = undefined;
+
         k[0] = derivative(y, t, fm);
 
         inline for (1..13) |i| {
             var yStage = y;
             inline for (0..i) |j| {
                 if (a[i][j] != 0) {
-                    for (0..6) |n| yStage[n] += a[i][j] * h * k[j][n];
+                    const av: @Vector(6, f64) = @splat(a[i][j] * h);
+                    const kv: @Vector(6, f64) = k[j];
+                    const yv: @Vector(6, f64) = yStage;
+                    yStage = yv + av * kv;
                 }
             }
             k[i] = derivative(yStage, t + c[i] * h, fm);
         }
 
-        var y8: [6]f64 = y;
-        var y7: [6]f64 = y;
+        // Compute 8th order solution
+        var y8: @Vector(6, f64) = y;
         inline for (0..13) |i| {
             if (b8[i] != 0) {
-                for (0..6) |n| {
-                    y8[n] += b8[i] * h * k[i][n];
-                }
-            }
-            if (b7[i] != 0) {
-                for (0..6) |n| {
-                    y7[n] += b7[i] * h * k[i][n];
-                }
+                const bv: @Vector(6, f64) = @splat(b8[i] * h);
+                const kv: @Vector(6, f64) = k[i];
+                y8 = y8 + bv * kv;
             }
         }
 
+        // Compute 7th order solution for error estimate
+        var y7: @Vector(6, f64) = y;
+        inline for (0..13) |i| {
+            if (b7[i] != 0) {
+                const bv: @Vector(6, f64) = @splat(b7[i] * h);
+                const kv: @Vector(6, f64) = k[i];
+                y7 = y7 + bv * kv;
+            }
+        }
+
+        // Error estimate
+        const errVec = y8 - y7;
+        const y8Arr: [6]f64 = y8;
+        const errArr: [6]f64 = errVec;
+
         var errNorm: f64 = 0;
         for (0..6) |i| {
-            const scale = self.atol + self.rtol * @max(@abs(y[i]), @abs(y8[i]));
-            const scaledErr = (y8[i] - y7[i]) / scale;
+            const scale = self.atol + self.rtol * @max(@abs(y[i]), @abs(y8Arr[i]));
+            const scaledErr = errArr[i] / scale;
             errNorm += scaledErr * scaledErr;
         }
         errNorm = @sqrt(errNorm / 6.0);
 
         const accepted = errNorm <= 1.0;
-        var hNew: f64 = if (errNorm < 1e-10) h * 5.0 else h * @min(5.0, @max(0.1, self.safety * std.math.pow(f64, 1.0 / errNorm, 1.0 / 8.0)));
+        var hNew: f64 = undefined;
+
+        if (errNorm < 1e-10) {
+            hNew = h * 5.0;
+        } else {
+            const factor = self.safety * std.math.pow(f64, 1.0 / errNorm, 1.0 / 8.0);
+            hNew = h * @min(5.0, @max(0.1, factor));
+        }
+
         hNew = @min(hNew, self.hMax);
         hNew = @max(hNew, self.hMin);
 
-        return .{ .yNew = y8, .hNew = hNew, .accepted = accepted };
+        return .{
+            .yNew = y8Arr,
+            .hNew = hNew,
+            .accepted = accepted,
+        };
     }
 
     fn derivative(state: [6]f64, t: f64, force: ForceModel) [6]f64 {
