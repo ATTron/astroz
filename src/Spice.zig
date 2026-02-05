@@ -263,12 +263,12 @@ pub fn getState(
     };
 }
 
-/// Get position using NAIF integer IDs instead of names
+/// Get geometric position using NAIF integer IDs instead of names.
+/// Note: spkgps_c always returns geometric (no aberration correction) positions.
 pub fn getPositionById(
     target: c_int,
     et: f64,
     frame: []const u8,
-    abcorr: AberrationCorrection,
     observer: c_int,
 ) SpiceError!Position {
     if (comptime !enabled) return SpiceError.NotEnabled;
@@ -279,7 +279,7 @@ pub fn getPositionById(
     var pos: [3]f64 = undefined;
     var lt: f64 = 0;
 
-    c.spkgps_c(target, et, cFrame, observer, abcorr.toStr(), &pos, &lt);
+    c.spkgps_c(target, et, cFrame, observer, &pos, &lt);
 
     if (failed()) {
         reset();
@@ -436,4 +436,30 @@ test "not enabled returns error" {
         try std.testing.expectError(SpiceError.NotEnabled, utcToEt("2024-01-01"));
         try std.testing.expectError(SpiceError.NotEnabled, getPosition("SUN", 0, "J2000", .none, "EARTH"));
     }
+}
+
+test "cspice body name/id lookups" {
+    if (!enabled) return;
+
+    // Built-in mappings work without loading any kernels
+    const earthId = try getBodyId("EARTH");
+    try std.testing.expectEqual(@as(c_int, 399), earthId);
+
+    const moonId = try getBodyId("MOON");
+    try std.testing.expectEqual(@as(c_int, 301), moonId);
+
+    const sunId = try getBodyId("SUN");
+    try std.testing.expectEqual(@as(c_int, 10), sunId);
+
+    // Reverse lookup
+    var nameBuf: [64]u8 = undefined;
+    const name = try getBodyName(399, &nameBuf);
+    try std.testing.expectEqualStrings("EARTH", name);
+}
+
+test "cspice kernel management" {
+    if (!enabled) return;
+
+    clearKernels();
+    try std.testing.expectEqual(@as(usize, 0), kernelCount());
 }

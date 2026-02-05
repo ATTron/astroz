@@ -15,7 +15,8 @@
 | SGP4 propagation | CCSDS packets | FITS parsing |
 | TLE parsing | VITA49 packets | WCS coordinates |
 | Orbital maneuvers | Attitude determination | Star precession |
-| Monte Carlo sims | | Celestial bodies |
+| Force models (J2/J3/J4, drag, SRP) | CSPICE ephemeris | Celestial bodies |
+| Dormand-Prince 8(7) integrator | Monte Carlo sims | |
 
 ### Performance
 
@@ -46,6 +47,22 @@ Sub-meter accuracy validated against reference implementations. Uses SIMD (AVX51
 Uses SIMD (AVX512 for 8-wide, AVX2/SSE for 4-wide) with multithreaded time-major iteration. Validated against Vallado AIAA 2006-6753 reference vectors (< 10m position error, < 1µm/s velocity error). Set `ASTROZ_THREADS` environment variable to control thread count (defaults to all available cores).
 
 The [Cesium visualization example](examples/README.md) propagates the entire active satellite catalog (~13,000 satellites) at interactive rates. **[Try the live demo →](https://attron.github.io/astroz-demo/)**
+
+### Validated Accuracy
+
+Force models and propagators are validated against reference implementations:
+
+| Component | Reference | Tolerance |
+|-----------|-----------|-----------|
+| SGP4 propagation | python-sgp4 | < 100m position |
+| J2 RAAN drift | Vallado analytical | < 1% |
+| Hohmann transfer ΔV | poliastro | < 0.1% |
+| Orbital periods | Analytical | 1e-10 relative |
+| Two-body energy | Conservation law | 1e-10 over 100 orbits |
+
+Run validation tests: `zig build test`
+
+With CSPICE enabled (for high-precision ephemeris): `zig build test -Denable-cspice=true`
 
 ### Python
 
@@ -151,6 +168,17 @@ exe.root_module.addImport("astroz", astroz_mod);
 
 ### Examples
 
+#### Spacecraft Operations
+
+- #### [Force Model Propagation](examples/maneuver_planning.zig)
+  Composable force models (TwoBody, J2) with the Dormand-Prince 8(7) adaptive integrator. Shows `ForceModel.wrap()` and `Composite` for combining perturbations.
+
+- #### [Constellation Phasing](examples/constellation_phasing.zig)
+  Sun-synchronous orbit design and constellation plane separation using J2-induced RAAN drift.
+
+- #### [Orbit Orientation Determination](examples/simple_spacecraft_orientation.zig)
+  Calculate spacecraft attitude and orientation.
+
 #### Orbital Mechanics
 
 - #### [Planet Transfer & Mission Planning](examples/transfer_propagation.zig)
@@ -169,11 +197,6 @@ exe.root_module.addImport("astroz", astroz_mod);
 - #### [Cesium Satellite Visualization](examples/README.md) — **[Live Demo](https://attron.github.io/astroz-demo/)**
 
   Interactive 3D visualization of the entire near-earth satellite catalog (~13,000 satellites) using Cesium. Features multithreaded SGP4 propagation at ~300M props/sec, constellation filtering, search, and satellite tracking.
-
-#### Spacecraft Operations
-
-- #### [Orbit Orientation Determination](examples/simple_spacecraft_orientation.zig)
-  Calculate spacecraft attitude and orientation.
 
 #### Telemetry & Data Handling
 
