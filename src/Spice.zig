@@ -113,6 +113,35 @@ pub const AberrationCorrection = enum {
     }
 };
 
+/// Default directory for downloaded SPICE kernels (relative to project root)
+pub const default_kernel_dir = "data/kernels/";
+
+/// Standard kernel filenames downloaded by `zig build fetch-kernels`
+pub const default_kernels = .{
+    "naif0012.tls",
+    "de440s.bsp",
+    "pck00011.tpc",
+    "gm_de440.tpc",
+};
+
+/// Load all standard kernels from the default directory (`data/kernels/`)
+pub fn loadDefaultKernels() SpiceError!void {
+    inline for (default_kernels) |kernel| {
+        try loadKernel(default_kernel_dir ++ kernel);
+    }
+}
+
+/// Load all standard kernels from a custom directory
+pub fn loadDefaultKernelsFrom(dir: []const u8) SpiceError!void {
+    var buf: [1024]u8 = undefined;
+    inline for (default_kernels) |kernel| {
+        if (dir.len + kernel.len >= buf.len) return SpiceError.KernelNotFound;
+        @memcpy(buf[0..dir.len], dir);
+        @memcpy(buf[dir.len .. dir.len + kernel.len], kernel);
+        try loadKernel(buf[0 .. dir.len + kernel.len]);
+    }
+}
+
 /// Load a SPICE kernel
 pub fn loadKernel(path: []const u8) SpiceError!void {
     if (comptime !enabled) return SpiceError.NotEnabled;
@@ -462,4 +491,18 @@ test "cspice kernel management" {
 
     clearKernels();
     try std.testing.expectEqual(@as(usize, 0), kernelCount());
+}
+
+test "loadDefaultKernels returns NotEnabled when cspice is off" {
+    if (!enabled) {
+        try std.testing.expectError(SpiceError.NotEnabled, loadDefaultKernels());
+        try std.testing.expectError(SpiceError.NotEnabled, loadDefaultKernelsFrom("/tmp/kernels/"));
+    }
+}
+
+test "default kernel paths fit in buffer" {
+    inline for (default_kernels) |kernel| {
+        const path = default_kernel_dir ++ kernel;
+        try std.testing.expect(path.len < 1024);
+    }
 }

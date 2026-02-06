@@ -6,6 +6,7 @@ zig-out/
 small/
 sample_fits/
 *.csv
+data/kernels/
 
 # Generated visualization files
 examples/tle_cache.txt

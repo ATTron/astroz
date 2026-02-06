@@ -233,6 +233,32 @@ pub fn build(b: *std.Build) void {
     });
     fmt_step.dependOn(&fmt.step);
     b.default_step.dependOn(fmt_step);
+
+    // Fetch standard NAIF SPICE kernels
+    const fetch_step = b.step("fetch-kernels", "Download standard NAIF SPICE kernels to data/kernels/");
+
+    const curl_check = b.addSystemCommand(&.{
+        "sh", "-c", "command -v curl >/dev/null 2>&1 || { echo 'error: curl is required to download SPICE kernels.' >&2; echo '  Install it with your package manager (e.g. apt install curl, pacman -S curl, brew install curl).' >&2; exit 1; }",
+    });
+
+    const mkdir = b.addSystemCommand(&.{ "mkdir", "-p", "data/kernels" });
+    mkdir.step.dependOn(&curl_check.step);
+
+    const naif_base = "https://naif.jpl.nasa.gov/pub/naif/generic_kernels/";
+    const kernels = .{
+        .{ "lsk/naif0012.tls", "naif0012.tls" },
+        .{ "spk/planets/de440s.bsp", "de440s.bsp" },
+        .{ "pck/pck00011.tpc", "pck00011.tpc" },
+        .{ "pck/gm_de440.tpc", "gm_de440.tpc" },
+    };
+
+    inline for (kernels) |kernel| {
+        const fetch = b.addSystemCommand(&.{
+            "curl", "-f", "-s", "-S", "-z", "data/kernels/" ++ kernel[1], "-o", "data/kernels/" ++ kernel[1], naif_base ++ kernel[0],
+        });
+        fetch.step.dependOn(&mkdir.step);
+        fetch_step.dependOn(&fetch.step);
+    }
 }
 
 const EXAMPLE_NAMES = &.{
