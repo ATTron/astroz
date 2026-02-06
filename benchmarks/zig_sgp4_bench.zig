@@ -62,13 +62,13 @@ pub fn main() !void {
         var total_ns: u64 = 0;
 
         for (0..iterations) |_| {
-            const start = try std.time.Instant.now();
+            const start = try std.Io.Timestamp.now();
 
             for (times) |t| {
                 _ = sgp4.propagate(t) catch continue;
             }
 
-            const end = try std.time.Instant.now();
+            const end = try std.Io.Timestamp.now();
             total_ns += end.since(start);
         }
 
@@ -95,7 +95,7 @@ pub fn main() !void {
         var total_ns: u64 = 0;
 
         for (0..iterations) |_| {
-            const start = try std.time.Instant.now();
+            const start = try std.Io.Timestamp.now();
 
             // Process 8 at a time (AVX512), then 4 (AVX2), then scalar
             var i: usize = 0;
@@ -118,7 +118,7 @@ pub fn main() !void {
                 _ = sgp4.propagate(times[i]) catch continue;
             }
 
-            const end = try std.time.Instant.now();
+            const end = try std.Io.Timestamp.now();
             total_ns += end.since(start);
         }
 

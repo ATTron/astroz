@@ -8,7 +8,7 @@ const Datetime = @This();
 const daysInMonth = [_]u8{ 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31 };
 const daysPerYear = 365;
 
-instant: ?std.time.Instant,
+instant: ?std.Io.Timestamp,
 doy: ?u16,
 daysInYear: u16,
 year: ?u16,
@@ -68,7 +68,7 @@ pub fn initDatetime(year: u16, month: u8, day: u8, hours: u8, minutes: u8, secon
 }
 
 /// if you want an Instant converted
-pub fn fromInstant(instant: std.time.Instant) Datetime {
+pub fn fromInstant(instant: std.Io.Timestamp) Datetime {
     var newDt = Datetime{
         .instant = instant,
         .doy = null,
