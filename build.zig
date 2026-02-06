@@ -276,6 +276,7 @@ const EXAMPLE_NAMES = &.{
     "sgp4_propagation",
     "simple_monte_carlo",
     "simple_spacecraft_orientation",
+    "spice_planetary_query",
     "transfer_propagation",
     "wcs",
 };

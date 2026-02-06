@@ -19,6 +19,7 @@ pub const J4 = @import("ForceModel.zig").J4;
 pub const Drag = @import("ForceModel.zig").Drag;
 pub const ImprovedDrag = @import("ForceModel.zig").ImprovedDrag;
 pub const SolarRadiationPressure = @import("ForceModel.zig").SolarRadiationPressure;
+pub const ThirdBody = @import("ForceModel.zig").ThirdBody;
 pub const Composite = @import("ForceModel.zig").Composite;
 
 test {

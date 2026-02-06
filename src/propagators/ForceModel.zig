@@ -8,6 +8,7 @@
 //!   var tb = TwoBody.init(398600.4418);
 //!   const fm = ForceModel.wrap(TwoBody, &tb);
 const std = @import("std");
+const constants = @import("../constants.zig");
 
 pub const ForceModel = struct {
     ptr: *anyopaque,
@@ -179,34 +180,88 @@ pub const SolarRadiationPressure = struct {
     area: f64, // cross-sectional area (m^2)
     mass: f64, // spacecraft mass (kg)
     rEq: f64, // Earth radius for shadow model (km)
+    sunPos: [3]f64, // Sun position in integration frame (km)
 
     // Solar radiation pressure at 1 AU in N/m^2
-    const pSr: f64 = 4.56e-6;
+    const pSr: f64 = constants.solarPressure;
+    const au: f64 = constants.auKm;
 
     pub fn init(cr: f64, area: f64, mass: f64, rEq: f64) SolarRadiationPressure {
-        return .{ .cr = cr, .area = area, .mass = mass, .rEq = rEq };
+        return .{ .cr = cr, .area = area, .mass = mass, .rEq = rEq, .sunPos = .{ au, 0, 0 } };
+    }
+
+    pub fn updateSunPos(self: *SolarRadiationPressure, pos: [3]f64) void {
+        self.sunPos = pos;
     }
 
     pub fn acceleration(self: *const SolarRadiationPressure, state: [6]f64, t: f64) [3]f64 {
-        _ = t; // Future: use for Sun ephemeris
+        _ = t;
         const x, const y, const z = .{ state[0], state[1], state[2] };
 
-        // Simplified model: Sun at +X direction, 1 AU distance
-        const sunDir = [3]f64{ 1.0, 0.0, 0.0 };
+        const dx = self.sunPos[0] - x;
+        const dy = self.sunPos[1] - y;
+        const dz = self.sunPos[2] - z;
+        const dist = @sqrt(dx * dx + dy * dy + dz * dz);
+        if (dist < 1e-10) return .{ 0, 0, 0 };
 
-        // Check for cylindrical shadow (spacecraft behind Earth relative to Sun)
-        // If x < 0 (behind Earth) and sqrt(y^2 + z^2) < rEq (within shadow cylinder)
-        if (x < 0) {
-            const rho = @sqrt(y * y + z * z);
-            if (rho < self.rEq) {
-                return .{ 0, 0, 0 }; // In shadow
-            }
+        const sunDir = [3]f64{ dx / dist, dy / dist, dz / dist };
+
+        // Cylindrical shadow: project SC onto Sun-Earth line
+        const sunDist = @sqrt(self.sunPos[0] * self.sunPos[0] + self.sunPos[1] * self.sunPos[1] + self.sunPos[2] * self.sunPos[2]);
+        if (sunDist < 1e-10) return .{ 0, 0, 0 };
+        const sunHat = [3]f64{ self.sunPos[0] / sunDist, self.sunPos[1] / sunDist, self.sunPos[2] / sunDist };
+        const proj = x * sunHat[0] + y * sunHat[1] + z * sunHat[2];
+
+        if (proj < 0) {
+            const perpX = x - proj * sunHat[0];
+            const perpY = y - proj * sunHat[1];
+            const perpZ = z - proj * sunHat[2];
+            const rho = @sqrt(perpX * perpX + perpY * perpY + perpZ * perpZ);
+            if (rho < self.rEq) return .{ 0, 0, 0 };
         }
 
-        // SRP acceleration: a = -Cr * pSr * A / m * sunDirection
-        // Convert km/s^2: multiply by 1e-3 (N to kN equivalent for km units)
-        const factor = -self.cr * pSr * self.area / self.mass * 1e-3;
+        // a = -Cr * P_sr * (AU/d)² * (A/m) * sunDir  [1e-3 converts N/m² to km/s²]
+        const scale = (au / dist) * (au / dist);
+        const factor = -self.cr * pSr * scale * self.area / self.mass * 1e-3;
         return .{ factor * sunDir[0], factor * sunDir[1], factor * sunDir[2] };
+    }
+};
+
+pub const ThirdBody = struct {
+    mu: f64, // GM of third body (km³/s²)
+    pos: [3]f64, // position of third body in integration frame (km)
+
+    pub fn init(mu: f64, pos: [3]f64) ThirdBody {
+        return .{ .mu = mu, .pos = pos };
+    }
+
+    pub fn updatePos(self: *ThirdBody, pos: [3]f64) void {
+        self.pos = pos;
+    }
+
+    /// Battin's formula: a = mu * (d/|d|³ - q/|q|³)
+    /// q = third body position, d = q - r_spacecraft
+    pub fn acceleration(self: *const ThirdBody, state: [6]f64, t: f64) [3]f64 {
+        _ = t;
+        const x, const y, const z = .{ state[0], state[1], state[2] };
+        const qx, const qy, const qz = .{ self.pos[0], self.pos[1], self.pos[2] };
+
+        const qMag = @sqrt(qx * qx + qy * qy + qz * qz);
+        if (qMag < 1e-10) return .{ 0, 0, 0 };
+        const qMag3 = qMag * qMag * qMag;
+
+        const dx = qx - x;
+        const dy = qy - y;
+        const dz = qz - z;
+        const dMag = @sqrt(dx * dx + dy * dy + dz * dz);
+        if (dMag < 1e-10) return .{ 0, 0, 0 };
+        const dMag3 = dMag * dMag * dMag;
+
+        return .{
+            self.mu * (dx / dMag3 - qx / qMag3),
+            self.mu * (dy / dMag3 - qy / qMag3),
+            self.mu * (dz / dMag3 - qz / qMag3),
+        };
     }
 };
 
@@ -338,64 +393,76 @@ test "composite" {
     try std.testing.expect(accel[0] < 0);
 }
 
-test "j3 magnitude smaller than j2" {
+test "j3 and j4 magnitudes smaller than j2" {
     const mu = 398600.5;
     const rEq = 6378.137;
-    const j2Val = 0.00108262998905;
-    const j3Val = -0.00000253215306;
 
-    var j2Model = J2.init(mu, j2Val, rEq);
-    var j3Model = J3.init(mu, j3Val, rEq);
+    var j2Model = J2.init(mu, 0.00108262998905, rEq);
+    var j3Model = J3.init(mu, -0.00000253215306, rEq);
+    var j4Model = J4.init(mu, -0.00000161098761, rEq);
 
-    // Test at inclined position (z != 0 to see J3 effect)
     const state = [6]f64{ 6000, 1000, 2000, 0, 7.5, 0 };
     const aJ2 = ForceModel.wrap(J2, &j2Model).acceleration(state, 0);
     const aJ3 = ForceModel.wrap(J3, &j3Model).acceleration(state, 0);
-
-    const magJ2 = @sqrt(aJ2[0] * aJ2[0] + aJ2[1] * aJ2[1] + aJ2[2] * aJ2[2]);
-    const magJ3 = @sqrt(aJ3[0] * aJ3[0] + aJ3[1] * aJ3[1] + aJ3[2] * aJ3[2]);
-
-    // J3 should be smaller than J2 (roughly 1000x smaller based on coefficient ratio)
-    try std.testing.expect(magJ3 < magJ2);
-    try std.testing.expect(magJ3 > 0);
-}
-
-test "j4 magnitude smaller than j2" {
-    const mu = 398600.5;
-    const rEq = 6378.137;
-    const j2Val = 0.00108262998905;
-    const j4Val = -0.00000161098761;
-
-    var j2Model = J2.init(mu, j2Val, rEq);
-    var j4Model = J4.init(mu, j4Val, rEq);
-
-    const state = [6]f64{ 6000, 1000, 2000, 0, 7.5, 0 };
-    const aJ2 = ForceModel.wrap(J2, &j2Model).acceleration(state, 0);
     const aJ4 = ForceModel.wrap(J4, &j4Model).acceleration(state, 0);
 
     const magJ2 = @sqrt(aJ2[0] * aJ2[0] + aJ2[1] * aJ2[1] + aJ2[2] * aJ2[2]);
+    const magJ3 = @sqrt(aJ3[0] * aJ3[0] + aJ3[1] * aJ3[1] + aJ3[2] * aJ3[2]);
     const magJ4 = @sqrt(aJ4[0] * aJ4[0] + aJ4[1] * aJ4[1] + aJ4[2] * aJ4[2]);
 
-    // J4 should be smaller than J2
-    try std.testing.expect(magJ4 < magJ2);
+    try std.testing.expect(magJ3 > 0);
+    try std.testing.expect(magJ3 < magJ2);
     try std.testing.expect(magJ4 > 0);
+    try std.testing.expect(magJ4 < magJ2);
 }
 
-test "srp shadow model" {
+test "srp acceleration and shadow model" {
+    const au = constants.auKm;
+
+    // Default sun (+X at 1 AU): sunlight and shadow
     var srp = SolarRadiationPressure.init(1.5, 10.0, 500.0, 6378.137);
     const fm = ForceModel.wrap(SolarRadiationPressure, &srp);
 
-    // In sunlight (positive x)
-    const litState = [6]f64{ 7000, 0, 0, 0, 7.5, 0 };
-    const aLit = fm.acceleration(litState, 0);
-    try std.testing.expect(aLit[0] != 0);
+    const aLit = fm.acceleration(.{ 7000, 0, 0, 0, 7.5, 0 }, 0);
+    try std.testing.expect(aLit[0] < 0); // pushed away from Sun (-X)
+    const aShadow = fm.acceleration(.{ -7000, 0, 0, 0, 7.5, 0 }, 0);
+    try std.testing.expectEqual(@as(f64, 0), aShadow[0]);
 
-    // In shadow (negative x, within Earth radius)
-    const shadowState = [6]f64{ -7000, 0, 0, 0, 7.5, 0 };
-    const aShadow = fm.acceleration(shadowState, 0);
-    try std.testing.expect(aShadow[0] == 0);
-    try std.testing.expect(aShadow[1] == 0);
-    try std.testing.expect(aShadow[2] == 0);
+    // Non-axis sun (+Y): magnitude, direction, and shadow
+    srp.updateSunPos(.{ 0, au, 0 });
+    const aNonAxis = fm.acceleration(.{ 7000, 0, 0, 0, 7.5, 0 }, 0);
+    try std.testing.expectApproxEqRel(@as(f64, -1.368e-10), aNonAxis[1], 1e-3);
+    try std.testing.expect(@abs(aNonAxis[0]) < @abs(aNonAxis[1]));
+    const aShadowY = fm.acceleration(.{ 0, -7000, 0, 0, 7.5, 0 }, 0);
+    try std.testing.expectEqual(@as(f64, 0), aShadowY[1]);
+
+    // Inverse-square: half distance → ~4x acceleration
+    srp.updateSunPos(.{ au, 0, 0 });
+    const a1 = fm.acceleration(.{ 7000, 0, 0, 0, 7.5, 0 }, 0);
+    srp.updateSunPos(.{ au / 2.0, 0, 0 });
+    const a2 = fm.acceleration(.{ 7000, 0, 0, 0, 7.5, 0 }, 0);
+    const d1 = au - 7000.0;
+    const d2 = au / 2.0 - 7000.0;
+    try std.testing.expectApproxEqRel((d1 / d2) * (d1 / d2), @abs(a2[0]) / @abs(a1[0]), 1e-10);
+}
+
+test "third body perturbation" {
+    // SC at origin → zero (d == q, terms cancel)
+    var tb = ThirdBody.init(constants.sun.mu, .{ constants.auKm, 0, 0 });
+    const aZero = ForceModel.wrap(ThirdBody, &tb).acceleration(.{ 0, 0, 0, 0, 7.5, 0 }, 0);
+    try std.testing.expectEqual(@as(f64, 0), aZero[0]);
+
+    // Sun at 1 AU, LEO spacecraft perpendicular to Sun line
+    // Verified against numpy: |a| ≈ 2.775e-10 km/s² (tidal scale: μ_sun * r / D³)
+    const aLeo = ForceModel.wrap(ThirdBody, &tb).acceleration(.{ 0, 7000, 0, 0, 0, 7.5 }, 0);
+    const mag = @sqrt(aLeo[0] * aLeo[0] + aLeo[1] * aLeo[1] + aLeo[2] * aLeo[2]);
+    try std.testing.expectApproxEqRel(@as(f64, 2.775e-10), mag, 1e-2);
+
+    // Very distant third body → negligible
+    tb.updatePos(.{ 1e12, 0, 0 });
+    const aFar = ForceModel.wrap(ThirdBody, &tb).acceleration(.{ 7000, 0, 0, 0, 7.5, 0 }, 0);
+    const magFar = @sqrt(aFar[0] * aFar[0] + aFar[1] * aFar[1] + aFar[2] * aFar[2]);
+    try std.testing.expect(magFar < 1e-10);
 }
 
 test "improved drag uses relative velocity" {
