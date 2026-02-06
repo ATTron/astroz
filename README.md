@@ -15,7 +15,7 @@
 | SGP4 propagation | CCSDS packets | FITS parsing |
 | TLE parsing | VITA49 packets | WCS coordinates |
 | Orbital maneuvers | Attitude determination | Star precession |
-| Force models (J2/J3/J4, drag, SRP) | CSPICE ephemeris | Celestial bodies |
+| Force models (J2-J4, drag, SRP, third-body) | CSPICE ephemeris | Celestial bodies |
 | Dormand-Prince 8(7) integrator | Monte Carlo sims | |
 
 ### Performance
@@ -191,8 +191,10 @@ exe.root_module.addImport("astroz", astroz_mod);
   Statistical analysis for mission planning with uncertainty.
 
 - #### [SGP4 Propagation](examples/sgp4_propagation.zig)
-
   Analytical orbit propagation using SGP4 with TLE input. Demonstrates both direct SGP4 usage and the modular propagator interface.
+
+- #### [SPICE Propagation](examples/spice_propagation.zig)
+  High-fidelity LEO propagation with SPICE-updated Sun/Moon ephemeris. Combines TwoBody + J2 + SRP + third-body perturbations with real-time position updates.
 
 - #### [Cesium Satellite Visualization](examples/README.md) — **[Live Demo](https://attron.github.io/astroz-demo/)**
 
