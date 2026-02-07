@@ -8,12 +8,11 @@ version = "0.5.1"
 description = "Python bindings for astroz - high-performance astrodynamics library"
 readme = "README.md"
 requires-python = ">=3.10"
-license = {text = "MIT"}
+license = "MIT"
 keywords = ["astrodynamics", "orbital-mechanics", "sgp4", "tle", "satellite"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Science/Research",
-    "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",
     "Topic :: Scientific/Engineering :: Astronomy",
 ]

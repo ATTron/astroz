@@ -49,6 +49,8 @@ The [Cesium visualization example](examples/README.md) propagates the entire act
 
 ### Python
 
+Only supports **Linux x86_64** and **macOS ARM64** (Python 3.10–3.12):
+
 ```bash
 pip install astroz
 ```
