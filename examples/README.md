@@ -36,6 +36,8 @@ This generates `cesium_fast.html` in the project root. Open it in your browser.
 ## Other Examples
 
 - `python_sgp4.py` - Basic SGP4 propagation using python-sgp4 compatible API (`astroz.api`)
-- `conjunction_screening.py` - Conjunction detection example
-- `sgp4_propagation.zig` - Zig SGP4 example
+- `conjunction_screening.py` - Conjunction detection example (Python)
+- `sgp4_propagation.zig` - SGP4 propagation with SIMD batch and modular interface
 - `orbit_maneuvers.zig` - Hohmann transfer and orbital maneuvers
+- `maneuver_planning.zig` - Force model propagation (TwoBody, J2, Composite, Dormand-Prince 8(7))
+- `constellation_phasing.zig` - Sun-sync orbit design and constellation RAAN phasing

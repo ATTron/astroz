@@ -88,7 +88,7 @@ pub fn main() !void {
     // Setup RK4 with two-body gravity
     var twobody = propagators.TwoBody.init(constants.earth.mu);
     var rk4 = propagators.Rk4{};
-    var rk4Prop = propagators.Propagator.init(allocator, rk4.integrator(), twobody.forceModel());
+    var rk4Prop = propagators.Propagator.init(allocator, rk4.integrator(), propagators.ForceModel.wrap(propagators.TwoBody, &twobody));
 
     // Propagate both for 90 minutes (one orbit)
     const duration = 90.0 * 60.0;

@@ -6,12 +6,44 @@ pub fn build(b: *std.Build) void {
     const root_source_file = b.path("src/lib.zig");
     const use_llvm = b.option(bool, "use-llvm", "Use Zig's llvm backend");
 
+    // CSPICE configuration
+    // Override with: -Dcspice-include=/path/to/cspice/include -Dcspice-lib=/path/to/cspice/lib
+    const cspice_include = b.option([]const u8, "cspice-include", "CSPICE include path (containing SpiceUsr.h)");
+    const cspice_lib = b.option([]const u8, "cspice-lib", "CSPICE library path (containing libcspice.a)");
+    const enable_cspice = b.option(bool, "enable-cspice", "Enable CSPICE support (requires CSPICE to be installed)") orelse false;
+
+    // Build options for conditional compilation
+    const build_options = b.addOptions();
+    build_options.addOption(bool, "enable_cspice", enable_cspice);
+
     // Module
     const astroz_mod = b.addModule("astroz", .{
         .target = target,
         .optimize = optimize,
         .root_source_file = root_source_file,
     });
+
+    astroz_mod.addOptions("build_options", build_options);
+
+    // CSPICE setup
+    if (enable_cspice) {
+        if (cspice_include) |inc| {
+            astroz_mod.addIncludePath(.{ .cwd_relative = inc });
+        } else {
+            astroz_mod.addIncludePath(.{ .cwd_relative = "/usr/include" });
+            astroz_mod.addIncludePath(.{ .cwd_relative = "/usr/local/include" });
+            astroz_mod.addIncludePath(.{ .cwd_relative = "/usr/local/include/cspice" });
+            astroz_mod.addIncludePath(.{ .cwd_relative = "/opt/cspice/include" });
+        }
+
+        if (cspice_lib) |lib_path| {
+            astroz_mod.addObjectFile(.{ .cwd_relative = lib_path });
+        } else {
+            // Try AUR location first, then fallback to standard locations
+            astroz_mod.addObjectFile(.{ .cwd_relative = "/usr/lib/cspice.a" });
+        }
+        astroz_mod.link_libc = true;
+    }
 
     // Library
     const lib_step = b.step("lib", "Install library");
@@ -201,9 +233,37 @@ pub fn build(b: *std.Build) void {
     });
     fmt_step.dependOn(&fmt.step);
     b.default_step.dependOn(fmt_step);
+
+    // Fetch standard NAIF SPICE kernels
+    const fetch_step = b.step("fetch-kernels", "Download standard NAIF SPICE kernels to data/kernels/");
+
+    const curl_check = b.addSystemCommand(&.{
+        "sh", "-c", "command -v curl >/dev/null 2>&1 || { echo 'error: curl is required to download SPICE kernels.' >&2; echo '  Install it with your package manager (e.g. apt install curl, pacman -S curl, brew install curl).' >&2; exit 1; }",
+    });
+
+    const mkdir = b.addSystemCommand(&.{ "mkdir", "-p", "data/kernels" });
+    mkdir.step.dependOn(&curl_check.step);
+
+    const naif_base = "https://naif.jpl.nasa.gov/pub/naif/generic_kernels/";
+    const kernels = .{
+        .{ "lsk/naif0012.tls", "naif0012.tls" },
+        .{ "spk/planets/de440s.bsp", "de440s.bsp" },
+        .{ "pck/pck00011.tpc", "pck00011.tpc" },
+        .{ "pck/gm_de440.tpc", "gm_de440.tpc" },
+    };
+
+    inline for (kernels) |kernel| {
+        const fetch = b.addSystemCommand(&.{
+            "curl", "-f", "-s", "-S", "-z", "data/kernels/" ++ kernel[1], "-o", "data/kernels/" ++ kernel[1], naif_base ++ kernel[0],
+        });
+        fetch.step.dependOn(&mkdir.step);
+        fetch_step.dependOn(&fetch.step);
+    }
 }
 
 const EXAMPLE_NAMES = &.{
+    "maneuver_planning",
+    "constellation_phasing",
     "create_ccsds_packet_config",
     "create_ccsds_packet",
     "orbit_maneuvers",
@@ -216,6 +276,7 @@ const EXAMPLE_NAMES = &.{
     "sgp4_propagation",
     "simple_monte_carlo",
     "simple_spacecraft_orientation",
+    "spice_propagation",
     "transfer_propagation",
     "wcs",
 };
