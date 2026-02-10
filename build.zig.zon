@@ -2,11 +2,11 @@
     .name = .astroz,
     .version = "0.7.1",
     .fingerprint = 0x2d8583fca695159f, // Changing this has security and trust implications.
-    .minimum_zig_version = "0.16.0-dev.2490+fce7878a9",
+    .minimum_zig_version = "0.16.0-dev.2535+b5bd49460",
     .dependencies = .{
         .cfitsio = .{
-            .url = "git+https://github.com/ATTron/cfitsio/?ref=HEAD#8b315fb1f0b0a76e04eb394f28db87733d8953e3",
-            .hash = "cfitsio-4.6.2-LaSYAD8ZAADmDI5X4e906pIVSb_dmIXrMYhm0PNVondp",
+            .url = "git+https://github.com/ATTron/cfitsio/?ref=HEAD#2faa5c5b263e0c4a903d7bbf54bb71a4597e876c",
+            .hash = "cfitsio-4.6.2-LaSYACsZAAD1UX_WWiQXcsBWwPnoMjwMzBA7WFNw8Xu2",
         },
         .zignal = .{
             .url = "git+https://github.com/arrufat/zignal#2db97fcf6b95222b9c0568a129f93d1a72f5f494",
