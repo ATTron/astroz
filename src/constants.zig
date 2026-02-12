@@ -71,85 +71,242 @@ pub const CelestialBody = struct {
     name: []const u8,
     mass: f64, // kg
     mu: f64, // km^3/s^2
-    mFractionSolarSystem: f64,
-    mRadius: ?f64, // km
-    eqRadius: ?f64, // km
-    pRadius: ?f64, //km
-    semiMajorAxis: f64, // km
-    perihelion: f64, // km
-    aphelion: f64, // km
-    period: f64, // days
-    velocity: f64, // km/s
-    eccentricity: f64,
-    inclination: f64, // degrees
-    oblateness: ?f64,
-    j2Perturbation: f64,
-    j3Perturbation: f64,
-    j4Perturbation: f64,
-    seaLevelDensity: f64,
-    scaleHeight: f64,
-    rotationRate: f64, // rad/s
-
-    fn init(
-        name: []const u8,
-        mass: f64,
-        mu: f64,
-        mFractionSolarSystem: f64,
-        mRadius: ?f64,
-        eqRadius: ?f64,
-        pRadius: ?f64,
-        semiMajorAxis: ?f64,
-        perihelion: ?f64,
-        aphelion: ?f64,
-        period: ?f64,
-        velocity: ?f64,
-        eccentricity: ?f64,
-        inclination: ?f64,
-        oblateness: ?f64,
-        j2Perturbation: f64,
-        j3Perturbation: f64,
-        j4Perturbation: f64,
-        seaLevelDensity: f64,
-        scaleHeight: f64,
-        rotationRate: f64,
-    ) CelestialBody {
-        return .{
-            .name = name,
-            .mass = mass,
-            .mu = mu,
-            .mFractionSolarSystem = mFractionSolarSystem,
-            .mRadius = mRadius,
-            .eqRadius = eqRadius,
-            .pRadius = pRadius,
-            .semiMajorAxis = semiMajorAxis orelse 0.0,
-            .perihelion = perihelion orelse 0.0,
-            .aphelion = aphelion orelse 0.0,
-            .period = period orelse 0.0,
-            .velocity = velocity orelse 0.0,
-            .eccentricity = eccentricity orelse 0.0,
-            .inclination = inclination orelse 0.0,
-            .oblateness = oblateness,
-            .j2Perturbation = j2Perturbation,
-            .j3Perturbation = j3Perturbation,
-            .j4Perturbation = j4Perturbation,
-            .seaLevelDensity = seaLevelDensity,
-            .scaleHeight = scaleHeight,
-            .rotationRate = rotationRate,
-        };
-    }
+    mFractionSolarSystem: f64 = 0,
+    mRadius: ?f64 = null, // km
+    eqRadius: ?f64 = null, // km
+    pRadius: ?f64 = null, // km
+    semiMajorAxis: f64 = 0, // km
+    perihelion: f64 = 0, // km
+    aphelion: f64 = 0, // km
+    period: f64 = 0, // days
+    velocity: f64 = 0, // km/s
+    eccentricity: f64 = 0,
+    inclination: f64 = 0, // degrees
+    oblateness: ?f64 = null,
+    j2Perturbation: f64 = 0,
+    j3Perturbation: f64 = 0,
+    j4Perturbation: f64 = 0,
+    seaLevelDensity: f64 = 0,
+    scaleHeight: f64 = 0,
+    rotationRate: f64 = 0, // rad/s
 };
 
-pub const sun = CelestialBody.init("sun", 1.8842e30, 1.32712e11, 9.98657e-1, null, 695700, null, null, null, null, null, null, null, null, null, 0.0000002, 0.0, 0.0, 1e-12, 50000.0, 2.865e-6);
-pub const mercury = CelestialBody.init("mercury", 3.30101e23, 2.20319e4, 1.65789e-7, 2439.4, 2440.53, 2438.26, 5.79091e7, 4.60009e7, 6.98173e7, 87.97, 47.87, 0.20564, 7.01, 0.000, 0.00006, 0.0, 0.0, 1e-12, 200.0, 1.24e-6);
-pub const venus = CelestialBody.init("venus", 4.86732e24, 3.24859e5, 2.44455e-6, 6051.8, 6051.8, 6051.8, 1.08209e8, 1.07477e8, 1.08940e8, 224.70, 35.02, 0.00676, 3.39, 0.000, 0.000027, 0.0, 0.0, 65.0, 15.9, -2.99e-7);
-pub const earth = CelestialBody.init("earth", 5.97219e24, wgs84.mu, 2.99946e-6, 6371.0084, wgs84.radiusEarthKm, 6356.7519, 1.49598e8, 1.47100e8, 1.52096e8, 365.26, 29.78, 0.01670, 0.00, 0.003353, wgs84.j2, wgs84.j3, wgs84.j4, 1.225, 7.249, 7.2921150e-5);
-pub const moon = CelestialBody.init("moon", 7.34581e22, 4.90280e3, 3.68934e-8, 1737.4, null, null, 3.83398e5, 3.62106e5, 4.04689e5, 27.18, 1.03, 0.05555, 23.71, 0.0012, 0.0002027, 0.0, 0.0, 5e-13, 100.0, 2.6617e-6);
-pub const mars = CelestialBody.init("mars", 6.41693e23, 4.28284e4, 3.22282e-7, 3389.50, 3396.19, 3376.20, 2.27939e8, 2.06645e8, 2.49233e8, 686.97, 24.13, 0.09342, 1.85, 0.00648, 0.001964, 0.0, 0.0, 0.020, 11.1, 7.088e-5);
-pub const jupiter = CelestialBody.init("jupiter", 1.89852e27, 1.26713e8, 9.53510e-4, 69911, 71492, 66854, 7.78321e8, 7.40603e8, 8.16038e8, 4332.52, 13.06, 0.04846, 1.30, 0.06487, 0.014736, 0.0, 0.0, 0.16, 27.0, 1.7585e-4);
-pub const saturn = CelestialBody.init("saturn", 5.68460e26, 3.79406e7, 2.85502e-4, 58232, 60268, 54364, 1.42910e9, 1.35096e9, 1.50724e9, 10783.05, 9.64, 0.05468, 2.49, 0.09796, 0.016298, 0.0, 0.0, 0.19, 59.5, 1.6378e-4);
-pub const uranus = CelestialBody.init("uranus", 8.68192e25, 5.79456e6, 4.36039e-5, 25362, 25559, 24973, 2.87479e9, 2.73854e9, 3.01104e9, 30768.84, 6.79, 0.04739, 0.77, 0.02293, 0.003343, 0.0, 0.0, 0.42, 27.7, -1.012e-4);
-pub const neptune = CelestialBody.init("neptune", 1.02431e26, 6.83653e6, 5.14447e-5, 24622, 24764, 24341, 4.50489e9, 4.46384e9, 4.54594e9, 60357.05, 5.43, 0.00911, 1.77, 0.01708, 0.003411, 0.0, 0.0, 0.45, 19.7, 1.083e-4);
-pub const pluto = CelestialBody.init("pluto", 1.46158e22, 9.75500e2, 7.34061e-9, 1188.3, null, null, 5.91540e9, 4.44212e9, 7.38868e9, 90821.51, 4.74, 0.24906, 17.14, 0.002, 0.00039, 0.0, 0.0, 1e-6, 50.0, -1.139e-5);
+pub const sun: CelestialBody = .{
+    .name = "sun",
+    .mass = 1.8842e30,
+    .mu = 1.32712e11,
+    .mFractionSolarSystem = 9.98657e-1,
+    .eqRadius = 695700,
+    .j2Perturbation = 0.0000002,
+    .seaLevelDensity = 1e-12,
+    .scaleHeight = 50000.0,
+    .rotationRate = 2.865e-6,
+};
+pub const mercury: CelestialBody = .{
+    .name = "mercury",
+    .mass = 3.30101e23,
+    .mu = 2.20319e4,
+    .mFractionSolarSystem = 1.65789e-7,
+    .mRadius = 2439.4,
+    .eqRadius = 2440.53,
+    .pRadius = 2438.26,
+    .semiMajorAxis = 5.79091e7,
+    .perihelion = 4.60009e7,
+    .aphelion = 6.98173e7,
+    .period = 87.97,
+    .velocity = 47.87,
+    .eccentricity = 0.20564,
+    .inclination = 7.01,
+    .j2Perturbation = 0.00006,
+    .seaLevelDensity = 1e-12,
+    .scaleHeight = 200.0,
+    .rotationRate = 1.24e-6,
+};
+pub const venus: CelestialBody = .{
+    .name = "venus",
+    .mass = 4.86732e24,
+    .mu = 3.24859e5,
+    .mFractionSolarSystem = 2.44455e-6,
+    .mRadius = 6051.8,
+    .eqRadius = 6051.8,
+    .pRadius = 6051.8,
+    .semiMajorAxis = 1.08209e8,
+    .perihelion = 1.07477e8,
+    .aphelion = 1.08940e8,
+    .period = 224.70,
+    .velocity = 35.02,
+    .eccentricity = 0.00676,
+    .inclination = 3.39,
+    .j2Perturbation = 0.000027,
+    .seaLevelDensity = 65.0,
+    .scaleHeight = 15.9,
+    .rotationRate = -2.99e-7,
+};
+pub const earth: CelestialBody = .{
+    .name = "earth",
+    .mass = 5.97219e24,
+    .mu = wgs84.mu,
+    .mFractionSolarSystem = 2.99946e-6,
+    .mRadius = 6371.0084,
+    .eqRadius = wgs84.radiusEarthKm,
+    .pRadius = 6356.7519,
+    .semiMajorAxis = 1.49598e8,
+    .perihelion = 1.47100e8,
+    .aphelion = 1.52096e8,
+    .period = 365.26,
+    .velocity = 29.78,
+    .eccentricity = 0.01670,
+    .oblateness = 0.003353,
+    .j2Perturbation = wgs84.j2,
+    .j3Perturbation = wgs84.j3,
+    .j4Perturbation = wgs84.j4,
+    .seaLevelDensity = 1.225,
+    .scaleHeight = 7.249,
+    .rotationRate = 7.2921150e-5,
+};
+pub const moon: CelestialBody = .{
+    .name = "moon",
+    .mass = 7.34581e22,
+    .mu = 4.90280e3,
+    .mFractionSolarSystem = 3.68934e-8,
+    .mRadius = 1737.4,
+    .semiMajorAxis = 3.83398e5,
+    .perihelion = 3.62106e5,
+    .aphelion = 4.04689e5,
+    .period = 27.18,
+    .velocity = 1.03,
+    .eccentricity = 0.05555,
+    .inclination = 23.71,
+    .oblateness = 0.0012,
+    .j2Perturbation = 0.0002027,
+    .seaLevelDensity = 5e-13,
+    .scaleHeight = 100.0,
+    .rotationRate = 2.6617e-6,
+};
+pub const mars: CelestialBody = .{
+    .name = "mars",
+    .mass = 6.41693e23,
+    .mu = 4.28284e4,
+    .mFractionSolarSystem = 3.22282e-7,
+    .mRadius = 3389.50,
+    .eqRadius = 3396.19,
+    .pRadius = 3376.20,
+    .semiMajorAxis = 2.27939e8,
+    .perihelion = 2.06645e8,
+    .aphelion = 2.49233e8,
+    .period = 686.97,
+    .velocity = 24.13,
+    .eccentricity = 0.09342,
+    .inclination = 1.85,
+    .oblateness = 0.00648,
+    .j2Perturbation = 0.001964,
+    .seaLevelDensity = 0.020,
+    .scaleHeight = 11.1,
+    .rotationRate = 7.088e-5,
+};
+pub const jupiter: CelestialBody = .{
+    .name = "jupiter",
+    .mass = 1.89852e27,
+    .mu = 1.26713e8,
+    .mFractionSolarSystem = 9.53510e-4,
+    .mRadius = 69911,
+    .eqRadius = 71492,
+    .pRadius = 66854,
+    .semiMajorAxis = 7.78321e8,
+    .perihelion = 7.40603e8,
+    .aphelion = 8.16038e8,
+    .period = 4332.52,
+    .velocity = 13.06,
+    .eccentricity = 0.04846,
+    .inclination = 1.30,
+    .oblateness = 0.06487,
+    .j2Perturbation = 0.014736,
+    .seaLevelDensity = 0.16,
+    .scaleHeight = 27.0,
+    .rotationRate = 1.7585e-4,
+};
+pub const saturn: CelestialBody = .{
+    .name = "saturn",
+    .mass = 5.68460e26,
+    .mu = 3.79406e7,
+    .mFractionSolarSystem = 2.85502e-4,
+    .mRadius = 58232,
+    .eqRadius = 60268,
+    .pRadius = 54364,
+    .semiMajorAxis = 1.42910e9,
+    .perihelion = 1.35096e9,
+    .aphelion = 1.50724e9,
+    .period = 10783.05,
+    .velocity = 9.64,
+    .eccentricity = 0.05468,
+    .inclination = 2.49,
+    .oblateness = 0.09796,
+    .j2Perturbation = 0.016298,
+    .seaLevelDensity = 0.19,
+    .scaleHeight = 59.5,
+    .rotationRate = 1.6378e-4,
+};
+pub const uranus: CelestialBody = .{
+    .name = "uranus",
+    .mass = 8.68192e25,
+    .mu = 5.79456e6,
+    .mFractionSolarSystem = 4.36039e-5,
+    .mRadius = 25362,
+    .eqRadius = 25559,
+    .pRadius = 24973,
+    .semiMajorAxis = 2.87479e9,
+    .perihelion = 2.73854e9,
+    .aphelion = 3.01104e9,
+    .period = 30768.84,
+    .velocity = 6.79,
+    .eccentricity = 0.04739,
+    .inclination = 0.77,
+    .oblateness = 0.02293,
+    .j2Perturbation = 0.003343,
+    .seaLevelDensity = 0.42,
+    .scaleHeight = 27.7,
+    .rotationRate = -1.012e-4,
+};
+pub const neptune: CelestialBody = .{
+    .name = "neptune",
+    .mass = 1.02431e26,
+    .mu = 6.83653e6,
+    .mFractionSolarSystem = 5.14447e-5,
+    .mRadius = 24622,
+    .eqRadius = 24764,
+    .pRadius = 24341,
+    .semiMajorAxis = 4.50489e9,
+    .perihelion = 4.46384e9,
+    .aphelion = 4.54594e9,
+    .period = 60357.05,
+    .velocity = 5.43,
+    .eccentricity = 0.00911,
+    .inclination = 1.77,
+    .oblateness = 0.01708,
+    .j2Perturbation = 0.003411,
+    .seaLevelDensity = 0.45,
+    .scaleHeight = 19.7,
+    .rotationRate = 1.083e-4,
+};
+pub const pluto: CelestialBody = .{
+    .name = "pluto",
+    .mass = 1.46158e22,
+    .mu = 9.75500e2,
+    .mFractionSolarSystem = 7.34061e-9,
+    .mRadius = 1188.3,
+    .semiMajorAxis = 5.91540e9,
+    .perihelion = 4.44212e9,
+    .aphelion = 7.38868e9,
+    .period = 90821.51,
+    .velocity = 4.74,
+    .eccentricity = 0.24906,
+    .inclination = 17.14,
+    .oblateness = 0.002,
+    .j2Perturbation = 0.00039,
+    .seaLevelDensity = 1e-6,
+    .scaleHeight = 50.0,
+    .rotationRate = -1.139e-5,
+};
 
 pub const allBodies = [_]CelestialBody{
     sun,

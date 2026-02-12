@@ -34,12 +34,20 @@ pub fn Parser(comptime Frame: type) type {
             };
         }
 
-        /// Clean up any allocator mess left per packet that is created by the Parser
+        /// Clean up any allocator mess left per packet that is created by parser
         pub fn deinit(self: *Self) void {
             for (self.packets.items) |*packet| {
                 packet.deinit();
             }
             self.packets.deinit(self.allocator);
+        }
+
+        /// Compute total packet byte size from a parsed frame
+        fn frameByteSize(frame: Frame) usize {
+            if (comptime std.mem.eql(u8, @typeName(Frame), "Vita49"))
+                return @as(usize, frame.header.packetSize) * 4
+            else
+                return @as(usize, frame.header.packetSize) + 6;
         }
 
         /// Use this if you have a recording you need to parse
@@ -49,94 +57,37 @@ pub fn Parser(comptime Frame: type) type {
             syncPattern: ?[]const u8,
             callback: ?fn (Frame) void,
         ) !void {
-            // var fileContent = try std.fs.cwd().readFileAlloc(fileName, self.allocator, .unlimited);
             var fileContent = try std.Io.Dir.cwd().readFileAlloc(self.io, fileName, self.allocator, .unlimited);
-
             defer self.allocator.free(fileContent);
 
-            std.log.debug("type of Frame is: {s}", .{@typeName(Frame)});
-            if (std.mem.eql(u8, @typeName(Frame), "Vita49")) {
-                if (syncPattern) |sp| {
-                    var i: usize = 0;
-                    while (fileContent.len > 4) : (i += 1) {
-                        if (std.mem.startsWith(u8, fileContent[i..], sp)) {
-                            const newFrame = try Frame.init(fileContent[i..], self.allocator, null);
-                            try self.packets.append(self.allocator, newFrame);
-                            if (callback) |cb| {
-                                cb(newFrame);
-                            }
+            if (syncPattern) |sp| {
+                var i: usize = 0;
+                while (fileContent.len > 4) : (i += 1) {
+                    if (std.mem.startsWith(u8, fileContent[i..], sp)) {
+                        const newFrame = try Frame.init(fileContent[i..], self.allocator, null);
+                        try self.packets.append(self.allocator, newFrame);
+                        if (callback) |cb| cb(newFrame);
 
-                            const skipLength = newFrame.header.packetSize * 4;
-                            if (skipLength > fileContent.len - i) {
-                                break;
-                            }
+                        if (frameByteSize(newFrame) > fileContent.len - i) break;
 
-                            std.mem.copyForwards(u8, fileContent[0..], fileContent[i..]);
-
-                            const newAllocSize = fileContent.len - i;
-                            fileContent = self.allocator.realloc(fileContent, newAllocSize) catch |err| {
-                                std.log.err("Failed to reallocate memory for parsing: {}", .{err});
-                                break;
-                            };
-
-                            i = 0;
-                        }
+                        std.mem.copyForwards(u8, fileContent[0..], fileContent[i..]);
+                        const newAllocSize = fileContent.len - i;
+                        fileContent = self.allocator.realloc(fileContent, newAllocSize) catch |err| {
+                            std.log.err("Failed to reallocate memory for parsing: {}", .{err});
+                            break;
+                        };
+                        i = 0;
                     }
-                } else {
-                    const newFrame = try Frame.init(fileContent, self.allocator, null);
-                    try self.packets.append(self.allocator, newFrame);
-                    if (callback) |cb| {
-                        cb(newFrame);
-                    }
-
-                    const skipLength = newFrame.header.packetSize * 4;
-
-                    std.mem.copyForwards(u8, fileContent[0..], fileContent[skipLength - 1 ..]);
-
-                    const newAllocSize = fileContent.len - 1;
-                    fileContent = try self.allocator.realloc(fileContent, newAllocSize);
                 }
-            } else if (std.mem.eql(u8, @typeName(Frame), "Ccsds")) {
-                if (syncPattern) |sp| {
-                    var i: usize = 0;
-                    while (fileContent.len > 4) : (i += 1) {
-                        if (std.mem.startsWith(u8, fileContent[i..], sp)) {
-                            const newFrame = try Frame.init(fileContent[i..], self.allocator, null);
-                            try self.packets.append(self.allocator, newFrame);
-                            if (callback) |cb| {
-                                cb(newFrame);
-                            }
+            } else {
+                const newFrame = try Frame.init(fileContent, self.allocator, null);
+                try self.packets.append(self.allocator, newFrame);
+                if (callback) |cb| cb(newFrame);
 
-                            const skipLength = newFrame.header.packetSize + 6;
-                            if (skipLength > fileContent.len - i) {
-                                break;
-                            }
-
-                            std.mem.copyForwards(u8, fileContent[0..], fileContent[i..]);
-
-                            const newAllocSize = fileContent.len - i;
-                            fileContent = self.allocator.realloc(fileContent, newAllocSize) catch |err| {
-                                std.log.err("Failed to reallocate memory for parsing: {}", .{err});
-                                break;
-                            };
-
-                            i = 0;
-                        }
-                    }
-                } else {
-                    const newFrame = try Frame.init(fileContent, self.allocator, null);
-                    try self.packets.append(self.allocator, newFrame);
-                    if (callback) |cb| {
-                        cb(newFrame);
-                    }
-
-                    const skipLength = newFrame.header.packetSize + 6;
-
-                    std.mem.copyForwards(u8, fileContent[0..], fileContent[skipLength - 1 ..]);
-
-                    const newAllocSize = fileContent.len - 1;
-                    fileContent = try self.allocator.realloc(fileContent, newAllocSize);
-                }
+                const skipLength = frameByteSize(newFrame);
+                std.mem.copyForwards(u8, fileContent[0..], fileContent[skipLength - 1 ..]);
+                const newAllocSize = fileContent.len - 1;
+                fileContent = try self.allocator.realloc(fileContent, newAllocSize);
             }
         }
 
@@ -178,48 +129,6 @@ pub fn Parser(comptime Frame: type) type {
             self.shouldStop = true;
         }
     };
-}
-
-fn testRunServer(parse_type: []const u8) !void {
-    const testAddress = std.Io.net.Ip4Address{ .bytes = .{ 127, 0, 0, 1 }, .port = 65432 };
-    const testHost = std.Io.net.IpAddress{ .ip4 = testAddress };
-    var threaded: std.Io.Threaded = .init_single_threaded;
-    const io = threaded.io();
-    var server = try testHost.listen(io, .{});
-    defer server.deinit(io);
-
-    const addr = server.socket.address.ip4;
-    std.log.info("Listening on {d}\n", .{addr.port});
-
-    var client = try server.accept(io);
-    defer client.close(io);
-
-    std.log.info("Connection received! {any}\n", .{client.socket.address});
-
-    var _pkt: []const u8 = undefined;
-    if (std.mem.eql(u8, parse_type, "vita49")) {
-        _pkt = &[_]u8{
-            0x3A, 0x02, 0x0A, 0x00, 0x34, 0x12, 0x00, 0x00, 0x00, 0x56, 0x34,
-            0x12, 0x78, 0x9A, 0xBC, 0xDE, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00,
-            0x00, 0x00, 0x48, 0x65, 0x6C, 0x6C, 0x6F, 0x2C, 0x20, 0x56, 0x49,
-            0x54, 0x41, 0x20, 0x34, 0x39, 0x21,
-        };
-    } else {
-        _pkt = &[_]u8{
-            0x78, 0x97, 0xC0, 0x00, 0x00, 0x0A, 0x01, 0x02,
-            0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A,
-        };
-    }
-    var counter: usize = 0;
-    while (counter < 5) {
-        _ = try client.socket.send(io, &server.socket.address, _pkt);
-        try std.Io.sleep(io, std.Io.Duration.fromNanoseconds(2 * std.time.ns_per_s), .real);
-        counter += 1;
-    }
-}
-
-fn testCallback(packet: Vita49) void {
-    std.log.debug("CALLBACK CALLED: {any}", .{packet});
 }
 
 test "Vita49 Parse From File w/ sync" {
@@ -282,105 +191,3 @@ test "CCSDS Parse From File w/ sync" {
         try std.testing.expectEqualSlices(u8, &packets, packet.packets);
     }
 }
-
-// test "Vita49 Parser Test" {
-//     const ip = "127.0.0.1".*;
-//     const port: u16 = 65432;
-//     const parser = Parser(Vita49);
-//     var par_test = try parser.init(&ip, port, 1024, std.testing.allocator);
-//     defer par_test.deinit();
-//     var threaded: std.Io.Threaded = .init_single_threaded;
-//     const io = threaded.io();
-//
-//     {
-//         const t1 = try std.Thread.spawn(.{}, testRunServer, .{"vita49"});
-//         defer t1.join();
-//
-//         try std.Io.sleep(io, std.Io.Duration.fromNanoseconds(2 * std.time.ns_per_s), .real);
-//
-//         const t2 = try std.Thread.spawn(.{}, struct {
-//             fn run(pt: *parser, io_param: std.Io) !void {
-//                 try pt.start(io_param, null);
-//             }
-//         }.run, .{ &par_test, io });
-//         defer t2.join();
-//
-//         try std.Io.sleep(io, std.Io.Duration.fromNanoseconds(10 * std.time.ns_per_s), .real);
-//
-//         const t3 = try std.Thread.spawn(.{}, struct {
-//             fn run(pt: *parser) void {
-//                 pt.stop();
-//             }
-//         }.run, .{&par_test});
-//         defer t3.join();
-//     }
-//     try std.testing.expectEqual(5, par_test.packets.items.len);
-// }
-
-// test "Vita49 Parser Test w/ Callback" {
-//     const ip = "127.0.0.1".*;
-//     const port: u16 = 65432;
-//     const parser = Parser(Vita49);
-//     var par_test = try parser.init(&ip, port, 1024, std.testing.allocator);
-//     defer par_test.deinit();
-//     var threaded: std.Io.Threaded = .init_single_threaded;
-//     const io = threaded.io();
-//
-//     {
-//         const t1 = try std.Thread.spawn(.{}, testRunServer, .{"vita49"});
-//         defer t1.join();
-//
-//         try std.Io.sleep(io, std.Io.Duration.fromNanoseconds(2 * std.time.ns_per_s), .real);
-//
-//         const t2 = try std.Thread.spawn(.{}, struct {
-//             fn run(pt: *parser, io_param: std.Io) !void {
-//                 try pt.start(io_param, testCallback);
-//             }
-//         }.run, .{ &par_test, io });
-//         defer t2.join();
-//
-//         try std.Io.sleep(io, std.Io.Duration.fromNanoseconds(10 * std.time.ns_per_s), .real);
-//
-//         const t3 = try std.Thread.spawn(.{}, struct {
-//             fn run(pt: *parser) void {
-//                 pt.stop();
-//             }
-//         }.run, .{&par_test});
-//         defer t3.join();
-//     }
-//     try std.testing.expectEqual(5, par_test.packets.items.len);
-// }
-
-// test "CCSDS Parser Test" {
-//     const ip = "127.0.0.1".*;
-//     const port: u16 = 65432;
-//     const parser = Parser(Ccsds);
-//     var par_test = try parser.init(&ip, port, 1024, std.testing.allocator);
-//     defer par_test.deinit();
-//     var threaded: std.Io.Threaded = .init_single_threaded;
-//     const io = threaded.io();
-//
-//     {
-//         const t1 = try std.Thread.spawn(.{}, testRunServer, .{"ccsds"});
-//         defer t1.join();
-//
-//         try std.Io.sleep(io, std.Io.Duration.fromNanoseconds(2 * std.time.ns_per_s), .real);
-//
-//         const t2 = try std.Thread.spawn(.{}, struct {
-//             fn run(pt: *parser, io_param: std.Io) !void {
-//                 try pt.start(io_param, null);
-//             }
-//         }.run, .{ &par_test, io });
-//         defer t2.join();
-//
-//         try std.Io.sleep(io, std.Io.Duration.fromNanoseconds(10 * std.time.ns_per_s), .real);
-//
-//         const t3 = try std.Thread.spawn(.{}, struct {
-//             fn run(pt: *parser) void {
-//                 pt.stop();
-//             }
-//         }.run, .{&par_test});
-//         defer t3.join();
-//     }
-//     try std.testing.expectEqual(5, par_test.packets.items.len);
-// }

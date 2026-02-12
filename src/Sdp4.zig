@@ -1,7 +1,6 @@
 //! SDP4 Deep-Space Orbit Propagator
 //! Extension of SGP4 for satellites with orbital period > 225 minutes.
 //! Adds lunar/solar gravitational perturbations and orbital resonance effects.
-//! Reference: Vallado, Crawford, Hujsak, Kelso - AIAA 2006-6753
 
 const std = @import("std");
 const constants = @import("constants.zig");
@@ -12,7 +11,7 @@ const Sgp4 = @import("Sgp4.zig");
 
 const Sdp4 = @This();
 
-// ── Deep-space constants ────────────────────────────────────────────────
+// Deep space constants
 const zes = 0.01675;
 const zel = 0.05490;
 const c1ss = 2.9864797e-6;
@@ -46,42 +45,73 @@ const g44 = 1.8014998;
 const g52 = 1.0508330;
 const g54 = 4.4108898;
 
+// Near equatorial orbit threshold (~3°)
+const nearEquatorialThreshold = 5.2359877e-2;
+
 const stepp = 720.0;
 const stepn = -720.0;
 const step2 = 259200.0;
+
+pub const PerturbCoeffs = struct {
+    e2: f64,
+    e3: f64,
+    i2: f64,
+    i3: f64,
+    l2: f64,
+    l3: f64,
+    l4: f64,
+    gh2: f64,
+    gh3: f64,
+    gh4: f64,
+    h2: f64,
+    h3: f64,
+};
+
+fn computePerturbCoeffs(
+    s1v: f64,
+    s2v: f64,
+    s3v: f64,
+    s4v: f64,
+    s6v: f64,
+    s7v: f64,
+    z1t: f64,
+    z2t: f64,
+    z3t: f64,
+    z11v: f64,
+    z12v: f64,
+    z13v: f64,
+    z21v: f64,
+    z22v: f64,
+    z23v: f64,
+    z31v: f64,
+    z32v: f64,
+    z33v: f64,
+    emsq: f64,
+    ze: f64,
+) PerturbCoeffs {
+    return .{
+        .e2 = 2.0 * s1v * s6v,
+        .e3 = 2.0 * s1v * s7v,
+        .i2 = 2.0 * s2v * z12v,
+        .i3 = 2.0 * s2v * (z13v - z11v),
+        .l2 = -2.0 * s3v * z2t,
+        .l3 = -2.0 * s3v * (z3t - z1t),
+        .l4 = -2.0 * s3v * (-21.0 - 9.0 * emsq) * ze,
+        .gh2 = 2.0 * s4v * z32v,
+        .gh3 = 2.0 * s4v * (z33v - z31v),
+        .gh4 = -18.0 * s4v * ze,
+        .h2 = -2.0 * s2v * z22v,
+        .h3 = -2.0 * s2v * (z23v - z21v),
+    };
+}
 
 pub const Error = Sgp4.Error;
 
 pub const Elements = struct {
     sgp4: Sgp4.Elements,
 
-    // Solar perturbation coefficients
-    se2: f64,
-    se3: f64,
-    si2: f64,
-    si3: f64,
-    sl2: f64,
-    sl3: f64,
-    sl4: f64,
-    sgh2: f64,
-    sgh3: f64,
-    sgh4: f64,
-    sh2: f64,
-    sh3: f64,
-
-    // Lunar perturbation coefficients
-    ee2: f64,
-    e3: f64,
-    xi2: f64,
-    xi3: f64,
-    xl2: f64,
-    xl3: f64,
-    xl4: f64,
-    xgh2: f64,
-    xgh3: f64,
-    xgh4: f64,
-    xh2: f64,
-    xh3: f64,
+    solar: PerturbCoeffs,
+    lunar: PerturbCoeffs,
 
     zmol: f64,
     zmos: f64,
@@ -94,7 +124,7 @@ pub const Elements = struct {
     // Resonance: 0=none, 1=GEO, 2=half-day
     irez: u8,
 
-    // Half-day resonance coefficients
+    // Half day resonance coefficients
     d2201: f64,
     d2211: f64,
     d3210: f64,
@@ -150,8 +180,8 @@ pub fn initElements(tle: Tle, grav: constants.Sgp4GravityModel) Error!Elements {
 
     // Deep space initialization
     const day = epochJd - 2415020.0;
-    const dc = dscom(meanEl, rec, trig, day, gsto);
-    const di = dsinit(meanEl, rec, trig, secRates, &dc, gsto, grav);
+    const dc = dscom(meanEl, rec, trig, day);
+    const di = dsinit(meanEl, rec, trig, secRates, &dc, gsto);
 
     const sgp4El = Sgp4.Elements{
         .grav = grav,
@@ -204,30 +234,8 @@ pub fn initElements(tle: Tle, grav: constants.Sgp4GravityModel) Error!Elements {
 
     return Elements{
         .sgp4 = sgp4El,
-        .se2 = dc.se2,
-        .se3 = dc.se3,
-        .si2 = dc.si2,
-        .si3 = dc.si3,
-        .sl2 = dc.sl2,
-        .sl3 = dc.sl3,
-        .sl4 = dc.sl4,
-        .sgh2 = dc.sgh2,
-        .sgh3 = dc.sgh3,
-        .sgh4 = dc.sgh4,
-        .sh2 = dc.sh2,
-        .sh3 = dc.sh3,
-        .ee2 = dc.ee2,
-        .e3 = dc.e3,
-        .xi2 = dc.xi2,
-        .xi3 = dc.xi3,
-        .xl2 = dc.xl2,
-        .xl3 = dc.xl3,
-        .xl4 = dc.xl4,
-        .xgh2 = dc.xgh2,
-        .xgh3 = dc.xgh3,
-        .xgh4 = dc.xgh4,
-        .xh2 = dc.xh2,
-        .xh3 = dc.xh3,
+        .solar = dc.solar,
+        .lunar = dc.lunar,
         .zmol = dc.zmol,
         .zmos = dc.zmos,
         .dedt = di.dedt,
@@ -255,7 +263,7 @@ pub fn initElements(tle: Tle, grav: constants.Sgp4GravityModel) Error!Elements {
     };
 }
 
-// ── Greenwich Sidereal Time ─────────────────────────────────────────────
+// Greenwich Sidereal Time
 pub fn gstime(jdut1: f64) f64 {
     const tut1 = (jdut1 - 2451545.0) / 36525.0;
     var temp = -6.2e-6 * tut1 * tut1 * tut1 +
@@ -266,32 +274,10 @@ pub fn gstime(jdut1: f64) f64 {
     return temp;
 }
 
-// ── dscom ───────────────────────────────────────────────────────────────
+// dscom
 const DscomResult = struct {
-    se2: f64,
-    se3: f64,
-    si2: f64,
-    si3: f64,
-    sl2: f64,
-    sl3: f64,
-    sl4: f64,
-    sgh2: f64,
-    sgh3: f64,
-    sgh4: f64,
-    sh2: f64,
-    sh3: f64,
-    ee2: f64,
-    e3: f64,
-    xi2: f64,
-    xi3: f64,
-    xl2: f64,
-    xl3: f64,
-    xl4: f64,
-    xgh2: f64,
-    xgh3: f64,
-    xgh4: f64,
-    xh2: f64,
-    xh3: f64,
+    solar: PerturbCoeffs,
+    lunar: PerturbCoeffs,
     zmol: f64,
     zmos: f64,
     // Intermediate values for dsinit
@@ -350,7 +336,6 @@ fn dscom(
     rec: Sgp4.RecoveredElements,
     trig: Sgp4.TrigTerms,
     day: f64,
-    gsto: f64,
 ) DscomResult {
     var r: DscomResult = std.mem.zeroes(DscomResult);
 
@@ -383,7 +368,7 @@ fn dscom(
     const xnoi = 1.0 / r.nm;
     const betasq = 1.0 - r.emsq;
 
-    // Two-pass loop: pass 1 = solar, pass 2 = lunar
+    // Two pass loop: pass 1 = solar, pass 2 = lunar
     var zcosg: f64 = zcosgs;
     var zsing: f64 = zsings;
     var zcosi: f64 = zcosis;
@@ -461,19 +446,7 @@ fn dscom(
             r.sz32 = z32v;
             r.sz33 = z33v;
 
-            // Solar perturbation coefficients
-            r.se2 = 2.0 * s1v * s6v;
-            r.se3 = 2.0 * s1v * s7v;
-            r.si2 = 2.0 * s2v * z12v;
-            r.si3 = 2.0 * s2v * (z13v - z11v);
-            r.sl2 = -2.0 * s3v * z2t;
-            r.sl3 = -2.0 * s3v * (z3t - z1t);
-            r.sl4 = -2.0 * s3v * (-21.0 - 9.0 * r.emsq) * zes;
-            r.sgh2 = 2.0 * s4v * z32v;
-            r.sgh3 = 2.0 * s4v * (z33v - z31v);
-            r.sgh4 = -18.0 * s4v * zes;
-            r.sh2 = -2.0 * s2v * z22v;
-            r.sh3 = -2.0 * s2v * (z23v - z21v);
+            r.solar = computePerturbCoeffs(s1v, s2v, s3v, s4v, s6v, s7v, z1t, z2t, z3t, z11v, z12v, z13v, z21v, z22v, z23v, z31v, z32v, z33v, r.emsq, zes);
 
             // Switch to lunar terms for pass 2
             zcosg = zcosgl;
@@ -505,30 +478,16 @@ fn dscom(
             r.z32 = z32v;
             r.z33 = z33v;
 
-            // Lunar perturbation coefficients
-            r.ee2 = 2.0 * s1v * s6v;
-            r.e3 = 2.0 * s1v * s7v;
-            r.xi2 = 2.0 * s2v * z12v;
-            r.xi3 = 2.0 * s2v * (z13v - z11v);
-            r.xl2 = -2.0 * s3v * z2t;
-            r.xl3 = -2.0 * s3v * (z3t - z1t);
-            r.xl4 = -2.0 * s3v * (-21.0 - 9.0 * r.emsq) * zel;
-            r.xgh2 = 2.0 * s4v * z32v;
-            r.xgh3 = 2.0 * s4v * (z33v - z31v);
-            r.xgh4 = -18.0 * s4v * zel;
-            r.xh2 = -2.0 * s2v * z22v;
-            r.xh3 = -2.0 * s2v * (z23v - z21v);
+            r.lunar = computePerturbCoeffs(s1v, s2v, s3v, s4v, s6v, s7v, z1t, z2t, z3t, z11v, z12v, z13v, z21v, z22v, z23v, z31v, z32v, z33v, r.emsq, zel);
         }
     }
 
     r.zmol = @mod(4.7199672 + 0.22997150 * day - r.gam, constants.twoPi);
     r.zmos = @mod(6.2565837 + 0.017201977 * day, constants.twoPi);
-    _ = gsto;
 
     return r;
 }
 
-// ── dsinit ──────────────────────────────────────────────────────────────
 const DsinitResult = struct {
     dedt: f64,
     didt: f64,
@@ -560,9 +519,7 @@ fn dsinit(
     secRates: Sgp4.SecularRates,
     dc: *const DscomResult,
     gsto: f64,
-    grav: constants.Sgp4GravityModel,
 ) DsinitResult {
-    _ = grav;
     var di: DsinitResult = std.mem.zeroes(DsinitResult);
 
     const eosq = el.ecco * el.ecco;
@@ -577,9 +534,9 @@ fn dsinit(
     const sghs = dc.ss4 * zns * (dc.sz31 + dc.sz33 - 6.0);
     var shs = -zns * dc.ss2 * (dc.sz21 + dc.sz23);
 
-    // Near-equatorial fix (inclination < 3° or > 177°)
+    // Near equatorial fix (inclination < 3 or > 177)
     const inclm = el.inclo;
-    if (inclm < 5.2359877e-2 or inclm > std.math.pi - 5.2359877e-2)
+    if (inclm < nearEquatorialThreshold or inclm > std.math.pi - nearEquatorialThreshold)
         shs = 0.0;
     if (dc.sinim != 0.0)
         shs = shs / dc.sinim;
@@ -593,7 +550,7 @@ fn dsinit(
     var shll = -znl * dc.s2 * (dc.z21 + dc.z23);
 
     // Near-equatorial fix
-    if (inclm < 5.2359877e-2 or inclm > std.math.pi - 5.2359877e-2)
+    if (inclm < nearEquatorialThreshold or inclm > std.math.pi - nearEquatorialThreshold)
         shll = 0.0;
 
     di.domdt = sgs + sghl;
@@ -630,7 +587,7 @@ fn dsinit(
         di.xlamo = @mod(el.mo + el.nodeo + el.argpo - gsto, constants.twoPi);
         di.xfact = secRates.mdot + xpidot - rptim + di.dmdt + di.domdt + di.dnodt - rec.noUnkozai;
     } else if (di.irez == 2) {
-        // Half-day resonance — follow Vallado C++ exactly
+        // Half-day resonance
         const g201 = -0.306 - (el.ecco - 0.64) * 0.440;
         const g211 = eccoG(el.ecco, &[_]f64{ 3.616, -13.2470, 16.2900 }, &[_]f64{ -72.099, 331.819, -508.738, 266.724 });
         const g310 = eccoG(el.ecco, &[_]f64{ -19.302, 117.3900, -228.4190, 156.591 }, &[_]f64{ -346.844, 1582.851, -2415.925, 1246.113 });
@@ -689,13 +646,13 @@ fn dsinit(
     return di;
 }
 
-/// Evaluate eccentricity-dependent G function with threshold at e=0.65
+/// Evaluate eccentricity dependent G function with threshold at e=0.65
 fn eccoG(ecco: f64, lo: []const f64, hi: []const f64) f64 {
     if (ecco <= 0.65) return polyEval(ecco, lo);
     return polyEval(ecco, hi);
 }
 
-/// Evaluate eccentricity-dependent G function with threshold at e=0.7
+/// Evaluate eccentricity dependent G function with threshold at e=0.7
 fn eccoG7(ecco: f64, lo: []const f64, hi: []const f64) f64 {
     if (ecco < 0.7) return polyEval(ecco, lo);
     return polyEval(ecco, hi);
@@ -711,7 +668,6 @@ fn polyEval(x: f64, c: []const f64) f64 {
     return result;
 }
 
-// ── dpper ───────────────────────────────────────────────────────────────
 fn dpper(
     el: *const Elements,
     tsince: f64,
@@ -728,11 +684,11 @@ fn dpper(
     var f2 = 0.5 * sinzf * sinzf - 0.25;
     var f3 = -0.5 * sinzf * @cos(zf);
 
-    const ses = el.se2 * f2 + el.se3 * f3;
-    const sis = el.si2 * f2 + el.si3 * f3;
-    const sls = el.sl2 * f2 + el.sl3 * f3 + el.sl4 * sinzf;
-    const sghs = el.sgh2 * f2 + el.sgh3 * f3 + el.sgh4 * sinzf;
-    const shs = el.sh2 * f2 + el.sh3 * f3;
+    const ses = el.solar.e2 * f2 + el.solar.e3 * f3;
+    const sis = el.solar.i2 * f2 + el.solar.i3 * f3;
+    const sls = el.solar.l2 * f2 + el.solar.l3 * f3 + el.solar.l4 * sinzf;
+    const sghs = el.solar.gh2 * f2 + el.solar.gh3 * f3 + el.solar.gh4 * sinzf;
+    const shs = el.solar.h2 * f2 + el.solar.h3 * f3;
 
     // Lunar terms
     zm = el.zmol + znl * tsince;
@@ -741,11 +697,11 @@ fn dpper(
     f2 = 0.5 * sinzf * sinzf - 0.25;
     f3 = -0.5 * sinzf * @cos(zf);
 
-    const sel = el.ee2 * f2 + el.e3 * f3;
-    const sil = el.xi2 * f2 + el.xi3 * f3;
-    const sll = el.xl2 * f2 + el.xl3 * f3 + el.xl4 * sinzf;
-    const sghl = el.xgh2 * f2 + el.xgh3 * f3 + el.xgh4 * sinzf;
-    const shl = el.xh2 * f2 + el.xh3 * f3;
+    const sel = el.lunar.e2 * f2 + el.lunar.e3 * f3;
+    const sil = el.lunar.i2 * f2 + el.lunar.i3 * f3;
+    const sll = el.lunar.l2 * f2 + el.lunar.l3 * f3 + el.lunar.l4 * sinzf;
+    const sghl = el.lunar.gh2 * f2 + el.lunar.gh3 * f3 + el.lunar.gh4 * sinzf;
+    const shl = el.lunar.h2 * f2 + el.lunar.h3 * f3;
 
     // Combined
     const pe = ses + sel;
@@ -767,7 +723,7 @@ fn dpper(
         nodep.* += ph;
         mp.* += pl;
     } else {
-        // Lyddane modification for near-equatorial orbits
+        // Lyddane modification for near equatorial orbits
         const sinop = @sin(nodep.*);
         const cosop = @cos(nodep.*);
         var alfdp = sinip * sinop;
@@ -792,7 +748,6 @@ fn dpper(
     }
 }
 
-// ── dspace ──────────────────────────────────────────────────────────────
 const DspaceState = struct {
     em: f64,
     argpm: f64,
@@ -808,7 +763,7 @@ const DspaceState = struct {
 
 fn dspace(el: *const Elements, tsince: f64, s: *DspaceState) void {
 
-    // Apply lunar-solar secular perturbation rates
+    // Apply lunar solar secular perturbation rates
     s.em += el.dedt * tsince;
     s.inclm += el.didt * tsince;
     s.argpm += el.domdt * tsince;
@@ -829,24 +784,18 @@ fn dspace(el: *const Elements, tsince: f64, s: *DspaceState) void {
 
     // Integration loop
     while (@abs(tsince - s.atime) >= stepp) {
-        var xndt: f64 = undefined;
-        var xnddt: f64 = undefined;
-        var xldot: f64 = undefined;
-        computeResonanceAccel(el, s.xli, s.xni, s.atime, &xndt, &xnddt, &xldot);
-        s.xli += xldot * delt + xndt * step2;
-        s.xni += xndt * delt + xnddt * step2;
+        const ra = computeResonanceAccel(el, s.xli, s.xni, s.atime);
+        s.xli += ra.xldot * delt + ra.xndt * step2;
+        s.xni += ra.xndt * delt + ra.xnddt * step2;
         s.atime += delt;
     }
 
     // Final partial step
     const ft = tsince - s.atime;
-    var xndt: f64 = undefined;
-    var xnddt: f64 = undefined;
-    var xldot: f64 = undefined;
-    computeResonanceAccel(el, s.xli, s.xni, s.atime, &xndt, &xnddt, &xldot);
+    const ra = computeResonanceAccel(el, s.xli, s.xni, s.atime);
 
-    s.nm = s.xni + xndt * ft + xnddt * ft * ft * 0.5;
-    const xl = s.xli + xldot * ft + xndt * ft * ft * 0.5;
+    s.nm = s.xni + ra.xndt * ft + ra.xnddt * ft * ft * 0.5;
+    const xl = s.xli + ra.xldot * ft + ra.xndt * ft * ft * 0.5;
     const theta = @mod(el.gsto + tsince * rptim, constants.twoPi);
 
     if (el.irez != 2) {
@@ -860,14 +809,17 @@ fn dspace(el: *const Elements, tsince: f64, s: *DspaceState) void {
     s.nm = el.sgp4.noUnkozai + dndt;
 }
 
-fn computeResonanceAccel(el: *const Elements, xli: f64, xni: f64, atime: f64, xndt: *f64, xnddt: *f64, xldot: *f64) void {
+const ResonanceAccel = struct { xndt: f64, xnddt: f64, xldot: f64 };
+
+fn computeResonanceAccel(el: *const Elements, xli: f64, xni: f64, atime: f64) ResonanceAccel {
+    const xldot = xni + el.xfact;
     if (el.irez == 2) {
         // Half-day resonance
         const xomi = el.sgp4.argpo + el.sgp4.argpdot * atime;
         const x2omi = xomi + xomi;
         const x2li = xli + xli;
 
-        xndt.* = el.d2201 * @sin(x2omi + xli - g22) +
+        const xndt = el.d2201 * @sin(x2omi + xli - g22) +
             el.d2211 * @sin(xli - g22) +
             el.d3210 * @sin(xomi + xli - g32) +
             el.d3222 * @sin(-xomi + xli - g32) +
@@ -878,9 +830,7 @@ fn computeResonanceAccel(el: *const Elements, xli: f64, xni: f64, atime: f64, xn
             el.d5421 * @sin(xomi + x2li - g54) +
             el.d5433 * @sin(-xomi + x2li - g54);
 
-        xldot.* = xni + el.xfact;
-
-        xnddt.* = el.d2201 * @cos(x2omi + xli - g22) +
+        const xnddt = (el.d2201 * @cos(x2omi + xli - g22) +
             el.d2211 * @cos(xli - g22) +
             el.d3210 * @cos(xomi + xli - g32) +
             el.d3222 * @cos(-xomi + xli - g32) +
@@ -889,22 +839,22 @@ fn computeResonanceAccel(el: *const Elements, xli: f64, xni: f64, atime: f64, xn
             2.0 * (el.d4410 * @cos(x2omi + x2li - g44) +
                 el.d4422 * @cos(x2li - g44) +
                 el.d5421 * @cos(xomi + x2li - g54) +
-                el.d5433 * @cos(-xomi + x2li - g54));
-        xnddt.* *= xldot.*;
+                el.d5433 * @cos(-xomi + x2li - g54))) * xldot;
+
+        return .{ .xndt = xndt, .xnddt = xnddt, .xldot = xldot };
     } else {
-        // GEO synchronous resonance — three different phase constants
-        xndt.* = el.del1 * @sin(xli - fasx2) +
+        // GEO synchronous resonance, three different phase constants
+        const xndt = el.del1 * @sin(xli - fasx2) +
             el.del2 * @sin(2.0 * (xli - fasx4)) +
             el.del3 * @sin(3.0 * (xli - fasx6));
-        xldot.* = xni + el.xfact;
-        xnddt.* = el.del1 * @cos(xli - fasx2) +
+        const xnddt = (el.del1 * @cos(xli - fasx2) +
             2.0 * el.del2 * @cos(2.0 * (xli - fasx4)) +
-            3.0 * el.del3 * @cos(3.0 * (xli - fasx6));
-        xnddt.* *= xldot.*;
+            3.0 * el.del3 * @cos(3.0 * (xli - fasx6))) * xldot;
+
+        return .{ .xndt = xndt, .xnddt = xnddt, .xldot = xldot };
     }
 }
 
-// ── Propagation Pipeline ────────────────────────────────────────────────
 fn propagateElements(el: *const Elements, tsince: f64) Error![2][3]f64 {
     const sgp4El = &el.sgp4;
     const t2 = tsince * tsince;
@@ -962,17 +912,15 @@ fn propagateElements(el: *const Elements, tsince: f64) Error![2][3]f64 {
     if (em < 1.0e-6) em = 1.0e-6;
     if (em >= 1.0) return Error.InvalidEccentricity;
 
-    // Step 5: Recompute inclination-dependent terms for deep space
+    // Step 5: Recompute inclination dependent terms for deep space
     const sinip = @sin(inclm);
     const cosip = @cos(inclm);
     const cosip2 = cosip * cosip;
 
     var elCopy = sgp4El.*;
     elCopy.aycof = -0.5 * sgp4El.grav.j3oj2 * sinip;
-    if (@abs(cosip + 1.0) > 1.5e-12)
-        elCopy.xlcof = -0.25 * sgp4El.grav.j3oj2 * sinip * (3.0 + 5.0 * cosip) / (1.0 + cosip)
-    else
-        elCopy.xlcof = -0.25 * sgp4El.grav.j3oj2 * sinip * (3.0 + 5.0 * cosip) / 1.5e-12;
+    const xlcofNum = -0.25 * sgp4El.grav.j3oj2 * sinip * (3.0 + 5.0 * cosip);
+    elCopy.xlcof = xlcofNum / (if (@abs(cosip + 1.0) > 1.5e-12) 1.0 + cosip else @as(f64, 1.5e-12));
     elCopy.inclo = inclm;
     elCopy.cosio = cosip;
     elCopy.sinio = sinip;
@@ -981,7 +929,7 @@ fn propagateElements(el: *const Elements, tsince: f64) Error![2][3]f64 {
     elCopy.con41 = 3.0 * cosip2 - 1.0;
     elCopy.x7thm1 = 7.0 * cosip2 - 1.0;
 
-    // Step 6: Kepler solver, short-period corrections, position/velocity (reuse SGP4)
+    // Step 6: Kepler solver, short period corrections, position/velocity (reuse SGP4)
     const secular = Sgp4.SecularState{
         .mm = mm,
         .argpm = argpm,
@@ -997,8 +945,6 @@ fn propagateElements(el: *const Elements, tsince: f64) Error![2][3]f64 {
 
     return Sgp4.computePositionVelocity(&elCopy, corrected);
 }
-
-// ── SIMD Propagation (time-major: 1 satellite, N time steps) ─────────
 
 fn ResonanceAccelVec(comptime N: usize) type {
     const Vec = simdMath.VecN(N);
@@ -1088,7 +1034,7 @@ fn computeResonanceAccelN(comptime N: usize, el: *const Elements, xli: simdMath.
 
         return .{ .xndt = xndt, .xnddt = xnddt, .xldot = xldot };
     } else {
-        // GEO synchronous resonance — three different phase constants
+        // GEO synchronous resonance, three different phase constants
         const fasx2V: Vec = @splat(fasx2);
         const fasx4V: Vec = @splat(fasx4);
         const fasx6V: Vec = @splat(fasx6);
@@ -1119,7 +1065,7 @@ fn dspaceN(comptime N: usize, el: *const Elements, tsince: simdMath.VecN(N), s: 
     const Vec = simdMath.VecN(N);
     const zero: Vec = @splat(0.0);
 
-    // Apply lunar-solar secular perturbation rates
+    // Apply lunar solar secular perturbation rates
     const dedtV: Vec = @splat(el.dedt);
     const didtV: Vec = @splat(el.didt);
     const domdtV: Vec = @splat(el.domdt);
@@ -1133,7 +1079,7 @@ fn dspaceN(comptime N: usize, el: *const Elements, tsince: simdMath.VecN(N), s: 
 
     if (el.irez == 0) return;
 
-    // Resonance effects — all lanes start with atime=0 (same satellite)
+    // Resonance effects, all lanes start with atime=0 (same satellite)
     const noUnkozaiV: Vec = @splat(el.sgp4.noUnkozai);
     const xlamoV: Vec = @splat(el.xlamo);
     s.xni = noUnkozaiV;
@@ -1207,18 +1153,18 @@ fn dpperN(
     var f2 = half * sinzf * sinzf - quarter;
     var f3 = -half * sinzf * simdMath.cosN(N, zf);
 
-    const se2V: Vec = @splat(el.se2);
-    const se3V: Vec = @splat(el.se3);
-    const si2V: Vec = @splat(el.si2);
-    const si3V: Vec = @splat(el.si3);
-    const sl2V: Vec = @splat(el.sl2);
-    const sl3V: Vec = @splat(el.sl3);
-    const sl4V: Vec = @splat(el.sl4);
-    const sgh2V: Vec = @splat(el.sgh2);
-    const sgh3V: Vec = @splat(el.sgh3);
-    const sgh4V: Vec = @splat(el.sgh4);
-    const sh2V: Vec = @splat(el.sh2);
-    const sh3V: Vec = @splat(el.sh3);
+    const se2V: Vec = @splat(el.solar.e2);
+    const se3V: Vec = @splat(el.solar.e3);
+    const si2V: Vec = @splat(el.solar.i2);
+    const si3V: Vec = @splat(el.solar.i3);
+    const sl2V: Vec = @splat(el.solar.l2);
+    const sl3V: Vec = @splat(el.solar.l3);
+    const sl4V: Vec = @splat(el.solar.l4);
+    const sgh2V: Vec = @splat(el.solar.gh2);
+    const sgh3V: Vec = @splat(el.solar.gh3);
+    const sgh4V: Vec = @splat(el.solar.gh4);
+    const sh2V: Vec = @splat(el.solar.h2);
+    const sh3V: Vec = @splat(el.solar.h3);
 
     const ses = se2V * f2 + se3V * f3;
     const sis = si2V * f2 + si3V * f3;
@@ -1236,18 +1182,18 @@ fn dpperN(
     f2 = half * sinzf * sinzf - quarter;
     f3 = -half * sinzf * simdMath.cosN(N, zf);
 
-    const ee2V: Vec = @splat(el.ee2);
-    const e3V: Vec = @splat(el.e3);
-    const xi2V: Vec = @splat(el.xi2);
-    const xi3V: Vec = @splat(el.xi3);
-    const xl2V: Vec = @splat(el.xl2);
-    const xl3V: Vec = @splat(el.xl3);
-    const xl4V: Vec = @splat(el.xl4);
-    const xgh2V: Vec = @splat(el.xgh2);
-    const xgh3V: Vec = @splat(el.xgh3);
-    const xgh4V: Vec = @splat(el.xgh4);
-    const xh2V: Vec = @splat(el.xh2);
-    const xh3V: Vec = @splat(el.xh3);
+    const ee2V: Vec = @splat(el.lunar.e2);
+    const e3V: Vec = @splat(el.lunar.e3);
+    const xi2V: Vec = @splat(el.lunar.i2);
+    const xi3V: Vec = @splat(el.lunar.i3);
+    const xl2V: Vec = @splat(el.lunar.l2);
+    const xl3V: Vec = @splat(el.lunar.l3);
+    const xl4V: Vec = @splat(el.lunar.l4);
+    const xgh2V: Vec = @splat(el.lunar.gh2);
+    const xgh3V: Vec = @splat(el.lunar.gh3);
+    const xgh4V: Vec = @splat(el.lunar.gh4);
+    const xh2V: Vec = @splat(el.lunar.h2);
+    const xh3V: Vec = @splat(el.lunar.h3);
 
     const sel = ee2V * f2 + e3V * f3;
     const sil = xi2V * f2 + xi3V * f3;
@@ -1301,13 +1247,13 @@ fn dpperN(
 
     // Merge with @select
     const thresh: Vec = @splat(0.2);
-    const use_normal = inclp.* >= thresh;
-    argpp.* = @select(f64, use_normal, argpp_norm, argpp_lyd);
-    nodep.* = @select(f64, use_normal, nodep_norm, nodep_lyd);
-    mp.* = @select(f64, use_normal, mp_norm, mp_lyd);
+    const useNormal = inclp.* >= thresh;
+    argpp.* = @select(f64, useNormal, argpp_norm, argpp_lyd);
+    nodep.* = @select(f64, useNormal, nodep_norm, nodep_lyd);
+    mp.* = @select(f64, useNormal, mp_norm, mp_lyd);
 }
 
-/// Propagate one satellite at N times simultaneously (time-major SIMD)
+/// Propagate one satellite at N times simultaneously (time major SIMD)
 pub fn propagateN(self: *const Sdp4, comptime N: usize, times: [N]f64) Error![N][2][3]f64 {
     const Vec = simdMath.VecN(N);
     const el = &self.elements;
@@ -1366,7 +1312,7 @@ pub fn propagateN(self: *const Sdp4, comptime N: usize, times: [N]f64) Error![N]
     };
     dspaceN(N, el, tsince, &ds);
 
-    // Step 3: Compute semi-major axis and mean motion
+    // Step 3: Compute semi major axis and mean motion
     var nm = ds.nm;
     const nm_bad = nm <= zero;
     if (@reduce(.Or, nm_bad)) return Error.SatelliteDecayed;
@@ -1420,7 +1366,12 @@ pub fn propagateN(self: *const Sdp4, comptime N: usize, times: [N]f64) Error![N]
     const con41 = three * cosip2 - one;
     const x7thm1 = seven * cosip2 - one;
 
-    // Step 6: Kepler solver (inlined with per-lane aycof/xlcof)
+    // Step 6: Kepler solver (inlined with per lane aycof/xlcof)
+    // NOTE: Kepler solver and short-period corrections are inlined here rather than
+    // reusing Sgp4.solveKeplerN/applyShortPeriodCorrectionsN because dpper modifies
+    // inclination per-lane, requiring per-lane aycof, xlcof, con41, x1mth2, x7thm1.
+    // SGP4's SIMD functions splat these from scalar Elements and can't handle per-lane values.
+
     const temp_kep = one / (am * (one - em * em));
     const sc_argpm = simdMath.sincosN(N, argpm);
     const axnl = em * sc_argpm.cos;
@@ -1466,7 +1417,7 @@ pub fn propagateN(self: *const Sdp4, comptime N: usize, times: [N]f64) Error![N]
     const sin2u = two * sinu * cosu;
     const cos2u = one - two * sinu * sinu;
 
-    // Step 7: Short-period corrections (inlined with per-lane con41/x1mth2/x7thm1)
+    // Step 7: Short period corrections (inlined with per lane con41/x1mth2/x7thm1)
     const j2V: Vec = @splat(sgp4El.grav.j2);
     const temp1_sp = half * j2V / pl;
     const temp2_sp = temp1_sp / pl;
@@ -1490,7 +1441,6 @@ pub fn propagateN(self: *const Sdp4, comptime N: usize, times: [N]f64) Error![N]
     return Sgp4.computePositionVelocityN(N, sgp4El, corrected);
 }
 
-// ── Tests ───────────────────────────────────────────────────────────────
 const testing = std.testing;
 
 test "gstime J2000" {
@@ -1518,8 +1468,8 @@ test "sdp4 init coefficients GPS 20413" {
     try testing.expectApproxEqAbs(@as(f64, 1.2769002197), el.zmol, 1e-6);
 
     // Solar coefficients
-    try testing.expectApproxEqAbs(@as(f64, 7.4611141471e-05), el.se2, 1e-12);
-    try testing.expectApproxEqAbs(@as(f64, -2.6550152994e-05), el.se3, 1e-12);
+    try testing.expectApproxEqAbs(@as(f64, 7.4611141471e-05), el.solar.e2, 1e-12);
+    try testing.expectApproxEqAbs(@as(f64, -2.6550152994e-05), el.solar.e3, 1e-12);
 
     // Secular rates
     try testing.expectApproxEqAbs(@as(f64, -1.3083083111e-10), el.dedt, 1e-17);

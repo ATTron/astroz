@@ -358,10 +358,8 @@ pub fn computeDragCoefficients(
     const xnodcf = 3.5 * omeosq * xhdot1 * cc1;
     const t2cof = 1.5 * cc1;
 
-    const xlcof = if (@abs(trig.cosio + 1.0) > singularityTolerance)
-        -0.25 * grav.j3oj2 * trig.sinio * (3.0 + 5.0 * trig.cosio) / (1.0 + trig.cosio)
-    else
-        -0.25 * grav.j3oj2 * trig.sinio * (3.0 + 5.0 * trig.cosio) / singularityTolerance;
+    const xlcofNum = -0.25 * grav.j3oj2 * trig.sinio * (3.0 + 5.0 * trig.cosio);
+    const xlcof = xlcofNum / (if (@abs(trig.cosio + 1.0) > singularityTolerance) 1.0 + trig.cosio else singularityTolerance);
 
     const aycof = -0.5 * grav.j3oj2 * trig.sinio;
     const delmotemp = 1.0 + eta * @cos(el.mo);
