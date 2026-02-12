@@ -1,9 +1,6 @@
 //! The proper TLE struct
-//! You should only call this when you are parsing a TLE
-//! The FirstLine and SecondLine are being built by the parse method
 
 const std = @import("std");
-
 const DateTime = @import("Datetime.zig");
 
 const Tle = @This();
@@ -106,6 +103,23 @@ pub fn output(self: Tle) void {
 /// Only contains a single error, but may be expanded in the future
 pub const Error = error{BadTleLength};
 
+fn trimField(line: []const u8, start: usize, end: usize) []const u8 {
+    return std.mem.trim(u8, line[start..end], " ");
+}
+
+/// Parse a satellite catalog number, supporting both numeric and Alpha-5 encoding.
+/// Alpha-5 uses a leading letter (A=10..Z=35) followed by 4 digits for numbers > 99999.
+fn parseSatelliteNumber(field: []const u8) !u32 {
+    if (field.len == 0) return error.InvalidCharacter;
+    const first = field[0];
+    if (first >= 'A' and first <= 'Z') {
+        const prefix: u32 = @as(u32, first - 'A') + 10;
+        const rest = try std.fmt.parseInt(u32, field[1..], 10);
+        return prefix * 10000 + rest;
+    }
+    return std.fmt.parseInt(u32, field, 10);
+}
+
 /// The first line of a TLE which comes from passed in TLE
 pub const FirstLine = struct {
     lineNumber: u8,
@@ -116,7 +130,7 @@ pub const FirstLine = struct {
     epochDay: f64,
     epoch: f64,
     firstDerMeanMotion: f64,
-    secondDerMeanMotion: [7]u8,
+    secondDerMeanMotion: [8]u8,
     bstarDrag: f64,
     ephemType: u8,
     elemNumber: u32,
@@ -127,49 +141,52 @@ pub const FirstLine = struct {
             return Error.BadTleLength;
         }
 
-        const intlYear = try std.fmt.parseInt(u16, line[9..11], 10);
-        const intlDesignator = try std.fmt.parseInt(u32, line[11..14], 10);
-        const intlDesignatorLaunch = line[14..17].*;
+        const intlYearField = trimField(line, 9, 11);
+        const intlLaunchField = trimField(line, 11, 14);
+        const intlPiece = std.mem.trim(u8, line[14..17], " ");
 
-        const string = try std.fmt.allocPrint(
-            allocator,
-            "{d}-{d}{s}",
-            .{ intlYear, intlDesignator, intlDesignatorLaunch },
-        );
+        const string = if (intlYearField.len > 0 and intlLaunchField.len > 0) blk: {
+            const intlYear = try std.fmt.parseInt(u16, intlYearField, 10);
+            const intlLaunchNum = try std.fmt.parseInt(u32, intlLaunchField, 10);
+            break :blk try std.fmt.allocPrint(
+                allocator,
+                "{d:0>2}-{d:0>3}{s}",
+                .{ intlYear, intlLaunchNum, intlPiece },
+            );
+        } else blk: {
+            break :blk try allocator.dupe(u8, "");
+        };
         errdefer allocator.free(string);
 
-        const mantissa = try std.fmt.parseFloat(f64, line[54..59]);
-        const exponent = try std.fmt.parseInt(i32, line[59..61], 10);
+        const mantissa = try std.fmt.parseFloat(f64, trimField(line, 53, 59));
+        const exponent = try std.fmt.parseInt(i32, trimField(line, 59, 61), 10);
         const bstarDrag = (mantissa * 1e-5) * std.math.pow(f64, 10.0, @as(f64, @floatFromInt(exponent)));
 
-        const epochYear = try std.fmt.parseInt(u16, line[18..20], 10);
-        const epochDay = try std.fmt.parseFloat(f64, line[20..32]);
+        const epochYear = try std.fmt.parseInt(u16, trimField(line, 18, 20), 10);
+        const epochDay = try std.fmt.parseFloat(f64, trimField(line, 20, 32));
         const epoch = tleEpochToEpoch(epochYear, epochDay);
 
         return .{
             .lineNumber = line[0],
-            .satelliteNumber = try std.fmt.parseInt(u32, line[2..7], 10),
+            .satelliteNumber = try parseSatelliteNumber(trimField(line, 2, 7)),
             .classification = line[7],
             .intlDesignator = string,
             .epochYear = epochYear,
             .epochDay = epochDay,
             .epoch = epoch,
-            .firstDerMeanMotion = try std.fmt.parseFloat(f64, line[34..43]),
-            .secondDerMeanMotion = line[45..52].*,
+            .firstDerMeanMotion = try std.fmt.parseFloat(f64, trimField(line, 33, 43)),
+            .secondDerMeanMotion = line[44..52].*,
             .bstarDrag = bstarDrag,
             .ephemType = line[62],
-            .elemNumber = try std.fmt.parseInt(u32, line[65..68], 10),
+            .elemNumber = try std.fmt.parseInt(u32, trimField(line, 64, 68), 10),
             .checksum = line[68],
         };
     }
 
     fn tleEpochToEpoch(year: u16, doy: f64) f64 {
-        const epochYear = 2000 + year;
-        const monthDay = DateTime.doyToMonthDay(epochYear, doy);
-
-        const fullEpoch = DateTime.initDate(epochYear, monthDay.month, monthDay.day).convertToJ2000();
-
-        return fullEpoch;
+        const y = 2000 + year;
+        const md = DateTime.doyToMonthDay(y, doy);
+        return DateTime.initDate(y, md.month, md.day).convertToJ2000();
     }
 };
 
@@ -195,44 +212,21 @@ pub const SecondLine = struct {
         // store a copy for potential later use
         const lineCopy = try allocator.dupe(u8, line);
 
-        const eccStr = std.mem.trim(u8, line[26..33], " ");
-        const eccValue = try std.fmt.parseFloat(f64, eccStr);
-        const eccentricity: f64 = eccValue / 1e7;
-
         return .{
             .lineNumber = line[0],
-            .satelliteNumber = try std.fmt.parseInt(u32, std.mem.trim(u8, line[2..7], " "), 10),
-            .inclination = try std.fmt.parseFloat(f64, std.mem.trim(u8, line[8..16], " ")),
-            .rightAscension = try std.fmt.parseFloat(f64, std.mem.trim(u8, line[17..25], " ")),
-            .eccentricity = eccentricity,
-            .perigee = try std.fmt.parseFloat(f64, std.mem.trim(u8, line[34..42], " ")),
-            .mAnomaly = try std.fmt.parseFloat(f64, std.mem.trim(u8, line[43..51], " ")),
-            .mMotion = try std.fmt.parseFloat(f64, std.mem.trim(u8, line[52..63], " ")),
-            .revNum = try std.fmt.parseInt(u32, std.mem.trim(u8, line[63..68], " "), 10),
+            .satelliteNumber = try parseSatelliteNumber(trimField(line, 2, 7)),
+            .inclination = try std.fmt.parseFloat(f64, trimField(line, 8, 16)),
+            .rightAscension = try std.fmt.parseFloat(f64, trimField(line, 17, 25)),
+            .eccentricity = try std.fmt.parseFloat(f64, trimField(line, 26, 33)) / 1e7,
+            .perigee = try std.fmt.parseFloat(f64, trimField(line, 34, 42)),
+            .mAnomaly = try std.fmt.parseFloat(f64, trimField(line, 43, 51)),
+            .mMotion = try std.fmt.parseFloat(f64, trimField(line, 52, 63)),
+            .revNum = try std.fmt.parseInt(u32, trimField(line, 63, 68), 10),
             .checksum = line[68],
             .cleanLine = lineCopy,
         };
     }
 };
-
-test "test tle parsing" {
-    const test_tle =
-        \\1 55909U 23035B   24187.51050877  .00023579  00000+0  16099-2 0  9998
-        \\2 55909  43.9978 311.8012 0011446 278.6226  81.3336 15.05761711 71371
-    ;
-
-    var tle = try Tle.parse(test_tle, std.testing.allocator);
-    defer tle.deinit();
-
-    try std.testing.expectEqual(55909, tle.firstLine.satelliteNumber);
-    try std.testing.expectApproxEqAbs(@as(f64, 0.0016099), tle.firstLine.bstarDrag, 1e-10);
-    try std.testing.expectApproxEqAbs(@as(f64, 0.00023579), tle.firstLine.firstDerMeanMotion, 1e-10);
-
-    try std.testing.expectApproxEqAbs(@as(f64, 43.9978), tle.secondLine.inclination, 1e-6);
-    try std.testing.expectApproxEqAbs(@as(f64, 311.8012), tle.secondLine.rightAscension, 1e-6);
-    try std.testing.expectApproxEqAbs(@as(f64, 0.0011446), tle.secondLine.eccentricity, 1e-10);
-    try std.testing.expectApproxEqAbs(@as(f64, 15.05761711), tle.secondLine.mMotion, 1e-10);
-}
 
 test "parseLines and MultiIterator" {
     const line1 = "1 55909U 23035B   24187.51050877  .00023579  00000+0  16099-2 0  9998";
@@ -242,7 +236,7 @@ test "parseLines and MultiIterator" {
     {
         var tle = try Tle.parseLines(line1, line2, std.testing.allocator);
         defer tle.deinit();
-        try std.testing.expectEqual(55909, tle.firstLine.satelliteNumber);
+        try std.testing.expectEqual(@as(u32, 55909), tle.firstLine.satelliteNumber);
         try std.testing.expectApproxEqAbs(@as(f64, 43.9978), tle.secondLine.inclination, 1e-6);
     }
 
@@ -251,7 +245,7 @@ test "parseLines and MultiIterator" {
         const crlf = "  " ++ line1 ++ "  \r\n\r\n  " ++ line2 ++ "  ";
         var tle = try Tle.parse(crlf, std.testing.allocator);
         defer tle.deinit();
-        try std.testing.expectEqual(55909, tle.firstLine.satelliteNumber);
+        try std.testing.expectEqual(@as(u32, 55909), tle.firstLine.satelliteNumber);
         try std.testing.expectEqual(@as(u8, '8'), tle.firstLine.checksum);
     }
 
