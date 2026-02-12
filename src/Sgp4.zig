@@ -184,7 +184,7 @@ pub fn initElements(tle: Tle, grav: constants.Sgp4GravityModel) Error!Elements {
     };
 }
 
-const MeanElements = struct {
+pub const MeanElements = struct {
     noKozai: f64,
     ecco: f64,
     inclo: f64,
@@ -194,7 +194,7 @@ const MeanElements = struct {
     bstar: f64,
 };
 
-fn extractMeanElements(tle: Tle) MeanElements {
+pub fn extractMeanElements(tle: Tle) MeanElements {
     return .{
         .noKozai = tle.secondLine.mMotion * constants.twoPi / constants.minutesPerDay,
         .ecco = tle.secondLine.eccentricity,
@@ -206,9 +206,9 @@ fn extractMeanElements(tle: Tle) MeanElements {
     };
 }
 
-const RecoveredElements = struct { noUnkozai: f64, a: f64 };
+pub const RecoveredElements = struct { noUnkozai: f64, a: f64 };
 
-fn recoverMeanMotion(el: MeanElements, grav: constants.Sgp4GravityModel) RecoveredElements {
+pub fn recoverMeanMotion(el: MeanElements, grav: constants.Sgp4GravityModel) RecoveredElements {
     // unkozai the mean motion
     const cosio = @cos(el.inclo);
     const theta2 = cosio * cosio;
@@ -232,18 +232,18 @@ fn recoverMeanMotion(el: MeanElements, grav: constants.Sgp4GravityModel) Recover
     return .{ .noUnkozai = noUnkozai, .a = a };
 }
 
-const TrigTerms = struct { sinio: f64, cosio: f64, cosio2: f64, cosio4: f64 };
+pub const TrigTerms = struct { sinio: f64, cosio: f64, cosio2: f64, cosio4: f64 };
 
-fn computeTrigTerms(inclo: f64) TrigTerms {
+pub fn computeTrigTerms(inclo: f64) TrigTerms {
     const sinio = @sin(inclo);
     const cosio = @cos(inclo);
     const cosio2 = cosio * cosio;
     return .{ .sinio = sinio, .cosio = cosio, .cosio2 = cosio2, .cosio4 = cosio2 * cosio2 };
 }
 
-const PolyTerms = struct { con41: f64, con42: f64, x1mth2: f64, x7thm1: f64 };
+pub const PolyTerms = struct { con41: f64, con42: f64, x1mth2: f64, x7thm1: f64 };
 
-fn computePolyTerms(trig: TrigTerms) PolyTerms {
+pub fn computePolyTerms(trig: TrigTerms) PolyTerms {
     const theta2 = trig.cosio2;
     return .{
         .con41 = 3.0 * theta2 - 1.0,
@@ -253,9 +253,9 @@ fn computePolyTerms(trig: TrigTerms) PolyTerms {
     };
 }
 
-const SecularRates = struct { mdot: f64, argpdot: f64, nodedot: f64 };
+pub const SecularRates = struct { mdot: f64, argpdot: f64, nodedot: f64 };
 
-fn computeSecularRates(
+pub fn computeSecularRates(
     el: MeanElements,
     rec: RecoveredElements,
     trig: TrigTerms,
@@ -288,7 +288,7 @@ fn computeSecularRates(
     return .{ .mdot = mdot, .argpdot = argpdot, .nodedot = nodedot };
 }
 
-const DragCoefficients = struct {
+pub const DragCoefficients = struct {
     cc1: f64,
     cc4: f64,
     cc5: f64,
@@ -304,7 +304,7 @@ const DragCoefficients = struct {
     perige: f64,
 };
 
-fn computeDragCoefficients(
+pub fn computeDragCoefficients(
     el: MeanElements,
     rec: RecoveredElements,
     trig: TrigTerms,
@@ -434,7 +434,7 @@ fn propagateElements(el: *const Elements, tsince: f64) Error![2][3]f64 {
     return computePositionVelocity(el, corrected);
 }
 
-const SecularState = struct {
+pub const SecularState = struct {
     mm: f64,
     argpm: f64,
     nodem: f64,
@@ -486,7 +486,7 @@ fn updateSecular(el: *const Elements, tsince: f64) SecularState {
     return .{ .mm = mm, .argpm = argpm, .nodem = nodem, .em = em, .a = am };
 }
 
-const KeplerState = struct {
+pub const KeplerState = struct {
     u: f64,
     r: f64,
     rdot: f64,
@@ -502,7 +502,7 @@ const KeplerState = struct {
 /// Note: This uses SGP4's equinoctial formulation (axnl, aynl) rather than
 /// the standard E - e*sin(E) = M form. See calculations.solveKeplerEquation
 /// for the standard formulation
-fn solveKepler(el: *const Elements, sec: SecularState) KeplerState {
+pub fn solveKepler(el: *const Elements, sec: SecularState) KeplerState {
     const temp = 1.0 / (sec.a * (1.0 - sec.em * sec.em));
     const axnl = sec.em * @cos(sec.argpm);
     const aynl = sec.em * @sin(sec.argpm) + temp * el.aycof;
@@ -555,7 +555,7 @@ fn solveKepler(el: *const Elements, sec: SecularState) KeplerState {
     };
 }
 
-const CorrectedState = struct {
+pub const CorrectedState = struct {
     r: f64,
     rdot: f64,
     rvdot: f64,
@@ -564,7 +564,7 @@ const CorrectedState = struct {
     xinc: f64,
 };
 
-fn applyShortPeriodCorrections(el: *const Elements, kep: KeplerState, nm: f64) CorrectedState {
+pub fn applyShortPeriodCorrections(el: *const Elements, kep: KeplerState, nm: f64) CorrectedState {
     const temp = 1.0 / kep.pl;
     const temp1 = 0.5 * el.grav.j2 * temp;
     const temp2 = temp1 * temp;
@@ -580,7 +580,7 @@ fn applyShortPeriodCorrections(el: *const Elements, kep: KeplerState, nm: f64) C
     return .{ .r = mrt, .rdot = mvt, .rvdot = rvdot, .u = su, .xnode = xnode, .xinc = xinc };
 }
 
-fn computePositionVelocity(el: *const Elements, state: CorrectedState) [2][3]f64 {
+pub fn computePositionVelocity(el: *const Elements, state: CorrectedState) [2][3]f64 {
     const sinsu = @sin(state.u);
     const cossu = @cos(state.u);
     const snod = @sin(state.xnode);
