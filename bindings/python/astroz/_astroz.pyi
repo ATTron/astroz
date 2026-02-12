@@ -590,6 +590,35 @@ class Satrec:
         >>> e, r, v = sat.sgp4_array(jd, fr)
         """
 
+    def sgp4_array_into(
+        self,
+        jd: npt.NDArray[np.float64],
+        fr: npt.NDArray[np.float64],
+        positions: npt.NDArray[np.float64],
+        velocities: npt.NDArray[np.float64],
+    ) -> None:
+        """SIMD batch propagation writing directly into pre-allocated arrays.
+
+        Uses propagateN(4, ...) internally for both SGP4 and SDP4 satellites.
+
+        Parameters
+        ----------
+        jd : ndarray
+            Julian date integer parts, shape (n_times,).
+        fr : ndarray
+            Julian date fractional parts, shape (n_times,).
+        positions : ndarray
+            Output array for positions in km (TEME), shape (n_times, 3).
+        velocities : ndarray
+            Output array for velocities in km/s (TEME), shape (n_times, 3).
+
+        Examples
+        --------
+        >>> r = np.empty((100, 3), dtype=np.float64)
+        >>> v = np.empty((100, 3), dtype=np.float64)
+        >>> sat.sgp4_array_into(jd, fr, r, v)
+        """
+
     # Properties
     @property
     def satnum(self) -> int:
@@ -662,6 +691,10 @@ class Satrec:
     @property
     def t(self) -> float:
         """Last propagation time (minutes from epoch)."""
+
+    @property
+    def is_deep_space(self) -> bool:
+        """True if using SDP4 deep-space propagator (period > 225 min)."""
 
 class SatrecArray:
     """Batch SGP4 propagator for multiple satellites (python-sgp4 compatible).
