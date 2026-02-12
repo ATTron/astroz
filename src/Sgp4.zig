@@ -853,7 +853,7 @@ fn applyShortPeriodCorrectionsN(comptime N: usize, el: *const Elements, kep: Kep
     return .{ .r = mrt, .rdot = mvt, .rvdot = rvdot, .u = su, .xnode = xnode, .xinc = xinc };
 }
 
-fn computePositionVelocityN(comptime N: usize, el: *const Elements, state: CorrectedStateN(N)) [N][2][3]f64 {
+pub fn computePositionVelocityN(comptime N: usize, el: *const Elements, state: CorrectedStateN(N)) [N][2][3]f64 {
     const Vec = simdMath.VecN(N);
     const radiusVec: Vec = @splat(el.grav.radiusEarthKm);
     const vkmpersecVec: Vec = @splat(el.vkmpersec);

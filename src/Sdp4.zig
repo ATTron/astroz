@@ -5,6 +5,7 @@
 
 const std = @import("std");
 const constants = @import("constants.zig");
+const simdMath = @import("simdMath.zig");
 const Datetime = @import("Datetime.zig");
 const Tle = @import("Tle.zig");
 const Sgp4 = @import("Sgp4.zig");
@@ -997,6 +998,498 @@ fn propagateElements(el: *const Elements, tsince: f64) Error![2][3]f64 {
     return Sgp4.computePositionVelocity(&elCopy, corrected);
 }
 
+// ── SIMD Propagation (time-major: 1 satellite, N time steps) ─────────
+
+fn ResonanceAccelVec(comptime N: usize) type {
+    const Vec = simdMath.VecN(N);
+    return struct { xndt: Vec, xnddt: Vec, xldot: Vec };
+}
+
+fn DspaceStateN(comptime N: usize) type {
+    const Vec = simdMath.VecN(N);
+    return struct {
+        em: Vec,
+        argpm: Vec,
+        inclm: Vec,
+        mm: Vec,
+        nodem: Vec,
+        nm: Vec,
+        xli: Vec,
+        xni: Vec,
+        atime: Vec,
+    };
+}
+
+fn computeResonanceAccelN(comptime N: usize, el: *const Elements, xli: simdMath.VecN(N), xni: simdMath.VecN(N), atime: simdMath.VecN(N)) ResonanceAccelVec(N) {
+    const Vec = simdMath.VecN(N);
+
+    if (el.irez == 2) {
+        // Half-day resonance
+        const argpdotV: Vec = @splat(el.sgp4.argpdot);
+        const argpoV: Vec = @splat(el.sgp4.argpo);
+        const xomi = argpoV + argpdotV * atime;
+        const x2omi = xomi + xomi;
+        const x2li = xli + xli;
+
+        const g22V: Vec = @splat(g22);
+        const g32V: Vec = @splat(g32);
+        const g44V: Vec = @splat(g44);
+        const g52V: Vec = @splat(g52);
+        const g54V: Vec = @splat(g54);
+
+        const a1 = x2omi + xli - g22V;
+        const a2 = xli - g22V;
+        const a3 = xomi + xli - g32V;
+        const a4 = -xomi + xli - g32V;
+        const a5 = x2omi + x2li - g44V;
+        const a6 = x2li - g44V;
+        const a7 = xomi + xli - g52V;
+        const a8 = -xomi + xli - g52V;
+        const a9 = xomi + x2li - g54V;
+        const a10 = -xomi + x2li - g54V;
+
+        const sc1 = simdMath.sincosN(N, a1);
+        const sc2 = simdMath.sincosN(N, a2);
+        const sc3 = simdMath.sincosN(N, a3);
+        const sc4 = simdMath.sincosN(N, a4);
+        const sc5 = simdMath.sincosN(N, a5);
+        const sc6 = simdMath.sincosN(N, a6);
+        const sc7 = simdMath.sincosN(N, a7);
+        const sc8 = simdMath.sincosN(N, a8);
+        const sc9 = simdMath.sincosN(N, a9);
+        const sc10 = simdMath.sincosN(N, a10);
+
+        const d2201V: Vec = @splat(el.d2201);
+        const d2211V: Vec = @splat(el.d2211);
+        const d3210V: Vec = @splat(el.d3210);
+        const d3222V: Vec = @splat(el.d3222);
+        const d4410V: Vec = @splat(el.d4410);
+        const d4422V: Vec = @splat(el.d4422);
+        const d5220V: Vec = @splat(el.d5220);
+        const d5232V: Vec = @splat(el.d5232);
+        const d5421V: Vec = @splat(el.d5421);
+        const d5433V: Vec = @splat(el.d5433);
+        const two: Vec = @splat(2.0);
+
+        const xndt = d2201V * sc1.sin + d2211V * sc2.sin +
+            d3210V * sc3.sin + d3222V * sc4.sin +
+            d4410V * sc5.sin + d4422V * sc6.sin +
+            d5220V * sc7.sin + d5232V * sc8.sin +
+            d5421V * sc9.sin + d5433V * sc10.sin;
+
+        const xfactV: Vec = @splat(el.xfact);
+        const xldot = xni + xfactV;
+
+        const xnddt = (d2201V * sc1.cos + d2211V * sc2.cos +
+            d3210V * sc3.cos + d3222V * sc4.cos +
+            d5220V * sc7.cos + d5232V * sc8.cos +
+            two * (d4410V * sc5.cos + d4422V * sc6.cos +
+                d5421V * sc9.cos + d5433V * sc10.cos)) * xldot;
+
+        return .{ .xndt = xndt, .xnddt = xnddt, .xldot = xldot };
+    } else {
+        // GEO synchronous resonance — three different phase constants
+        const fasx2V: Vec = @splat(fasx2);
+        const fasx4V: Vec = @splat(fasx4);
+        const fasx6V: Vec = @splat(fasx6);
+        const del1V: Vec = @splat(el.del1);
+        const del2V: Vec = @splat(el.del2);
+        const del3V: Vec = @splat(el.del3);
+        const two: Vec = @splat(2.0);
+        const three: Vec = @splat(3.0);
+
+        const p1 = xli - fasx2V;
+        const p2 = two * (xli - fasx4V);
+        const p3 = three * (xli - fasx6V);
+
+        const sc1 = simdMath.sincosN(N, p1);
+        const sc2 = simdMath.sincosN(N, p2);
+        const sc3 = simdMath.sincosN(N, p3);
+
+        const xndt = del1V * sc1.sin + del2V * sc2.sin + del3V * sc3.sin;
+        const xfactV: Vec = @splat(el.xfact);
+        const xldot = xni + xfactV;
+        const xnddt = (del1V * sc1.cos + two * del2V * sc2.cos + three * del3V * sc3.cos) * xldot;
+
+        return .{ .xndt = xndt, .xnddt = xnddt, .xldot = xldot };
+    }
+}
+
+fn dspaceN(comptime N: usize, el: *const Elements, tsince: simdMath.VecN(N), s: *DspaceStateN(N)) void {
+    const Vec = simdMath.VecN(N);
+    const zero: Vec = @splat(0.0);
+
+    // Apply lunar-solar secular perturbation rates
+    const dedtV: Vec = @splat(el.dedt);
+    const didtV: Vec = @splat(el.didt);
+    const domdtV: Vec = @splat(el.domdt);
+    const dnodtV: Vec = @splat(el.dnodt);
+    const dmdtV: Vec = @splat(el.dmdt);
+    s.em = s.em + dedtV * tsince;
+    s.inclm = s.inclm + didtV * tsince;
+    s.argpm = s.argpm + domdtV * tsince;
+    s.nodem = s.nodem + dnodtV * tsince;
+    s.mm = s.mm + dmdtV * tsince;
+
+    if (el.irez == 0) return;
+
+    // Resonance effects — all lanes start with atime=0 (same satellite)
+    const noUnkozaiV: Vec = @splat(el.sgp4.noUnkozai);
+    const xlamoV: Vec = @splat(el.xlamo);
+    s.xni = noUnkozaiV;
+    s.xli = xlamoV;
+    s.atime = zero;
+
+    const steppV: Vec = @splat(stepp);
+    const step2V: Vec = @splat(step2);
+    const positive = tsince > zero;
+    const delt = @select(f64, positive, @as(Vec, @splat(stepp)), @as(Vec, @splat(stepn)));
+
+    // Masked integration loop
+    var active = @abs(tsince - s.atime) >= steppV;
+    while (@reduce(.Or, active)) {
+        const accel = computeResonanceAccelN(N, el, s.xli, s.xni, s.atime);
+        const new_xli = s.xli + accel.xldot * delt + accel.xndt * step2V;
+        const new_xni = s.xni + accel.xndt * delt + accel.xnddt * step2V;
+        const new_atime = s.atime + delt;
+        s.xli = @select(f64, active, new_xli, s.xli);
+        s.xni = @select(f64, active, new_xni, s.xni);
+        s.atime = @select(f64, active, new_atime, s.atime);
+        active = @abs(tsince - s.atime) >= steppV;
+    }
+
+    // Final partial step
+    const ft = tsince - s.atime;
+    const accel = computeResonanceAccelN(N, el, s.xli, s.xni, s.atime);
+
+    const half: Vec = @splat(0.5);
+    s.nm = s.xni + accel.xndt * ft + accel.xnddt * ft * ft * half;
+    const xl = s.xli + accel.xldot * ft + accel.xndt * ft * ft * half;
+    const rptimV: Vec = @splat(rptim);
+    const gstoV: Vec = @splat(el.gsto);
+    const theta = simdMath.modTwoPiN(N, gstoV + tsince * rptimV);
+
+    if (el.irez != 2) {
+        // GEO
+        s.mm = xl - s.nodem - s.argpm + theta;
+    } else {
+        // Half-day
+        const two: Vec = @splat(2.0);
+        s.mm = xl - two * s.nodem + two * theta;
+    }
+    const dndt = s.nm - noUnkozaiV;
+    s.nm = noUnkozaiV + dndt;
+}
+
+fn dpperN(
+    comptime N: usize,
+    el: *const Elements,
+    tsince: simdMath.VecN(N),
+    ep: *simdMath.VecN(N),
+    inclp: *simdMath.VecN(N),
+    nodep: *simdMath.VecN(N),
+    argpp: *simdMath.VecN(N),
+    mp: *simdMath.VecN(N),
+) void {
+    const Vec = simdMath.VecN(N);
+
+    // Solar terms
+    const zmosV: Vec = @splat(el.zmos);
+    const znsV: Vec = @splat(zns);
+    const zesV: Vec = @splat(zes);
+    const two: Vec = @splat(2.0);
+    const half: Vec = @splat(0.5);
+    const quarter: Vec = @splat(0.25);
+
+    var zm = zmosV + znsV * tsince;
+    var zf = zm + two * zesV * simdMath.sinN(N, zm);
+    var sinzf = simdMath.sinN(N, zf);
+    var f2 = half * sinzf * sinzf - quarter;
+    var f3 = -half * sinzf * simdMath.cosN(N, zf);
+
+    const se2V: Vec = @splat(el.se2);
+    const se3V: Vec = @splat(el.se3);
+    const si2V: Vec = @splat(el.si2);
+    const si3V: Vec = @splat(el.si3);
+    const sl2V: Vec = @splat(el.sl2);
+    const sl3V: Vec = @splat(el.sl3);
+    const sl4V: Vec = @splat(el.sl4);
+    const sgh2V: Vec = @splat(el.sgh2);
+    const sgh3V: Vec = @splat(el.sgh3);
+    const sgh4V: Vec = @splat(el.sgh4);
+    const sh2V: Vec = @splat(el.sh2);
+    const sh3V: Vec = @splat(el.sh3);
+
+    const ses = se2V * f2 + se3V * f3;
+    const sis = si2V * f2 + si3V * f3;
+    const sls = sl2V * f2 + sl3V * f3 + sl4V * sinzf;
+    const sghs = sgh2V * f2 + sgh3V * f3 + sgh4V * sinzf;
+    const shs = sh2V * f2 + sh3V * f3;
+
+    // Lunar terms
+    const zmolV: Vec = @splat(el.zmol);
+    const znlV: Vec = @splat(znl);
+    const zelV: Vec = @splat(zel);
+    zm = zmolV + znlV * tsince;
+    zf = zm + two * zelV * simdMath.sinN(N, zm);
+    sinzf = simdMath.sinN(N, zf);
+    f2 = half * sinzf * sinzf - quarter;
+    f3 = -half * sinzf * simdMath.cosN(N, zf);
+
+    const ee2V: Vec = @splat(el.ee2);
+    const e3V: Vec = @splat(el.e3);
+    const xi2V: Vec = @splat(el.xi2);
+    const xi3V: Vec = @splat(el.xi3);
+    const xl2V: Vec = @splat(el.xl2);
+    const xl3V: Vec = @splat(el.xl3);
+    const xl4V: Vec = @splat(el.xl4);
+    const xgh2V: Vec = @splat(el.xgh2);
+    const xgh3V: Vec = @splat(el.xgh3);
+    const xgh4V: Vec = @splat(el.xgh4);
+    const xh2V: Vec = @splat(el.xh2);
+    const xh3V: Vec = @splat(el.xh3);
+
+    const sel = ee2V * f2 + e3V * f3;
+    const sil = xi2V * f2 + xi3V * f3;
+    const sll = xl2V * f2 + xl3V * f3 + xl4V * sinzf;
+    const sghl = xgh2V * f2 + xgh3V * f3 + xgh4V * sinzf;
+    const shl = xh2V * f2 + xh3V * f3;
+
+    // Combined
+    const pe = ses + sel;
+    const pinc = sis + sil;
+    const pl = sls + sll;
+    const pgh = sghs + sghl;
+    const ph = shs + shl;
+
+    inclp.* = inclp.* + pinc;
+    ep.* = ep.* + pe;
+
+    const sinip = simdMath.sinN(N, inclp.*);
+    const cosip = simdMath.cosN(N, inclp.*);
+
+    // Normal path (inclp >= 0.2)
+    const ph_norm = ph / sinip;
+    const pgh_norm = pgh - cosip * ph_norm;
+    const argpp_norm = argpp.* + pgh_norm;
+    const nodep_norm = nodep.* + ph_norm;
+    const mp_norm = mp.* + pl;
+
+    // Lyddane path (inclp < 0.2)
+    const sinop = simdMath.sinN(N, nodep.*);
+    const cosop = simdMath.cosN(N, nodep.*);
+    var alfdp = sinip * sinop;
+    var betdp = sinip * cosop;
+    const dalf = ph * cosop + pinc * cosip * sinop;
+    const dbet = -ph * sinop + pinc * cosip * cosop;
+    alfdp = alfdp + dalf;
+    betdp = betdp + dbet;
+    const nodep_mod = simdMath.modTwoPiN(N, nodep.*);
+    const xls = mp.* + argpp.* + cosip * nodep_mod;
+    const dls = pl + pgh - pinc * nodep_mod * sinip;
+    const xnoh = nodep_mod;
+    var nodep_lyd = simdMath.atan2N(N, alfdp, betdp);
+    // Continuity fix: if |xnoh - nodep_lyd| > pi, adjust
+    const diff_abs = @abs(xnoh - nodep_lyd);
+    const piV: Vec = @splat(std.math.pi);
+    const twoPiV: Vec = @splat(constants.twoPi);
+    const need_adjust = diff_abs > piV;
+    const adjust_sign = @select(f64, nodep_lyd < xnoh, twoPiV, -twoPiV);
+    nodep_lyd = @select(f64, need_adjust, nodep_lyd + adjust_sign, nodep_lyd);
+    const mp_lyd = mp.* + pl;
+    const argpp_lyd = xls + dls - mp_lyd - cosip * nodep_lyd;
+
+    // Merge with @select
+    const thresh: Vec = @splat(0.2);
+    const use_normal = inclp.* >= thresh;
+    argpp.* = @select(f64, use_normal, argpp_norm, argpp_lyd);
+    nodep.* = @select(f64, use_normal, nodep_norm, nodep_lyd);
+    mp.* = @select(f64, use_normal, mp_norm, mp_lyd);
+}
+
+/// Propagate one satellite at N times simultaneously (time-major SIMD)
+pub fn propagateN(self: *const Sdp4, comptime N: usize, times: [N]f64) Error![N][2][3]f64 {
+    const Vec = simdMath.VecN(N);
+    const el = &self.elements;
+    const sgp4El = &el.sgp4;
+    const tsince: Vec = times;
+
+    const one: Vec = @splat(1.0);
+    const zero: Vec = @splat(0.0);
+    const half: Vec = @splat(0.5);
+    const quarter: Vec = @splat(0.25);
+    const oneHalf: Vec = @splat(1.5);
+    const two: Vec = @splat(2.0);
+    const three: Vec = @splat(3.0);
+    const five: Vec = @splat(5.0);
+    const seven: Vec = @splat(7.0);
+
+    // Step 1: Simplified secular update (isimp=true always for deep space)
+    const t2 = tsince * tsince;
+    const cc1V: Vec = @splat(sgp4El.cc1);
+    const cc4V: Vec = @splat(sgp4El.cc4);
+    const bstarV: Vec = @splat(sgp4El.bstar);
+    const t2cofV: Vec = @splat(sgp4El.t2cof);
+
+    const tempa = one - cc1V * tsince;
+    const tempe = bstarV * cc4V * tsince;
+    const templ = t2cofV * t2;
+
+    const moV: Vec = @splat(sgp4El.mo);
+    const mdotV: Vec = @splat(sgp4El.mdot);
+    const argpoV: Vec = @splat(sgp4El.argpo);
+    const argpdotV: Vec = @splat(sgp4El.argpdot);
+    const nodeoV: Vec = @splat(sgp4El.nodeo);
+    const nodedotV: Vec = @splat(sgp4El.nodedot);
+    const xnodcfV: Vec = @splat(sgp4El.xnodcf);
+
+    const xmdf = moV + mdotV * tsince;
+    const argpdf = argpoV + argpdotV * tsince;
+    const nodedf = nodeoV + nodedotV * tsince;
+    const nodem_init = nodedf + xnodcfV * t2;
+
+    // Step 2: Deep space secular + resonance
+    const eccoV: Vec = @splat(sgp4El.ecco);
+    const incloV: Vec = @splat(sgp4El.inclo);
+    const noUnkozaiV: Vec = @splat(sgp4El.noUnkozai);
+
+    var ds: DspaceStateN(N) = .{
+        .em = eccoV,
+        .argpm = argpdf,
+        .inclm = incloV,
+        .mm = xmdf,
+        .nodem = nodem_init,
+        .nm = noUnkozaiV,
+        .xli = @splat(el.xlamo),
+        .xni = noUnkozaiV,
+        .atime = zero,
+    };
+    dspaceN(N, el, tsince, &ds);
+
+    // Step 3: Compute semi-major axis and mean motion
+    var nm = ds.nm;
+    const nm_bad = nm <= zero;
+    if (@reduce(.Or, nm_bad)) return Error.SatelliteDecayed;
+
+    const xkeV: Vec = @splat(sgp4El.grav.xke);
+    const am = simdMath.pow23N(N, xkeV / nm) * tempa * tempa;
+    nm = xkeV / simdMath.pow15N(N, am);
+    var em = ds.em - tempe;
+
+    const eccFloor: Vec = @splat(1.0e-6);
+    const em_bad = em >= one;
+    if (@reduce(.Or, em_bad)) return Error.InvalidEccentricity;
+    em = @max(em, eccFloor);
+    const am_bad = am < @as(Vec, @splat(0.95));
+    if (@reduce(.Or, am_bad)) return Error.SatelliteDecayed;
+
+    var mm = ds.mm + noUnkozaiV * templ;
+    const xlm = mm + ds.argpm + ds.nodem;
+    var nodem = simdMath.modTwoPiN(N, ds.nodem);
+    var argpm = simdMath.modTwoPiN(N, ds.argpm);
+    mm = simdMath.modTwoPiN(N, xlm - argpm - nodem);
+    var inclm = ds.inclm;
+
+    // Step 4: Deep space periodic perturbations
+    dpperN(N, el, tsince, &em, &inclm, &nodem, &argpm, &mm);
+
+    // Negative inclination fix
+    const neg_incl = inclm < zero;
+    inclm = @select(f64, neg_incl, -inclm, inclm);
+    const piV: Vec = @splat(std.math.pi);
+    nodem = @select(f64, neg_incl, nodem + piV, nodem);
+    argpm = @select(f64, neg_incl, argpm - piV, argpm);
+
+    em = @max(em, eccFloor);
+    const em_bad2 = em >= one;
+    if (@reduce(.Or, em_bad2)) return Error.InvalidEccentricity;
+
+    // Step 5: Recompute inclination-dependent terms (per-lane)
+    const sinip = simdMath.sinN(N, inclm);
+    const cosip = simdMath.cosN(N, inclm);
+    const cosip2 = cosip * cosip;
+
+    const j3oj2V: Vec = @splat(sgp4El.grav.j3oj2);
+    const aycof = -half * j3oj2V * sinip;
+    const singTol: Vec = @splat(1.5e-12);
+    const denom = cosip + one;
+    const safe_denom = @select(f64, @abs(denom) > singTol, denom, singTol);
+    const xlcof = -quarter * j3oj2V * sinip * (three + five * cosip) / safe_denom;
+
+    const x1mth2 = one - cosip2;
+    const con41 = three * cosip2 - one;
+    const x7thm1 = seven * cosip2 - one;
+
+    // Step 6: Kepler solver (inlined with per-lane aycof/xlcof)
+    const temp_kep = one / (am * (one - em * em));
+    const sc_argpm = simdMath.sincosN(N, argpm);
+    const axnl = em * sc_argpm.cos;
+    const aynl = em * sc_argpm.sin + temp_kep * aycof;
+    const xl = simdMath.modTwoPiN(N, mm + argpm + nodem + temp_kep * xlcof * axnl);
+
+    var u = simdMath.modTwoPiN(N, xl - nodem);
+    var eo1 = u;
+    var sineo1: Vec = zero;
+    var coseo1: Vec = one;
+
+    const tolerance: Vec = @splat(1.0e-12);
+    const clampVal: Vec = @splat(0.95);
+
+    var ktr: u32 = 0;
+    while (ktr < 10) : (ktr += 1) {
+        const sc_eo1 = simdMath.sincosN(N, eo1);
+        sineo1 = sc_eo1.sin;
+        coseo1 = sc_eo1.cos;
+        var tem5 = one - coseo1 * axnl - sineo1 * aynl;
+        tem5 = (u - aynl * coseo1 + axnl * sineo1 - eo1) / tem5;
+        tem5 = @max(-clampVal, @min(clampVal, tem5));
+        eo1 = eo1 + tem5;
+        const converged = @abs(tem5) < tolerance;
+        if (@reduce(.And, converged)) break;
+    }
+
+    const ecose = axnl * coseo1 + aynl * sineo1;
+    const esine = axnl * sineo1 - aynl * coseo1;
+    const el2 = axnl * axnl + aynl * aynl;
+    const pl = am * (one - el2);
+    const betal = @sqrt(one - el2);
+    const rl = am * (one - ecose);
+    const rdotl = @sqrt(am) * esine / rl;
+    const rvdotl = @sqrt(pl) / rl;
+
+    const aOverR = am / rl;
+    const esineTerm = esine / (one + betal);
+    const sinu = aOverR * (sineo1 - aynl - axnl * esineTerm);
+    const cosu = aOverR * (coseo1 - axnl + aynl * esineTerm);
+    u = simdMath.atan2N(N, sinu, cosu);
+
+    const sin2u = two * sinu * cosu;
+    const cos2u = one - two * sinu * sinu;
+
+    // Step 7: Short-period corrections (inlined with per-lane con41/x1mth2/x7thm1)
+    const j2V: Vec = @splat(sgp4El.grav.j2);
+    const temp1_sp = half * j2V / pl;
+    const temp2_sp = temp1_sp / pl;
+
+    const mrt = rl * (one - oneHalf * temp2_sp * betal * con41) + half * temp1_sp * x1mth2 * cos2u;
+    const su = u - quarter * temp2_sp * x7thm1 * sin2u;
+    const xnode = nodem + oneHalf * temp2_sp * cosip * sin2u;
+    const xinc = inclm + oneHalf * temp2_sp * cosip * sinip * cos2u;
+    const mvt = rdotl - nm * temp1_sp * x1mth2 * sin2u / xkeV;
+    const rvdot = rvdotl + nm * temp1_sp * (x1mth2 * cos2u + oneHalf * con41) / xkeV;
+
+    // Step 8: Position/velocity transform (reuse SGP4)
+    const corrected: Sgp4.CorrectedStateN(N) = .{
+        .r = mrt,
+        .rdot = mvt,
+        .rvdot = rvdot,
+        .u = su,
+        .xnode = xnode,
+        .xinc = xinc,
+    };
+    return Sgp4.computePositionVelocityN(N, sgp4El, corrected);
+}
+
 // ── Tests ───────────────────────────────────────────────────────────────
 const testing = std.testing;
 
@@ -1144,4 +1637,33 @@ test "sdp4 propagate HEO 09880" {
     try testing.expectApproxEqAbs(@as(f64, 2175.00194988), r1440[0][0], 0.01);
     try testing.expectApproxEqAbs(@as(f64, 14214.96552375), r1440[0][1], 0.01);
     try testing.expectApproxEqAbs(@as(f64, 2741.44350110), r1440[0][2], 0.01);
+}
+
+test "SDP4 SIMD propagateN matches scalar" {
+    const tleStrs = [_][]const u8{
+        // GPS (irez=0)
+        "1 20413U 90005A   24186.00000000  .00000012  00000+0  10000-3 0  9992\n2 20413  55.4408  61.4858 0112981 129.5765 231.5553  2.00561730104446",
+        // GEO (irez=1)
+        "1 28626U 05004A   24186.00000000 -.00000098  00000+0  00000+0 0  9998\n2 28626   0.0163 279.8379 0003069  20.3251 343.1766  1.00270142 70992",
+        // HEO (irez=2)
+        "1 09880U 77021B   24186.00000000  .00000023  00000+0  00000+0 0  9999\n2 09880  63.4300  75.8891 7318036 269.8735  16.7549  2.00611684 54321",
+    };
+
+    const times = [4]f64{ 0.0, 360.0, 720.0, 1440.0 };
+
+    for (tleStrs) |tleStr| {
+        var tle = try Tle.parse(tleStr, testing.allocator);
+        defer tle.deinit();
+        const sdp4 = try Sdp4.init(tle, constants.wgs72);
+
+        const simd = try sdp4.propagateN(4, times);
+
+        for (0..4) |i| {
+            const scalar = try sdp4.propagate(times[i]);
+            for (0..3) |j| {
+                try testing.expectApproxEqAbs(scalar[0][j], simd[i][0][j], 1e-3);
+                try testing.expectApproxEqAbs(scalar[1][j], simd[i][1][j], 1e-6);
+            }
+        }
+    }
 }
