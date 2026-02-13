@@ -11,17 +11,17 @@ const Sgp4 = @import("Sgp4.zig");
 
 const Sdp4 = @This();
 
-// Deep space constants
-const zes = 0.01675;
-const zel = 0.05490;
+// Deep space constants (pub constants shared with Sdp4Batch.zig)
+pub const zes = 0.01675;
+pub const zel = 0.05490;
 const c1ss = 2.9864797e-6;
 const c1l = 4.7968065e-7;
 const zsinis = 0.39785416;
 const zcosis = 0.91744867;
 const zcosgs = 0.1945905;
 const zsings = -0.98088458;
-const zns = 1.19459e-5;
-const znl = 1.5835218e-4;
+pub const zns = 1.19459e-5;
+pub const znl = 1.5835218e-4;
 
 const q22 = 1.7891679e-6;
 const q31 = 2.1460748e-6;
@@ -33,24 +33,24 @@ const root44 = 7.3636953e-9;
 const root52 = 1.1428639e-7;
 const root54 = 2.1765803e-9;
 
-const rptim = 4.37526908801129966e-3;
+pub const rptim = 4.37526908801129966e-3;
 
 // GEO resonance phase constants
-const fasx2 = 0.13130908;
-const fasx4 = 2.8843198;
-const fasx6 = 0.37448087;
-const g22 = 5.7686396;
-const g32 = 0.95240898;
-const g44 = 1.8014998;
-const g52 = 1.0508330;
-const g54 = 4.4108898;
+pub const fasx2 = 0.13130908;
+pub const fasx4 = 2.8843198;
+pub const fasx6 = 0.37448087;
+pub const g22 = 5.7686396;
+pub const g32 = 0.95240898;
+pub const g44 = 1.8014998;
+pub const g52 = 1.0508330;
+pub const g54 = 4.4108898;
 
 // Near equatorial orbit threshold (~3°)
 const nearEquatorialThreshold = 5.2359877e-2;
 
-const stepp = 720.0;
-const stepn = -720.0;
-const step2 = 259200.0;
+pub const stepp = 720.0;
+pub const stepn = -720.0;
+pub const step2 = 259200.0;
 
 pub const PerturbCoeffs = struct {
     e2: f64,
@@ -158,6 +158,20 @@ pub fn propagate(self: *const Sdp4, tsince: f64) Error![2][3]f64 {
     return propagateElements(&self.elements, tsince);
 }
 
+/// Resonance integration state that can be carried between sorted propagations.
+/// For non-resonant orbits (irez=0) this is unused but harmless
+pub const ResonanceCarry = struct {
+    atime: f64,
+    xli: f64,
+    xni: f64,
+};
+
+/// Propagate to a single time, optionally carrying resonance state from a
+/// previous call
+pub fn propagateCarry(self: *const Sdp4, tsince: f64, carry: *ResonanceCarry) Error![2][3]f64 {
+    return propagateElementsCarry(&self.elements, tsince, carry);
+}
+
 pub fn initElements(tle: Tle, grav: constants.Sgp4GravityModel) Error!Elements {
     const meanEl = Sgp4.extractMeanElements(tle);
     if (meanEl.ecco < 0.0 or meanEl.ecco >= 1.0) return Error.InvalidEccentricity;
@@ -169,7 +183,8 @@ pub fn initElements(tle: Tle, grav: constants.Sgp4GravityModel) Error!Elements {
     const trig = Sgp4.computeTrigTerms(meanEl.inclo);
     const poly = Sgp4.computePolyTerms(trig);
     const secRates = Sgp4.computeSecularRates(meanEl, rec, trig, poly, grav);
-    const drag = Sgp4.computeDragCoefficients(meanEl, rec, trig, poly, grav);
+    const perige = (rec.a * (1.0 - meanEl.ecco) - 1.0) * grav.radiusEarthKm;
+    const drag = Sgp4.computeDragCoefficients(meanEl, rec, trig, poly, perige, grav);
 
     const fullYear: u16 = if (tle.firstLine.epochYear < 57)
         2000 + tle.firstLine.epochYear
@@ -856,10 +871,22 @@ fn computeResonanceAccel(el: *const Elements, xli: f64, xni: f64, atime: f64) Re
 }
 
 fn propagateElements(el: *const Elements, tsince: f64) Error![2][3]f64 {
+    var carry = ResonanceCarry{
+        .atime = 0.0,
+        .xli = el.xlamo,
+        .xni = el.sgp4.noUnkozai,
+    };
+    return propagateElementsCarry(el, tsince, &carry);
+}
+
+/// Like propagateElements but carries resonance integration state between calls.
+/// The caller must ensure tsince values are monotonically non-decreasing for the
+/// carry state to be valid. On the first call, carry should be initialized with
+/// atime=0, xli=el.xlamo, xni=el.sgp4.noUnkozai.
+fn propagateElementsCarry(el: *const Elements, tsince: f64, carry: *ResonanceCarry) Error![2][3]f64 {
     const sgp4El = &el.sgp4;
     const t2 = tsince * tsince;
 
-    // Step 1: Simplified secular update (isimp=true always for deep space)
     const tempa = 1.0 - sgp4El.cc1 * tsince;
     const tempe = sgp4El.bstar * sgp4El.cc4 * tsince;
     const templ = sgp4El.t2cof * t2;
@@ -869,7 +896,6 @@ fn propagateElements(el: *const Elements, tsince: f64) Error![2][3]f64 {
     const nodedf = sgp4El.nodeo + sgp4El.nodedot * tsince;
     const nodem_init = nodedf + sgp4El.xnodcf * t2;
 
-    // Step 2: Deep space secular + resonance
     var ds = DspaceState{
         .em = sgp4El.ecco,
         .argpm = argpdf,
@@ -877,13 +903,18 @@ fn propagateElements(el: *const Elements, tsince: f64) Error![2][3]f64 {
         .mm = xmdf,
         .nodem = nodem_init,
         .nm = sgp4El.noUnkozai,
-        .xli = el.xlamo,
-        .xni = sgp4El.noUnkozai,
-        .atime = 0.0,
+        .xli = carry.xli,
+        .xni = carry.xni,
+        .atime = carry.atime,
     };
     dspace(el, tsince, &ds);
 
-    // Step 3: Compute semi-major axis and mean motion
+    // Save resonance state for next call
+    carry.atime = ds.atime;
+    carry.xli = ds.xli;
+    carry.xni = ds.xni;
+
+    // Steps 3-6 identical to propagateElements
     var nm = ds.nm;
     if (nm <= 0.0) return Error.SatelliteDecayed;
     const am = std.math.pow(f64, sgp4El.grav.xke / nm, 2.0 / 3.0) * tempa * tempa;
@@ -901,7 +932,6 @@ fn propagateElements(el: *const Elements, tsince: f64) Error![2][3]f64 {
     mm = @mod(xlm - argpm - nodem, constants.twoPi);
     var inclm = ds.inclm;
 
-    // Step 4: Deep space periodic perturbations
     dpper(el, tsince, &em, &inclm, &nodem, &argpm, &mm);
 
     if (inclm < 0.0) {
@@ -912,7 +942,6 @@ fn propagateElements(el: *const Elements, tsince: f64) Error![2][3]f64 {
     if (em < 1.0e-6) em = 1.0e-6;
     if (em >= 1.0) return Error.InvalidEccentricity;
 
-    // Step 5: Recompute inclination dependent terms for deep space
     const sinip = @sin(inclm);
     const cosip = @cos(inclm);
     const cosip2 = cosip * cosip;
@@ -929,7 +958,6 @@ fn propagateElements(el: *const Elements, tsince: f64) Error![2][3]f64 {
     elCopy.con41 = 3.0 * cosip2 - 1.0;
     elCopy.x7thm1 = 7.0 * cosip2 - 1.0;
 
-    // Step 6: Kepler solver, short period corrections, position/velocity (reuse SGP4)
     const secular = Sgp4.SecularState{
         .mm = mm,
         .argpm = argpm,

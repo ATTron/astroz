@@ -17,9 +17,7 @@ pub const Fits = @import("Fits.zig");
 pub const Spice = @import("Spice.zig");
 pub const Sgp4 = @import("Sgp4.zig");
 pub const Sdp4 = @import("Sdp4.zig");
-pub const Sgp4Batch = @import("Sgp4Batch.zig");
-pub const Sgp4Constellation = @import("Sgp4Constellation.zig");
-pub const simdMath = @import("simdMath.zig");
+pub const Constellation = @import("Constellation.zig");
 pub const propagators = @import("propagators/propagators.zig");
 
 test {

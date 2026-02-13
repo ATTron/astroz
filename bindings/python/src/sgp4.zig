@@ -19,7 +19,7 @@ pub var Sgp4ConstellationType: c.PyTypeObject = undefined;
 
 fn initConstellationType() void {
     Sgp4ConstellationType = std.mem.zeroes(c.PyTypeObject);
-    Sgp4ConstellationType.tp_name = "astroz.Sgp4Constellation";
+    Sgp4ConstellationType.tp_name = "astroz.Constellation";
     Sgp4ConstellationType.tp_doc = "Constellation propagator for many satellites.\n\nArgs:\n    tles: list of Tle objects (will be grouped into batches)\n    gravity_model: WGS84 (default) or WGS72";
     Sgp4ConstellationType.tp_basicsize = @sizeOf(Sgp4ConstellationObject);
     Sgp4ConstellationType.tp_flags = c.Py_TPFLAGS_DEFAULT | c.Py_TPFLAGS_BASETYPE;
@@ -95,7 +95,7 @@ fn constellation_dealloc(self_obj: [*c]c.PyObject) callconv(.c) void {
     if (py.pyType(self_obj)) |tp| if (tp.*.tp_free) |free| free(@ptrCast(self));
 }
 
-fn parseOutputMode(output_str: [*c]const u8, output_str_len: c.Py_ssize_t) ?astroz.Sgp4Constellation.OutputMode {
+fn parseOutputMode(output_str: [*c]const u8, output_str_len: c.Py_ssize_t) ?astroz.Constellation.OutputMode {
     if (output_str == null or output_str_len <= 0) return .teme;
     const mode = output_str[0..@intCast(output_str_len)];
     if (std.mem.eql(u8, mode, "teme")) return .teme;
@@ -182,10 +182,12 @@ fn constellation_propagate_into(self_obj: [*c]c.PyObject, args: [*c]c.PyObject, 
     var reference_jd: f64 = 0.0;
     var time_major: c_int = 0;
 
+    var output_stride: c_int = -1; // -1 = use num_satellites
+
     const kwlist = [_:null]?[*:0]const u8{
-        "times", "positions", "velocities", "epoch_offsets", "satellite_mask", "output", "reference_jd", "time_major", null,
+        "times", "positions", "velocities", "epoch_offsets", "satellite_mask", "output", "reference_jd", "time_major", "output_stride", null,
     };
-    if (c.PyArg_ParseTupleAndKeywords(args, kwds, "OO|OOOs#di", @ptrCast(@constCast(&kwlist)), &times_obj, &pos_obj, &vel_obj, &offsets_obj, &mask_obj, &output_str, &output_str_len, &reference_jd, &time_major) == 0)
+    if (c.PyArg_ParseTupleAndKeywords(args, kwds, "OO|OOOs#dii", @ptrCast(@constCast(&kwlist)), &times_obj, &pos_obj, &vel_obj, &offsets_obj, &mask_obj, &output_str, &output_str_len, &reference_jd, &time_major, &output_stride) == 0)
         return null;
 
     const batches = (self.batches orelse {
@@ -209,7 +211,10 @@ fn constellation_propagate_into(self_obj: [*c]c.PyObject, args: [*c]c.PyObject, 
     defer c.PyBuffer_Release(&pos_buf);
 
     const num_times = @as(usize, @intCast(times_buf.len)) / @sizeOf(f64);
-    const required_size = self.num_satellites * num_times * 3 * @sizeOf(f64);
+
+    // output_stride overrides num_satellites for the output layout stride
+    const stride_sats: usize = if (output_stride > 0) @intCast(output_stride) else self.num_satellites;
+    const required_size = stride_sats * num_times * 3 * @sizeOf(f64);
 
     if (@as(usize, @intCast(pos_buf.len)) < required_size) {
         py.raiseValue("positions array too small");
@@ -241,11 +246,11 @@ fn constellation_propagate_into(self_obj: [*c]c.PyObject, args: [*c]c.PyObject, 
     // Build slices and propagate
     const times: [*]const f64 = @ptrCast(@alignCast(times_buf.buf));
     const pos_out: [*]f64 = @ptrCast(@alignCast(pos_buf.buf));
-    const out_len = self.num_satellites * num_times * 3;
+    const out_len = stride_sats * num_times * 3;
 
-    astroz.Sgp4Constellation.propagateConstellation(
+    astroz.Constellation.propagateConstellation(
         batches,
-        self.num_satellites,
+        stride_sats,
         times[0..num_times],
         offsets.data,
         pos_out[0..out_len],
@@ -401,7 +406,7 @@ fn constellation_screen_conjunction(self_obj: [*c]c.PyObject, args: [*c]c.PyObje
     defer allocator.free(out_min_t_indices);
 
     // Run the kernel
-    astroz.Sgp4Constellation.screenConstellation(
+    astroz.Constellation.screenConstellation(
         batches,
         self.num_satellites,
         times[0..num_times],

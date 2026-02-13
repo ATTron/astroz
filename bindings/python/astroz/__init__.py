@@ -75,6 +75,7 @@ from ._astroz import (
     Satrec as _Satrec,
     Sgp4Constellation as _Sgp4Constellation,
     coarse_screen as _coarse_screen,
+    sdp4_batch_propagate_into as _sdp4_batch_propagate_into,
 )
 
 _CELESTRAK_ALIASES = {
@@ -225,22 +226,21 @@ class Constellation:
         tle_text = _load_tle_text(source, norad_id)
         pairs = _parse_tle_pairs(tle_text)
 
-        # Separate near-earth and deep-space TLEs
+        # Separate near-earth (SGP4) and deep-space (SDP4) TLEs.
+        # Output ordering: SGP4 sats first [0, n_sgp4), SDP4 after [n_sgp4, n_total).
         sgp4_lines = []
         self._sdp4_satrecs = []
-        self._sdp4_indices = []
-        self._sgp4_indices = []
         self._total_sats = len(pairs)
 
-        for i, (l1, l2) in enumerate(pairs):
+        for l1, l2 in pairs:
             sat = _Satrec.twoline2rv(l1, l2)
             if sat.is_deep_space:
                 self._sdp4_satrecs.append(sat)
-                self._sdp4_indices.append(i)
             else:
-                self._sgp4_indices.append(i)
                 sgp4_lines.append(l1)
                 sgp4_lines.append(l2)
+
+        self._n_sgp4 = len(sgp4_lines) // 2
 
         # Build SGP4 constellation from near-earth TLEs only
         self._zig = None
@@ -256,13 +256,11 @@ class Constellation:
     @property
     def epochs(self):
         """TLE epoch for each satellite as Julian Date."""
-        epochs = [0.0] * self._total_sats
+        epochs = []
         if self._zig is not None:
-            sgp4_epochs = self._zig.epochs
-            for out_i, orig_i in enumerate(self._sgp4_indices):
-                epochs[orig_i] = sgp4_epochs[out_i]
-        for orig_i, sat in zip(self._sdp4_indices, self._sdp4_satrecs):
-            epochs[orig_i] = sat.jdsatepoch + sat.jdsatepochF
+            epochs.extend(self._zig.epochs)
+        for sat in self._sdp4_satrecs:
+            epochs.append(sat.jdsatepoch + sat.jdsatepochF)
         return epochs
 
 
@@ -366,48 +364,47 @@ def propagate(
 
     pos = np.empty(shape, dtype=np.float64)
     vel = np.empty(shape, dtype=np.float64) if velocities else None
+    n_sgp4 = const._n_sgp4
 
-    # SGP4 batch propagation
-    if const._zig is not None and const._sgp4_indices:
-        n_sgp4 = const._zig.num_satellites
+    # SGP4 batch: positions [0, n_sgp4) — write directly into output
+    if const._zig is not None and n_sgp4 > 0:
         sgp4_epochs = np.array(const._zig.epochs, dtype=np.float64)
         sgp4_offsets = (start - _pad_epochs_for_simd(sgp4_epochs)) * 1440.0
 
-        sgp4_pos = np.empty((n_times, n_sgp4, 3), dtype=np.float64)
-        sgp4_vel = (
-            np.empty((n_times, n_sgp4, 3), dtype=np.float64) if velocities else None
-        )
-
+        # Write SGP4 results directly into output array.
+        # For mixed case, output_stride=n_sats tells Zig to use the full
+        # satellite dimension as stride, writing SGP4 at indices [0, n_sgp4).
         const._zig.propagate_into(
             times,
-            sgp4_pos,
-            sgp4_vel,
+            pos,
+            vel,
             epoch_offsets=sgp4_offsets,
             satellite_mask=None,
             output=output,
             reference_jd=start,
             time_major=True,
+            output_stride=n_sats,
         )
 
-        # Scatter SGP4 results to original indices
-        for out_i, orig_i in enumerate(const._sgp4_indices):
-            pos[:, orig_i, :] = sgp4_pos[:, out_i, :]
-            if velocities:
-                vel[:, orig_i, :] = sgp4_vel[:, out_i, :]
+    # SDP4 batch: positions [n_sgp4, n_total) — threaded in Zig
+    n_sdp4 = len(const._sdp4_satrecs)
+    if n_sdp4 > 0:
+        abs_jd_times = start + times / 1440.0
+        common_jd = np.full(
+            n_times, np.floor(abs_jd_times[0] - 0.5) + 0.5, dtype=np.float64
+        )
+        common_fr = np.ascontiguousarray(abs_jd_times - common_jd[0], dtype=np.float64)
 
-    # SDP4 per-satellite propagation (TEME only for now)
-    for orig_i, sat in zip(const._sdp4_indices, const._sdp4_satrecs):
-        epoch_jd = sat.jdsatepoch + sat.jdsatepochF
-        epoch_offset = (start - epoch_jd) * 1440.0
-        tsince_arr = times + epoch_offset
-        jd_arr = np.full(n_times, sat.jdsatepoch)
-        fr_arr = sat.jdsatepochF + tsince_arr / 1440.0
-        sat_pos = np.empty((n_times, 3), dtype=np.float64)
-        sat_vel = np.empty((n_times, 3), dtype=np.float64)
-        sat.sgp4_array_into(jd_arr, fr_arr, sat_pos, sat_vel)
-        pos[:, orig_i, :] = sat_pos
-        if velocities:
-            vel[:, orig_i, :] = sat_vel
+        # Write directly into output array using stride — no temp, no copy
+        _sdp4_batch_propagate_into(
+            const._sdp4_satrecs,
+            common_jd,
+            common_fr,
+            pos,
+            vel if velocities else pos,  # vel unused if no velocities
+            output_stride=n_sats,
+            sat_offset=n_sgp4,
+        )
 
     return (pos, vel) if velocities else pos
 
@@ -504,7 +501,7 @@ def screen(
     times_arr = np.ascontiguousarray(times, dtype=np.float64)
 
     # Pure SGP4 constellation — use fast native paths
-    if not const._sdp4_indices and const._zig is not None:
+    if not const._sdp4_satrecs and const._zig is not None:
         constellation = const._zig
         epoch_offsets, start_jd = _compute_epoch_offsets(constellation, start_time)
 

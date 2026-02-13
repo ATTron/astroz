@@ -6,7 +6,7 @@ const Tle = astroz.Tle;
 const constants = astroz.constants;
 
 /// Batch size from core library (4 for AVX2, 8 for AVX512)
-const BatchSize = astroz.Sgp4Constellation.BatchSize;
+const BatchSize = astroz.Constellation.BatchSize;
 
 const allocator = @import("allocator.zig");
 const err = @import("error.zig");
@@ -92,7 +92,7 @@ pub fn propagateBatch(handle: Handle, times: [*]const f64, results: [*]f64, coun
 pub const BatchHandle = *anyopaque;
 
 /// Initialize batch propagator for 4 satellites
-const Elements4 = astroz.Sgp4Batch.BatchElements(4);
+const Elements4 = astroz.Constellation.Sgp4Batch.BatchElements(4);
 
 /// All 4 satellites must use the same gravity model
 pub fn initBatch(tleHandles: [*]const tleApi.Handle, gravModel: i32, out: *BatchHandle) err.Code {
@@ -104,7 +104,7 @@ pub fn initBatch(tleHandles: [*]const tleApi.Handle, gravModel: i32, out: *Batch
         tles[i] = tlePtr.*;
     }
 
-    const elements = astroz.Sgp4Batch.initBatchElements(4, tles, grav) catch |e| {
+    const elements = astroz.Constellation.Sgp4Batch.initBatchElements(4, tles, grav) catch |e| {
         return switch (e) {
             Sgp4.Error.DeepSpaceNotSupported => .deepSpaceNotSupported,
             Sgp4.Error.InvalidEccentricity => .invalidEccentricity,
@@ -128,7 +128,7 @@ pub fn freeBatch(handle: BatchHandle) void {
 pub fn propagateSatellites(handle: BatchHandle, tsince: f64, results: [*]f64) err.Code {
     const ptr: *Elements4 = @ptrCast(@alignCast(handle));
 
-    const result = astroz.Sgp4Batch.propagateSatellites(4, ptr, tsince) catch |e| {
+    const result = astroz.Constellation.Sgp4Batch.propagateSatellites(4, ptr, tsince) catch |e| {
         return switch (e) {
             Sgp4.Error.SatelliteDecayed => .satelliteDecayed,
             else => err.fromError(e),
@@ -153,7 +153,7 @@ pub fn propagateSatellitesBatch(handle: BatchHandle, times: [*]const f64, result
     const ptr: *Elements4 = @ptrCast(@alignCast(handle));
 
     for (0..count) |t| {
-        const result = astroz.Sgp4Batch.propagateSatellites(4, ptr, times[t]) catch |e| {
+        const result = astroz.Constellation.Sgp4Batch.propagateSatellites(4, ptr, times[t]) catch |e| {
             return switch (e) {
                 Sgp4.Error.SatelliteDecayed => .satelliteDecayed,
                 else => err.fromError(e),

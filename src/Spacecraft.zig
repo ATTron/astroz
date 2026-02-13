@@ -231,15 +231,13 @@ fn applyImpulse(self: *Spacecraft, state: [6]f64, impulse: Impulse, t: *f64, h: 
             y = calculations.impulse(y, dv);
         },
         .prograde => |dvMag| {
-            const vMag = calculations.velMag(y);
-            const dv = [3]f64{ y[3] / vMag * dvMag, y[4] / vMag * dvMag, y[5] / vMag * dvMag };
+            const dv = progradeVec(y, dvMag);
             y = calculations.impulse(y, dv);
         },
         .phase => |phase| {
             const r = calculations.posMag(y);
-            const vMag = calculations.velMag(y);
             const dvMag = self.calculatePhaseChange(r, phase.angle, phase.orbits);
-            const dv = [3]f64{ y[3] / vMag * dvMag, y[4] / vMag * dvMag, y[5] / vMag * dvMag };
+            const dv = progradeVec(y, dvMag);
             y = calculations.impulse(y, dv);
 
             // Propagate through transfer orbit(s)
@@ -257,6 +255,11 @@ fn applyImpulse(self: *Spacecraft, state: [6]f64, impulse: Impulse, t: *f64, h: 
         },
     }
     return y;
+}
+
+fn progradeVec(y: [6]f64, dvMag: f64) [3]f64 {
+    const vMag = calculations.velMag(y);
+    return .{ y[3] / vMag * dvMag, y[4] / vMag * dvMag, y[5] / vMag * dvMag };
 }
 
 fn calculateEnergy(self: Spacecraft, state: calculations.StateV) f64 {

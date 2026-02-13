@@ -2,7 +2,17 @@
 //! Fast vectorized trig functions that compute N values at once (N=4 or N=8)
 
 const std = @import("std");
+const builtin = @import("builtin");
 const constants = @import("constants.zig");
+
+/// Detect AVX512 at compile time
+const has_avx512 = blk: {
+    const target = builtin.cpu;
+    break :blk target.features.isEnabled(@intFromEnum(std.Target.x86.Feature.avx512f));
+};
+
+/// Optimal SIMD batch size: 8 for AVX512, 4 for AVX2/SSE
+pub const BatchSize: usize = if (has_avx512) 8 else 4;
 
 /// Generic N-wide f64 vector type
 pub fn VecN(comptime N: usize) type {

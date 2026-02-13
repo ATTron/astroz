@@ -125,8 +125,9 @@ pub fn initElements(tle: Tle, grav: constants.Sgp4GravityModel) Error!Elements {
     const trig = computeTrigTerms(meanElements.inclo);
     const poly = computePolyTerms(trig);
     const secular = computeSecularRates(meanElements, recovered, trig, poly, grav);
-    const drag = computeDragCoefficients(meanElements, recovered, trig, poly, grav);
-    const higherOrder = computeHigherOrderDrag(recovered, drag, grav);
+    const perige = (recovered.a * (1.0 - meanElements.ecco) - 1.0) * grav.radiusEarthKm;
+    const drag = computeDragCoefficients(meanElements, recovered, trig, poly, perige, grav);
+    const higherOrder = computeHigherOrderDrag(recovered, drag, perige, grav);
 
     const fullYear: u16 = if (tle.firstLine.epochYear < 57)
         2000 + tle.firstLine.epochYear
@@ -301,7 +302,6 @@ pub const DragCoefficients = struct {
     eta: f64,
     delmo: f64,
     sinmao: f64,
-    perige: f64,
 };
 
 pub fn computeDragCoefficients(
@@ -309,21 +309,19 @@ pub fn computeDragCoefficients(
     rec: RecoveredElements,
     trig: TrigTerms,
     poly: PolyTerms,
+    perige: f64,
     grav: constants.Sgp4GravityModel,
 ) DragCoefficients {
     const omeosq = 1.0 - el.ecco * el.ecco;
-    const rp = rec.a * (1.0 - el.ecco);
-    const perige = (rp - 1.0) * grav.radiusEarthKm;
 
     // atmospheric drag parameters adjusted for low perigee
-    const sfour, const qzms24 = if (perige < perigeeSAdjustment) blk: {
-        const s = if (perige < perigeeSMinimum) sParameterMinimum else perige - sParameterStandard;
-        const qtemp = (qParameter - s) / grav.radiusEarthKm;
-        break :blk .{ s / grav.radiusEarthKm + 1.0, qtemp * qtemp * qtemp * qtemp };
-    } else blk: {
-        const qtemp = (qParameter - sParameterStandard) / grav.radiusEarthKm;
-        break :blk .{ sParameterStandard / grav.radiusEarthKm + 1.0, qtemp * qtemp * qtemp * qtemp };
-    };
+    const s = if (perige < perigeeSAdjustment)
+        (if (perige < perigeeSMinimum) sParameterMinimum else perige - sParameterStandard)
+    else
+        sParameterStandard;
+    const qtemp = (qParameter - s) / grav.radiusEarthKm;
+    const sfour = s / grav.radiusEarthKm + 1.0;
+    const qzms24 = qtemp * qtemp * qtemp * qtemp;
 
     const pinvsq = 1.0 / std.math.pow(f64, rec.a * omeosq, 2.0);
     const tsi = 1.0 / (rec.a - sfour);
@@ -386,7 +384,6 @@ pub fn computeDragCoefficients(
         .eta = eta,
         .delmo = delmo,
         .sinmao = sinmao,
-        .perige = perige,
     };
 }
 
@@ -403,9 +400,10 @@ const HigherOrderDrag = struct {
 fn computeHigherOrderDrag(
     rec: RecoveredElements,
     drag: DragCoefficients,
+    perige: f64,
     grav: constants.Sgp4GravityModel,
 ) HigherOrderDrag {
-    if (drag.perige < perigeeSimplified) {
+    if (perige < perigeeSimplified) {
         return .{ .d2 = 0, .d3 = 0, .d4 = 0, .t3cof = 0, .t4cof = 0, .t5cof = 0, .isimp = true };
     }
 
@@ -897,13 +895,6 @@ pub fn computePositionVelocityN(comptime N: usize, el: *const Elements, state: C
 
     return results;
 }
-
-// Re-exports for batch and constellation modules
-pub const Sgp4Batch = @import("Sgp4Batch.zig");
-pub const Sgp4Constellation = @import("Sgp4Constellation.zig");
-pub const OutputMode = Sgp4Constellation.OutputMode;
-pub const ConstellationLayout = Sgp4Constellation.Layout;
-pub const propagateConstellation = Sgp4Constellation.propagateConstellation;
 
 test "sgp4 basic init" {
     const testTle =
