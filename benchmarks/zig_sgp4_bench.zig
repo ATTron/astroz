@@ -26,7 +26,7 @@ const scenarios = [_]struct { name: []const u8, points: usize, step_min: f64 }{
 
 const iterations = 10;
 
-pub fn main() !void {
+pub fn main(init: std.process.Init) !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
@@ -51,6 +51,7 @@ pub fn main() !void {
     });
     std.debug.print("\n--- Scalar Propagation ---\n", .{});
 
+    var total_props_per_sec: f64 = 0.0;
     for (scenarios) |scenario| {
         const times = try allocator.alloc(f64, scenario.points);
         defer allocator.free(times);
@@ -62,18 +63,20 @@ pub fn main() !void {
         var total_ns: u64 = 0;
 
         for (0..iterations) |_| {
-            const start = try std.Io.Timestamp.now();
+            const start = std.Io.Timestamp.now(init.io, .awake);
 
             for (times) |t| {
-                _ = sgp4.propagate(t) catch continue;
+                const result = sgp4.propagate(t) catch continue;
+                std.mem.doNotOptimizeAway(result);
             }
 
-            const end = try std.Io.Timestamp.now();
-            total_ns += end.since(start);
+            const end = std.Io.Timestamp.now(init.io, .awake);
+            total_ns += @intCast(start.durationTo(end).nanoseconds);
         }
 
         const avg_ms = @as(f64, @floatFromInt(total_ns)) / @as(f64, @floatFromInt(iterations)) / 1_000_000.0;
         const props_per_sec = @as(f64, @floatFromInt(scenario.points)) / (avg_ms / 1000.0);
+        total_props_per_sec += props_per_sec;
 
         std.debug.print("{s:<25} {d:>10.3} ms  ({d:.2} prop/s)\n", .{
             scenario.name,
@@ -81,9 +84,14 @@ pub fn main() !void {
             props_per_sec,
         });
     }
+    std.debug.print("{s:<25} {d:>17.2} prop/s\n", .{
+        "Average",
+        total_props_per_sec / @as(f64, @floatFromInt(scenarios.len)),
+    });
 
     std.debug.print("\n--- SIMD Batch{} Propagation ---\n", .{BatchSize});
 
+    total_props_per_sec = 0.0;
     for (scenarios) |scenario| {
         const times = try allocator.alloc(f64, scenario.points);
         defer allocator.free(times);
@@ -95,35 +103,29 @@ pub fn main() !void {
         var total_ns: u64 = 0;
 
         for (0..iterations) |_| {
-            const start = try std.Io.Timestamp.now();
+            const start = std.Io.Timestamp.now(init.io, .awake);
 
-            // Process 8 at a time (AVX512), then 4 (AVX2), then scalar
+            // Process BatchSize times at once, then scalar remainder
             var i: usize = 0;
 
-            // AVX512: 8 times at once
-            while (i + 8 <= scenario.points) : (i += 8) {
-                _ = sgp4.propagateV8(.{
-                    times[i],     times[i + 1], times[i + 2], times[i + 3],
-                    times[i + 4], times[i + 5], times[i + 6], times[i + 7],
-                }) catch continue;
-            }
-
-            // AVX2: 4 times at once
-            while (i + 4 <= scenario.points) : (i += 4) {
-                _ = sgp4.propagateV4(.{ times[i], times[i + 1], times[i + 2], times[i + 3] }) catch continue;
+            while (i + BatchSize <= scenario.points) : (i += BatchSize) {
+                const result = sgp4.propagateN(BatchSize, times[i..][0..BatchSize].*) catch continue;
+                std.mem.doNotOptimizeAway(result);
             }
 
             // Scalar remainder
             while (i < scenario.points) : (i += 1) {
-                _ = sgp4.propagate(times[i]) catch continue;
+                const result = sgp4.propagate(times[i]) catch continue;
+                std.mem.doNotOptimizeAway(result);
             }
 
-            const end = try std.Io.Timestamp.now();
-            total_ns += end.since(start);
+            const end = std.Io.Timestamp.now(init.io, .awake);
+            total_ns += @intCast(start.durationTo(end).nanoseconds);
         }
 
         const avg_ms = @as(f64, @floatFromInt(total_ns)) / @as(f64, @floatFromInt(iterations)) / 1_000_000.0;
         const props_per_sec = @as(f64, @floatFromInt(scenario.points)) / (avg_ms / 1000.0);
+        total_props_per_sec += props_per_sec;
 
         std.debug.print("{s:<25} {d:>10.3} ms  ({d:.2} prop/s)\n", .{
             scenario.name,
@@ -131,6 +133,10 @@ pub fn main() !void {
             props_per_sec,
         });
     }
+    std.debug.print("{s:<25} {d:>17.2} prop/s\n", .{
+        "Average",
+        total_props_per_sec / @as(f64, @floatFromInt(scenarios.len)),
+    });
 
     std.debug.print("\n", .{});
 }
