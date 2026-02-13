@@ -25,7 +25,7 @@ pub const Vector3D = struct {
     }
 
     pub fn magnitude(self: Vector3D) f64 {
-        return @sqrt(std.math.pow(f64, self.x(), 2) + std.math.pow(f64, self.y(), 2) + std.math.pow(f64, self.z(), 2));
+        return @sqrt(self.x() * self.x() + self.y() * self.y() + self.z() * self.z());
     }
 
     pub fn array(self: Vector3D) [3]f64 {
@@ -133,6 +133,14 @@ pub fn meanMotionToSemiMajorAxis(mMotion: f64) f64 {
     );
 }
 
+pub fn matVecMul3(m: [3][3]f64, v: [3]f64) [3]f64 {
+    return .{
+        m[0][0] * v[0] + m[0][1] * v[1] + m[0][2] * v[2],
+        m[1][0] * v[0] + m[1][1] * v[1] + m[1][2] * v[2],
+        m[2][0] * v[0] + m[2][1] * v[1] + m[2][2] * v[2],
+    };
+}
+
 pub fn multiplyMatrices(a: [3][3]f64, b: [3][3]f64) [3][3]f64 {
     var result: [3][3]f64 = undefined;
     for (0..3) |i| {
@@ -199,16 +207,8 @@ pub fn orbitalElementsToStateVector(elements: OrbitalElements, mu: f64) [6]f64 {
         .{ sinArg * sinI, cosArg * sinI, cosI },
     };
 
-    var rInertial: [3]f64 = undefined;
-    var vInertial: [3]f64 = undefined;
-
-    rInertial[0] = rot[0][0] * rOrbital[0] + rot[0][1] * rOrbital[1] + rot[0][2] * rOrbital[2];
-    rInertial[1] = rot[1][0] * rOrbital[0] + rot[1][1] * rOrbital[1] + rot[1][2] * rOrbital[2];
-    rInertial[2] = rot[2][0] * rOrbital[0] + rot[2][1] * rOrbital[1] + rot[2][2] * rOrbital[2];
-
-    vInertial[0] = rot[0][0] * vOrbital[0] + rot[0][1] * vOrbital[1] + rot[0][2] * vOrbital[2];
-    vInertial[1] = rot[1][0] * vOrbital[0] + rot[1][1] * vOrbital[1] + rot[1][2] * vOrbital[2];
-    vInertial[2] = rot[2][0] * vOrbital[0] + rot[2][1] * vOrbital[1] + rot[2][2] * vOrbital[2];
+    const rInertial = matVecMul3(rot, rOrbital);
+    const vInertial = matVecMul3(rot, vOrbital);
 
     return .{ rInertial[0], rInertial[1], rInertial[2], vInertial[0], vInertial[1], vInertial[2] };
 }

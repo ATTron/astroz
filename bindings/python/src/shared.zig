@@ -12,10 +12,10 @@ const constants = astroz.constants;
 pub const allocator = std.heap.c_allocator;
 
 /// Batch size from core library (4 for AVX2, 8 for AVX512)
-pub const BatchSize = astroz.Sgp4Constellation.BatchSize;
+pub const BatchSize = astroz.Constellation.BatchSize;
 
 /// Batch elements type for current batch size
-pub const BatchElements = astroz.Sgp4Batch.BatchElements(BatchSize);
+pub const BatchElements = astroz.Constellation.Sgp4Batch.BatchElements(BatchSize);
 
 // Gravity model constants for Python API
 pub const WGS84: c_int = 0;
@@ -75,7 +75,7 @@ pub fn buildBatches(tles: []const astroz.Tle, grav: constants.Sgp4GravityModel) 
             const tle_idx = batch_idx * BatchSize + i;
             batch_tles[i] = tles[if (tle_idx < num_tles) tle_idx else num_tles - 1];
         }
-        batches[batch_idx] = astroz.Sgp4Batch.initBatchElements(BatchSize, batch_tles, grav) catch |e| {
+        batches[batch_idx] = astroz.Constellation.Sgp4Batch.initBatchElements(BatchSize, batch_tles, grav) catch |e| {
             allocator.free(batches);
             py.raiseValue(sgp4ErrorMsg(e));
             return null;
