@@ -1,3 +1,5 @@
+## These commands assume that you have the necessary dependencies installed and configured for each language.
+
 # Run the astroz (Zig) SGP4 benchmark
 bench-astroz-zig:
     zig build bench -Doptimize=ReleaseFast
