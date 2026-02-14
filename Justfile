@@ -15,3 +15,11 @@ bench-python-sgp4:
 # Run the Python astroz benchmark
 bench-astroz-python:
     uv run benchmarks/python_astroz_bench.py
+
+# Run the JAX CPU SGP4 benchmark
+bench-jax-cpu:
+    uv run benchmarks/jax_cpu_bench.py
+
+# Run the JAX GPU SGP4 benchmark
+bench-jax-gpu:
+    uv run benchmarks/jax_gpu_bench.py

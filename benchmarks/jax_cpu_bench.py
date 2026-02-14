@@ -1,13 +1,22 @@
 #!/usr/bin/env python3
 # /// script
-# requires-python = ">=3.10,<3.13"
-# dependencies = ["astroz>=0.8", "numpy"]
+# requires-python = ">=3.10"
+# dependencies = ["astrojax>=0.3.1", "jax>=0.9.0"]
 # ///
 
 import time
 
-import numpy as np
-from astroz.api import Satrec, WGS72
+import jax
+import jax.numpy as jnp
+
+from astrojax import set_dtype
+from astrojax.sgp4 import create_sgp4_propagator
+
+# Force CPU
+jax.config.update("jax_default_device", jax.devices("cpu")[0])
+
+# Use float64 precision (must be set before any JIT compilation)
+set_dtype(jnp.float64)
 
 ISS_TLE_LINE1 = "1 25544U 98067A   24127.82853009  .00015698  00000+0  27310-3 0  9995"
 ISS_TLE_LINE2 = "2 25544  51.6393 160.4574 0003580 140.6673 205.7250 15.50957674452123"
@@ -31,28 +40,40 @@ ITERATIONS = 10
 
 
 def main():
-    sat = Satrec.twoline2rv(ISS_TLE_LINE1, ISS_TLE_LINE2, WGS72)
+    params, propagate_fn = create_sgp4_propagator(
+        ISS_TLE_LINE1, ISS_TLE_LINE2, gravity="wgs72"
+    )
+    batch_propagate = jax.jit(jax.vmap(propagate_fn))
 
-    jd_epoch = sat.jdsatepoch
-    fr_epoch = sat.jdsatepochF
-
-    # Warmup
+    # Warmup: 100 scalar propagations
     for i in range(100):
-        sat.sgp4(jd_epoch, fr_epoch + i / 1440.0)
+        r, v = propagate_fn(jnp.float64(i))
+        r.block_until_ready()
 
-    print("\nPython astroz Benchmark")
+    # Pre-compile all 5 scenario shapes (JAX caches by input shape)
+    for _, points, step in SCENARIOS:
+        times = jnp.arange(points, dtype=jnp.float64) * step
+        r, v = batch_propagate(times)
+        r.block_until_ready()
+
+    device = jax.devices("cpu")[0]
+    print("\nJAX CPU SGP4 Benchmark")
     print("=" * 50)
-    print("\n--- Sequential Propagation ---")
+    print(f"Device: {device.device_kind}")
+    print(f"JAX version: {jax.__version__}")
+    print(f"Precision: float64")
+
+    print("\n--- Vectorized Propagation (jit+vmap) ---")
 
     total_props_per_sec = 0.0
     for name, points, step in SCENARIOS:
-        times = [i * step for i in range(points)]
+        times = jnp.arange(points, dtype=jnp.float64) * step
 
         total_ns = 0
         for _ in range(ITERATIONS):
             start = time.perf_counter_ns()
-            for t in times:
-                sat.sgp4(jd_epoch, fr_epoch + t / 1440.0)
+            r, v = batch_propagate(times)
+            r.block_until_ready()
             total_ns += time.perf_counter_ns() - start
 
         avg_ms = total_ns / ITERATIONS / 1_000_000
@@ -62,39 +83,23 @@ def main():
 
     print(f"{'Average':<25} {total_props_per_sec / len(SCENARIOS):>17.2f} prop/s")
 
-    print("\n--- SIMD Batch Propagation ---")
+    # Pre-compile large workload shapes
+    for _, points, step in MT_SCENARIOS:
+        times = jnp.arange(points, dtype=jnp.float64) * step
+        r, v = batch_propagate(times)
+        r.block_until_ready()
 
-    total_props_per_sec = 0.0
-    for name, points, step in SCENARIOS:
-        times = np.arange(points, dtype=np.float64) * step
-        jd_arr = np.full(points, jd_epoch)
-        fr_arr = fr_epoch + times / 1440.0
-
-        total_ns = 0
-        for _ in range(ITERATIONS):
-            start = time.perf_counter_ns()
-            sat.sgp4_array(jd_arr, fr_arr)
-            total_ns += time.perf_counter_ns() - start
-
-        avg_ms = total_ns / ITERATIONS / 1_000_000
-        props_per_sec = points / (avg_ms / 1000)
-        total_props_per_sec += props_per_sec
-        print(f"{name:<25} {avg_ms:>10.3f} ms  ({props_per_sec:.2f} prop/s)")
-
-    print(f"{'Average':<25} {total_props_per_sec / len(SCENARIOS):>17.2f} prop/s")
-
-    print("\n--- SIMD Batch Propagation (Large Workloads) ---")
+    print("\n--- Vectorized Propagation - Large Workloads (jit+vmap) ---")
 
     total_props_per_sec = 0.0
     for name, points, step in MT_SCENARIOS:
-        times = np.arange(points, dtype=np.float64) * step
-        jd_arr = np.full(points, jd_epoch)
-        fr_arr = fr_epoch + times / 1440.0
+        times = jnp.arange(points, dtype=jnp.float64) * step
 
         total_ns = 0
         for _ in range(ITERATIONS):
             start = time.perf_counter_ns()
-            sat.sgp4_array(jd_arr, fr_arr)
+            r, v = batch_propagate(times)
+            r.block_until_ready()
             total_ns += time.perf_counter_ns() - start
 
         avg_ms = total_ns / ITERATIONS / 1_000_000
