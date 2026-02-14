@@ -75,19 +75,6 @@ pub fn BatchElements(comptime N: usize) type {
     };
 }
 
-/// Position and velocity as VecN (SoA)
-pub fn PositionVelocity(comptime N: usize) type {
-    const Vec = simdMath.VecN(N);
-    return struct {
-        rx: Vec,
-        ry: Vec,
-        rz: Vec,
-        vx: Vec,
-        vy: Vec,
-        vz: Vec,
-    };
-}
-
 /// Transpose N scalar Elements into BatchElements(N)
 pub fn initBatchElements(comptime N: usize, tles: [N]Tle, grav: constants.Sgp4GravityModel) Error!BatchElements(N) {
     var els: [N]Elements = undefined;
@@ -126,124 +113,11 @@ pub fn initBatchElements(comptime N: usize, tles: [N]Tle, grav: constants.Sgp4Gr
 /// Propagate N satellites, returns [N][2][3]f64 (AoS)
 pub fn propagateSatellites(comptime N: usize, el: *const BatchElements(N), tsince: f64) Error![N][2][3]f64 {
     const Vec = simdMath.VecN(N);
-    const pv = try propagateBatchDirect(N, el, @as(Vec, @splat(tsince)));
-    var results: [N][2][3]f64 = undefined;
-    inline for (0..N) |i| {
-        results[i] = .{ .{ pv.rx[i], pv.ry[i], pv.rz[i] }, .{ pv.vx[i], pv.vy[i], pv.vz[i] } };
-    }
-    return results;
-}
-
-/// Solve Kepler's equation, apply short period corrections, and compute position/velocity.
-/// Shared between SGP4 and SDP4 batch propagation.
-pub fn keplerAndPosVel(
-    comptime N: usize,
-    am: simdMath.VecN(N),
-    em: simdMath.VecN(N),
-    mm: simdMath.VecN(N),
-    argpm: simdMath.VecN(N),
-    nodem: simdMath.VecN(N),
-    inclm: simdMath.VecN(N),
-    aycof: simdMath.VecN(N),
-    xlcof: simdMath.VecN(N),
-    con41: simdMath.VecN(N),
-    x1mth2: simdMath.VecN(N),
-    x7thm1: simdMath.VecN(N),
-    sinIncl: simdMath.VecN(N),
-    cosIncl: simdMath.VecN(N),
-    xke: simdMath.VecN(N),
-    j2: simdMath.VecN(N),
-    radiusEarthKm: simdMath.VecN(N),
-    vkmpersec: simdMath.VecN(N),
-) PositionVelocity(N) {
-    const Vec = simdMath.VecN(N);
-    const one: Vec = @splat(1.0);
-    const half: Vec = @splat(0.5);
-    const quarter: Vec = @splat(0.25);
-    const oneHalf: Vec = @splat(1.5);
-    const two: Vec = @splat(2.0);
-    const tolerance: Vec = @splat(1.0e-12);
-    const clampVal: Vec = @splat(0.95);
-
-    // Kepler solve
-    const temp = one / (am * (one - em * em));
-    const argpmSC = simdMath.sincosN(N, argpm);
-    const axnl = em * argpmSC.cos;
-    const aynl = em * argpmSC.sin + temp * aycof;
-    const xl = mm + argpm + nodem + temp * xlcof * axnl;
-
-    var u = xl - nodem;
-    var eo1 = u;
-    var sineo1: Vec = @splat(0.0);
-    var coseo1: Vec = one;
-
-    for (0..10) |_| {
-        const sc = simdMath.sincosN(N, eo1);
-        sineo1 = sc.sin;
-        coseo1 = sc.cos;
-        const delta = (u - aynl * coseo1 + axnl * sineo1 - eo1) / (one - coseo1 * axnl - sineo1 * aynl);
-        eo1 = eo1 + @max(-clampVal, @min(clampVal, delta));
-        if (@reduce(.And, @abs(delta) < tolerance)) break;
-    }
-
-    const ecose = axnl * coseo1 + aynl * sineo1;
-    const esine = axnl * sineo1 - aynl * coseo1;
-    const el2 = axnl * axnl + aynl * aynl;
-    const pl = am * (one - el2);
-    const betal = @sqrt(one - el2);
-    const rl = am * (one - ecose);
-    const rdotl = @sqrt(am) * esine / rl;
-    const rvdotl = @sqrt(pl) / rl;
-
-    const aOverR = am / rl;
-    const esineTerm = esine / (one + betal);
-    const sinu = aOverR * (sineo1 - aynl - axnl * esineTerm);
-    const cosu = aOverR * (coseo1 - axnl + aynl * esineTerm);
-    u = simdMath.atan2N(N, sinu, cosu);
-
-    const sin2u = two * sinu * cosu;
-    const cos2u = one - two * sinu * sinu;
-
-    // Short period corrections
-    const temp1 = half * j2 / pl;
-    const temp2 = temp1 / pl;
-    const nm = xke / simdMath.pow15N(N, am);
-
-    const mrt = rl * (one - oneHalf * temp2 * betal * con41) + half * temp1 * x1mth2 * cos2u;
-    const su = u - quarter * temp2 * x7thm1 * sin2u;
-    const xnode = nodem + oneHalf * temp2 * cosIncl * sin2u;
-    const xinc = inclm + oneHalf * temp2 * cosIncl * sinIncl * cos2u;
-    const mvt = rdotl - nm * temp1 * x1mth2 * sin2u / xke;
-    const rvdot = rvdotl + nm * temp1 * (x1mth2 * cos2u + oneHalf * con41) / xke;
-
-    // Position/velocity
-    const suSC = simdMath.sincosN(N, su);
-    const nodeSC = simdMath.sincosN(N, xnode);
-    const incSC = simdMath.sincosN(N, xinc);
-
-    const xmx = -nodeSC.sin * incSC.cos;
-    const xmy = nodeSC.cos * incSC.cos;
-    const ux = xmx * suSC.sin + nodeSC.cos * suSC.cos;
-    const uy = xmy * suSC.sin + nodeSC.sin * suSC.cos;
-    const uz = incSC.sin * suSC.sin;
-    const vx = xmx * suSC.cos - nodeSC.cos * suSC.sin;
-    const vy = xmy * suSC.cos - nodeSC.sin * suSC.sin;
-    const vz = incSC.sin * suSC.cos;
-
-    const rScaled = mrt * radiusEarthKm;
-
-    return .{
-        .rx = rScaled * ux,
-        .ry = rScaled * uy,
-        .rz = rScaled * uz,
-        .vx = (mvt * ux + rvdot * vx) * vkmpersec,
-        .vy = (mvt * uy + rvdot * vy) * vkmpersec,
-        .vz = (mvt * uz + rvdot * vz) * vkmpersec,
-    };
+    return Sgp4.pvToArrays(N, try propagateBatchDirect(N, el, @as(Vec, @splat(tsince))));
 }
 
 /// Core propagation, returns VecN directly (hot path)
-pub fn propagateBatchDirect(comptime N: usize, el: *const BatchElements(N), tsince: simdMath.VecN(N)) Error!PositionVelocity(N) {
+pub fn propagateBatchDirect(comptime N: usize, el: *const BatchElements(N), tsince: simdMath.VecN(N)) Error!Sgp4.PositionVelocity(N) {
     const Vec = simdMath.VecN(N);
 
     const one: Vec = @splat(1.0);
@@ -286,7 +160,7 @@ pub fn propagateBatchDirect(comptime N: usize, el: *const BatchElements(N), tsin
     nodem = simdMath.modTwoPiN(N, nodem);
     argpm = simdMath.modTwoPiN(N, argpm);
 
-    return keplerAndPosVel(N, am, em, mm, argpm, nodem, el.inclo, el.aycof, el.xlcof, el.con41, el.x1mth2, el.x7thm1, el.sinio, el.cosio, el.xke, el.j2, el.radiusEarthKm, el.vkmpersec);
+    return Sgp4.keplerAndPosVel(N, am, em, mm, argpm, nodem, el.inclo, el.aycof, el.xlcof, el.con41, el.x1mth2, el.x7thm1, el.sinio, el.cosio, el.xke, el.j2, el.radiusEarthKm, el.vkmpersec);
 }
 
 test "SIMD matches scalar" {

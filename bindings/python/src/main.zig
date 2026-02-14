@@ -9,7 +9,7 @@ const satrec = @import("satrec.zig");
 const conjunction = @import("conjunction.zig");
 
 fn astroz_version(_: [*c]c.PyObject, _: [*c]c.PyObject) callconv(.c) [*c]c.PyObject {
-    return c.PyUnicode_FromString("0.3.0");
+    return c.PyUnicode_FromString("0.7.1");
 }
 
 var module_methods = [_]c.PyMethodDef{

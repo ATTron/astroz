@@ -273,7 +273,7 @@ const EXAMPLE_NAMES = &.{
     "parse_vita49_callback",
     "parse_vita49",
     "precess_star",
-    "sgp4_propagation",
+    "propagation",
     "simple_monte_carlo",
     "simple_spacecraft_orientation",
     "spice_propagation",

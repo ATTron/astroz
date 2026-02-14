@@ -10,6 +10,7 @@ const Tle = astroz.Tle;
 const Sgp4 = astroz.Sgp4;
 const Sdp4 = astroz.Sdp4;
 const Sdp4Batch = astroz.Constellation.Sdp4Batch;
+const Sgp4Batch = astroz.Constellation.Sgp4Batch;
 const Datetime = astroz.Datetime;
 const constants = astroz.constants;
 
@@ -253,18 +254,20 @@ fn buildSuccessResult(pv: [2][3]f64) [*c]c.PyObject {
     return result;
 }
 
+const SgpSimdN = Sgp4Batch.BatchSize;
+
 /// Generic SIMD batch propagation for a single satellite (SGP4 or SDP4).
-/// Processes times in chunks of 4 using propagateN, remainder with scalar propagate.
+/// Processes times in chunks of SgpSimdN using propagateN, remainder with scalar propagate.
 fn propagateArray(comptime T: type, propagator: *const T, n: usize, epochJd: f64, jd_ptr: [*]const f64, fr_ptr: [*]const f64, pos_ptr: [*]f64, vel_ptr: [*]f64) void {
     var i: usize = 0;
-    // Process in SIMD chunks of 4
-    while (i + 4 <= n) : (i += 4) {
-        var times: [4]f64 = undefined;
-        for (0..4) |j| {
+    // Process in SIMD chunks
+    while (i + SgpSimdN <= n) : (i += SgpSimdN) {
+        var times: [SgpSimdN]f64 = undefined;
+        for (0..SgpSimdN) |j| {
             times[j] = ((jd_ptr[i + j] + fr_ptr[i + j]) - epochJd) * constants.minutesPerDay;
         }
-        if (propagator.propagateN(4, times)) |results| {
-            for (0..4) |j| {
+        if (propagator.propagateN(SgpSimdN, times)) |results| {
+            for (0..SgpSimdN) |j| {
                 const base = (i + j) * 3;
                 pos_ptr[base + 0] = results[j][0][0];
                 pos_ptr[base + 1] = results[j][0][1];
@@ -274,7 +277,7 @@ fn propagateArray(comptime T: type, propagator: *const T, n: usize, epochJd: f64
                 vel_ptr[base + 2] = results[j][1][2];
             }
         } else |_| {
-            for (0..4) |j| {
+            for (0..SgpSimdN) |j| {
                 const base = (i + j) * 3;
                 pos_ptr[base + 0] = 0;
                 pos_ptr[base + 1] = 0;

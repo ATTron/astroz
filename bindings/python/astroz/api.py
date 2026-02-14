@@ -145,7 +145,7 @@ class Satrec:
         """Propagate to multiple times using SIMD acceleration.
 
         This is the python-sgp4 compatible batch interface for a single satellite.
-        Uses SIMD internally via propagateN(4, ...) for high throughput.
+        Uses SIMD batch propagation internally for high throughput.
         Works for both SGP4 (near-earth) and SDP4 (deep-space) satellites.
 
         Parameters
@@ -251,7 +251,7 @@ class SatrecArray:
 
         This is the python-sgp4 compatible interface that returns NumPy arrays.
         SGP4 satellites use satellite-major SIMD batch propagation.
-        SDP4 satellites use time-major SIMD via propagateN(4, ...).
+        SDP4 satellites use time-major SIMD batch propagation.
 
         Parameters
         ----------
