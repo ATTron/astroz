@@ -26,7 +26,19 @@ const scenarios = [_]struct { name: []const u8, points: usize, step_min: f64 }{
 
 const iterations = 10;
 
-pub fn main() !void {
+fn simdWorker(sgp4: *const Sgp4, times: []const f64) void {
+    var i: usize = 0;
+    while (i + BatchSize <= times.len) : (i += BatchSize) {
+        const result = sgp4.propagateN(BatchSize, times[i..][0..BatchSize].*) catch continue;
+        std.mem.doNotOptimizeAway(result);
+    }
+    while (i < times.len) : (i += 1) {
+        const result = sgp4.propagate(times[i]) catch continue;
+        std.mem.doNotOptimizeAway(result);
+    }
+}
+
+pub fn main(init: std.process.Init) !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
@@ -51,6 +63,7 @@ pub fn main() !void {
     });
     std.debug.print("\n--- Scalar Propagation ---\n", .{});
 
+    var total_props_per_sec: f64 = 0.0;
     for (scenarios) |scenario| {
         const times = try allocator.alloc(f64, scenario.points);
         defer allocator.free(times);
@@ -62,18 +75,20 @@ pub fn main() !void {
         var total_ns: u64 = 0;
 
         for (0..iterations) |_| {
-            const start = try std.Io.Timestamp.now();
+            const start = std.Io.Timestamp.now(init.io, .awake);
 
             for (times) |t| {
-                _ = sgp4.propagate(t) catch continue;
+                const result = sgp4.propagate(t) catch continue;
+                std.mem.doNotOptimizeAway(result);
             }
 
-            const end = try std.Io.Timestamp.now();
-            total_ns += end.since(start);
+            const end = std.Io.Timestamp.now(init.io, .awake);
+            total_ns += @intCast(start.durationTo(end).nanoseconds);
         }
 
         const avg_ms = @as(f64, @floatFromInt(total_ns)) / @as(f64, @floatFromInt(iterations)) / 1_000_000.0;
         const props_per_sec = @as(f64, @floatFromInt(scenario.points)) / (avg_ms / 1000.0);
+        total_props_per_sec += props_per_sec;
 
         std.debug.print("{s:<25} {d:>10.3} ms  ({d:.2} prop/s)\n", .{
             scenario.name,
@@ -81,9 +96,14 @@ pub fn main() !void {
             props_per_sec,
         });
     }
+    std.debug.print("{s:<25} {d:>17.2} prop/s\n", .{
+        "Average",
+        total_props_per_sec / @as(f64, @floatFromInt(scenarios.len)),
+    });
 
     std.debug.print("\n--- SIMD Batch{} Propagation ---\n", .{BatchSize});
 
+    total_props_per_sec = 0.0;
     for (scenarios) |scenario| {
         const times = try allocator.alloc(f64, scenario.points);
         defer allocator.free(times);
@@ -95,35 +115,29 @@ pub fn main() !void {
         var total_ns: u64 = 0;
 
         for (0..iterations) |_| {
-            const start = try std.Io.Timestamp.now();
+            const start = std.Io.Timestamp.now(init.io, .awake);
 
-            // Process 8 at a time (AVX512), then 4 (AVX2), then scalar
+            // Process BatchSize times at once, then scalar remainder
             var i: usize = 0;
 
-            // AVX512: 8 times at once
-            while (i + 8 <= scenario.points) : (i += 8) {
-                _ = sgp4.propagateV8(.{
-                    times[i],     times[i + 1], times[i + 2], times[i + 3],
-                    times[i + 4], times[i + 5], times[i + 6], times[i + 7],
-                }) catch continue;
-            }
-
-            // AVX2: 4 times at once
-            while (i + 4 <= scenario.points) : (i += 4) {
-                _ = sgp4.propagateV4(.{ times[i], times[i + 1], times[i + 2], times[i + 3] }) catch continue;
+            while (i + BatchSize <= scenario.points) : (i += BatchSize) {
+                const result = sgp4.propagateN(BatchSize, times[i..][0..BatchSize].*) catch continue;
+                std.mem.doNotOptimizeAway(result);
             }
 
             // Scalar remainder
             while (i < scenario.points) : (i += 1) {
-                _ = sgp4.propagate(times[i]) catch continue;
+                const result = sgp4.propagate(times[i]) catch continue;
+                std.mem.doNotOptimizeAway(result);
             }
 
-            const end = try std.Io.Timestamp.now();
-            total_ns += end.since(start);
+            const end = std.Io.Timestamp.now(init.io, .awake);
+            total_ns += @intCast(start.durationTo(end).nanoseconds);
         }
 
         const avg_ms = @as(f64, @floatFromInt(total_ns)) / @as(f64, @floatFromInt(iterations)) / 1_000_000.0;
         const props_per_sec = @as(f64, @floatFromInt(scenario.points)) / (avg_ms / 1000.0);
+        total_props_per_sec += props_per_sec;
 
         std.debug.print("{s:<25} {d:>10.3} ms  ({d:.2} prop/s)\n", .{
             scenario.name,
@@ -131,6 +145,72 @@ pub fn main() !void {
             props_per_sec,
         });
     }
+    std.debug.print("{s:<25} {d:>17.2} prop/s\n", .{
+        "Average",
+        total_props_per_sec / @as(f64, @floatFromInt(scenarios.len)),
+    });
+
+    const num_threads = std.Thread.getCpuCount() catch 1;
+    std.debug.print("\n--- Multithreaded SIMD Batch{} Propagation ---\n", .{BatchSize});
+    std.debug.print("Threads: {}\n", .{num_threads});
+
+    const mt_scenarios = [_]struct { name: []const u8, points: usize, step_min: f64 }{
+        .{ .name = "1 month (second)", .points = 2592000, .step_min = 1.0 / 60.0 },
+        .{ .name = "3 months (second)", .points = 7776000, .step_min = 1.0 / 60.0 },
+        .{ .name = "1 year (minute)", .points = 525600, .step_min = 1.0 },
+        .{ .name = "1 year (second)", .points = 31536000, .step_min = 1.0 / 60.0 },
+    };
+
+    total_props_per_sec = 0.0;
+    for (mt_scenarios) |scenario| {
+        const times = try allocator.alloc(f64, scenario.points);
+        defer allocator.free(times);
+
+        for (0..scenario.points) |i| {
+            times[i] = @as(f64, @floatFromInt(i)) * scenario.step_min;
+        }
+
+        const threads = try allocator.alloc(std.Thread, num_threads);
+        defer allocator.free(threads);
+
+        var total_ns: u64 = 0;
+
+        for (0..iterations) |_| {
+            const chunk_size = (scenario.points + num_threads - 1) / num_threads;
+            var spawned: usize = 0;
+
+            const start = std.Io.Timestamp.now(init.io, .awake);
+
+            for (0..num_threads) |tid| {
+                const begin = tid * chunk_size;
+                const end_idx = @min(begin + chunk_size, scenario.points);
+                if (begin >= end_idx) break;
+                threads[spawned] = std.Thread.spawn(.{}, simdWorker, .{ &sgp4, times[begin..end_idx] }) catch break;
+                spawned += 1;
+            }
+
+            for (threads[0..spawned]) |thread| {
+                thread.join();
+            }
+
+            const end = std.Io.Timestamp.now(init.io, .awake);
+            total_ns += @intCast(start.durationTo(end).nanoseconds);
+        }
+
+        const avg_ms = @as(f64, @floatFromInt(total_ns)) / @as(f64, @floatFromInt(iterations)) / 1_000_000.0;
+        const props_per_sec = @as(f64, @floatFromInt(scenario.points)) / (avg_ms / 1000.0);
+        total_props_per_sec += props_per_sec;
+
+        std.debug.print("{s:<25} {d:>10.3} ms  ({d:.2} prop/s)\n", .{
+            scenario.name,
+            avg_ms,
+            props_per_sec,
+        });
+    }
+    std.debug.print("{s:<25} {d:>17.2} prop/s\n", .{
+        "Average",
+        total_props_per_sec / @as(f64, @floatFromInt(mt_scenarios.len)),
+    });
 
     std.debug.print("\n", .{});
 }
