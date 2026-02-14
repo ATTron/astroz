@@ -43,7 +43,6 @@ pub fn Sdp4BatchElements(comptime N: usize) type {
         // SGP4 precomputed trig
         sinio: Vec,
         cosio: Vec,
-        cosio2: Vec,
         con41: Vec,
         x1mth2: Vec,
         x7thm1: Vec,

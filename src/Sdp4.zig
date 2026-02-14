@@ -279,7 +279,7 @@ pub fn initElements(tle: Tle, grav: constants.Sgp4GravityModel) Error!Elements {
 }
 
 // Greenwich Sidereal Time
-pub fn gstime(jdut1: f64) f64 {
+fn gstime(jdut1: f64) f64 {
     const tut1 = (jdut1 - 2451545.0) / 36525.0;
     var temp = -6.2e-6 * tut1 * tut1 * tut1 +
         0.093104 * tut1 * tut1 +
