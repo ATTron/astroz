@@ -17,6 +17,7 @@ var module_methods = [_]c.PyMethodDef{
     .{ .ml_name = "coarse_screen", .ml_meth = @ptrCast(&conjunction.py_coarse_screen), .ml_flags = c.METH_VARARGS, .ml_doc = "coarse_screen(positions, num_sats, threshold, [valid_mask]) -> (pairs, t_)\n\nFind all satellite pairs within threshold distance at any time step using cell-list spatial indexing." },
     .{ .ml_name = "jday", .ml_meth = @ptrCast(&satrec.pyJday), .ml_flags = c.METH_VARARGS, .ml_doc = "jday(year, month, day, hour, minute, second) -> (jd, fr)\n\nConvert calendar date to Julian date (integer and fractional parts)." },
     .{ .ml_name = "days2mdhms", .ml_meth = @ptrCast(&satrec.pyDays2mdhms), .ml_flags = c.METH_VARARGS, .ml_doc = "days2mdhms(year, days) -> (month, day, hour, minute, second)\n\nConvert day of year to month, day, hour, minute, second." },
+    .{ .ml_name = "sdp4_batch_propagate_into", .ml_meth = @ptrCast(&satrec.pySdp4BatchPropagateInto), .ml_flags = c.METH_VARARGS | c.METH_KEYWORDS, .ml_doc = "sdp4_batch_propagate_into(satrecs, jd, fr, positions, velocities, output_stride=-1, sat_offset=0) -> None\n\nBatch SDP4 propagation with threading." },
     .{ .ml_name = null, .ml_meth = null, .ml_flags = 0, .ml_doc = null },
 };
 

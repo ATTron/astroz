@@ -65,7 +65,6 @@ pub const MultiIterator = struct {
 
 pub fn deinit(self: *Tle) void {
     self.allocator.free(self.firstLine.intlDesignator);
-    self.allocator.free(self.secondLine.cleanLine);
 }
 
 /// Helpful for sanity checking TLE parsing
@@ -202,15 +201,11 @@ pub const SecondLine = struct {
     mMotion: f64,
     revNum: u32,
     checksum: u8,
-    cleanLine: []const u8,
 
-    pub fn init(line: []const u8, allocator: std.mem.Allocator) !SecondLine {
+    pub fn init(line: []const u8, _: std.mem.Allocator) !SecondLine {
         if (line.len < 69) {
             return Error.BadTleLength;
         }
-
-        // store a copy for potential later use
-        const lineCopy = try allocator.dupe(u8, line);
 
         return .{
             .lineNumber = line[0],
@@ -223,7 +218,6 @@ pub const SecondLine = struct {
             .mMotion = try std.fmt.parseFloat(f64, trimField(line, 52, 63)),
             .revNum = try std.fmt.parseInt(u32, trimField(line, 63, 68), 10),
             .checksum = line[68],
-            .cleanLine = lineCopy,
         };
     }
 };

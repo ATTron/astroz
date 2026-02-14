@@ -72,8 +72,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 from ._astroz import (
     Tle,
+    Satrec as _Satrec,
     Sgp4Constellation as _Sgp4Constellation,
     coarse_screen as _coarse_screen,
+    sdp4_batch_propagate_into as _sdp4_batch_propagate_into,
 )
 
 _CELESTRAK_ALIASES = {
@@ -113,28 +115,53 @@ def _load_tle_text(source, norad_id=None):
         raise ValueError("Must specify 'source' or 'norad_id'")
     if source.startswith(("http://", "https://")):
         return _fetch_url(source)
-    if Path(source).exists():
-        return Path(source).read_text()
     if "1 " in source and "2 " in source:
         return source
+    if Path(source).exists():
+        return Path(source).read_text()
     return _fetch_url(_celestrak_url(group=source))
 
 
-def _get_constellation(source, norad_id=None):
-    """Get _Sgp4Constellation from source (Constellation object or TLE source)."""
-    if isinstance(source, Constellation):
-        return source._zig
-    tle_text = _load_tle_text(source, norad_id)
-    return _Sgp4Constellation.from_tle_text(tle_text)
+def _parse_tle_pairs(tle_text):
+    """Parse TLE text into list of (line1, line2) pairs."""
+    lines = [l.strip() for l in tle_text.strip().splitlines() if l.strip()]
+    pairs = []
+    i = 0
+    while i < len(lines):
+        if lines[i].startswith("1 "):
+            if i + 1 < len(lines) and lines[i + 1].startswith("2 "):
+                pairs.append((lines[i], lines[i + 1]))
+                i += 2
+                continue
+        elif lines[i].startswith("2 "):
+            i += 1
+            continue
+        # Skip name lines
+        i += 1
+    return pairs
+
+
+def _start_jd(start_time):
+    """Convert start_time to Julian Date, defaulting to current UTC."""
+    if start_time is None:
+        start_time = datetime.now(timezone.utc)
+    return 2440587.5 + (start_time.timestamp() / 86400.0)
+
+
+def _pad_epochs_for_simd(epochs_arr):
+    """Pad epoch array to multiple of 4 for SIMD alignment."""
+    n = len(epochs_arr)
+    padded = ((n + 3) // 4) * 4
+    if padded > n:
+        return np.concatenate([epochs_arr, np.full(padded - n, epochs_arr[-1])])
+    return epochs_arr
 
 
 def _compute_epoch_offsets(constellation, start_time):
     """Compute epoch offsets from start_time."""
-    if start_time is None:
-        start_time = datetime.now(timezone.utc)
-    start_jd = 2440587.5 + (start_time.timestamp() / 86400.0)
+    start = _start_jd(start_time)
     epochs = np.array(constellation.epochs, dtype=np.float64)
-    return (start_jd - epochs) * 1440.0, start_jd
+    return (start - epochs) * 1440.0, start
 
 
 class Constellation:
@@ -143,6 +170,10 @@ class Constellation:
     Use this class when you need to propagate or screen the same satellites
     multiple times. It parses TLE data once and caches the result, avoiding
     the overhead of re-parsing on every call.
+
+    Transparently handles mixed SGP4 (near-earth) and SDP4 (deep-space)
+    satellites. Near-earth satellites use SIMD batch propagation, deep-space
+    satellites use per-satellite SIMD time-major propagation.
 
     Parameters
     ----------
@@ -193,17 +224,44 @@ class Constellation:
 
     def __init__(self, source=None, *, norad_id=None):
         tle_text = _load_tle_text(source, norad_id)
-        self._zig = _Sgp4Constellation.from_tle_text(tle_text)
+        pairs = _parse_tle_pairs(tle_text)
+
+        # Separate near-earth (SGP4) and deep-space (SDP4) TLEs.
+        # Output ordering: SGP4 sats first [0, n_sgp4), SDP4 after [n_sgp4, n_total).
+        sgp4_lines = []
+        self._sdp4_satrecs = []
+        self._total_sats = len(pairs)
+
+        for l1, l2 in pairs:
+            sat = _Satrec.twoline2rv(l1, l2)
+            if sat.is_deep_space:
+                self._sdp4_satrecs.append(sat)
+            else:
+                sgp4_lines.append(l1)
+                sgp4_lines.append(l2)
+
+        self._n_sgp4 = len(sgp4_lines) // 2
+
+        # Build SGP4 constellation from near-earth TLEs only
+        self._zig = None
+        if sgp4_lines:
+            sgp4_text = "\n".join(sgp4_lines)
+            self._zig = _Sgp4Constellation.from_tle_text(sgp4_text)
 
     @property
     def num_satellites(self):
         """Number of satellites in the constellation."""
-        return self._zig.num_satellites
+        return self._total_sats
 
     @property
     def epochs(self):
         """TLE epoch for each satellite as Julian Date."""
-        return self._zig.epochs
+        epochs = []
+        if self._zig is not None:
+            epochs.extend(self._zig.epochs)
+        for sat in self._sdp4_satrecs:
+            epochs.append(sat.jdsatepoch + sat.jdsatepochF)
+        return epochs
 
 
 def propagate(
@@ -294,27 +352,59 @@ def propagate(
     Constellation : Pre-parsed TLE data for efficient reuse.
     screen : Screen for conjunction events.
     """
-    constellation = _get_constellation(source, norad_id)
+    if isinstance(source, Constellation):
+        const = source
+    else:
+        const = Constellation(source, norad_id=norad_id)
 
     times = np.ascontiguousarray(times, dtype=np.float64)
-    n_sats, n_times = constellation.num_satellites, len(times)
+    n_sats, n_times = const.num_satellites, len(times)
     shape = (n_times, n_sats, 3)
-
-    epoch_offsets, start_jd = _compute_epoch_offsets(constellation, start_time)
+    start = _start_jd(start_time)
 
     pos = np.empty(shape, dtype=np.float64)
     vel = np.empty(shape, dtype=np.float64) if velocities else None
+    n_sgp4 = const._n_sgp4
 
-    constellation.propagate_into(
-        times,
-        pos,
-        vel,
-        epoch_offsets=epoch_offsets,
-        satellite_mask=None,
-        output=output,
-        reference_jd=start_jd,
-        time_major=True,
-    )
+    # SGP4 batch: positions [0, n_sgp4) — write directly into output
+    if const._zig is not None and n_sgp4 > 0:
+        sgp4_epochs = np.array(const._zig.epochs, dtype=np.float64)
+        sgp4_offsets = (start - _pad_epochs_for_simd(sgp4_epochs)) * 1440.0
+
+        # Write SGP4 results directly into output array.
+        # For mixed case, output_stride=n_sats tells Zig to use the full
+        # satellite dimension as stride, writing SGP4 at indices [0, n_sgp4).
+        const._zig.propagate_into(
+            times,
+            pos,
+            vel,
+            epoch_offsets=sgp4_offsets,
+            satellite_mask=None,
+            output=output,
+            reference_jd=start,
+            time_major=True,
+            output_stride=n_sats,
+        )
+
+    # SDP4 batch: positions [n_sgp4, n_total) — threaded in Zig
+    n_sdp4 = len(const._sdp4_satrecs)
+    if n_sdp4 > 0:
+        abs_jd_times = start + times / 1440.0
+        common_jd = np.full(
+            n_times, np.floor(abs_jd_times[0] - 0.5) + 0.5, dtype=np.float64
+        )
+        common_fr = np.ascontiguousarray(abs_jd_times - common_jd[0], dtype=np.float64)
+
+        # Write directly into output array using stride — no temp, no copy
+        _sdp4_batch_propagate_into(
+            const._sdp4_satrecs,
+            common_jd,
+            common_fr,
+            pos,
+            vel if velocities else pos,  # vel unused if no velocities
+            output_stride=n_sats,
+            sat_offset=n_sgp4,
+        )
 
     return (pos, vel) if velocities else pos
 
@@ -403,38 +493,46 @@ def screen(
     propagate : Propagate satellites to get full position data.
     Constellation : Pre-parsed TLE data for efficient reuse.
     """
-    constellation = _get_constellation(source, norad_id)
-
-    times = np.ascontiguousarray(times, dtype=np.float64)
-    epoch_offsets, start_jd = _compute_epoch_offsets(constellation, start_time)
-
-    if target is not None:
-        # Single target - use fused propagate+screen (fastest path)
-        result = constellation.screen_conjunction(
-            times,
-            target,
-            threshold,
-            epoch_offsets=epoch_offsets,
-            reference_jd=start_jd,
-        )
-        return np.array(result[0]), np.array(result[1], dtype=np.uint32)
+    if isinstance(source, Constellation):
+        const = source
     else:
-        # All-vs-all - propagate then screen
-        n_sats, n_times = constellation.num_satellites, len(times)
-        shape = (n_times, n_sats, 3)
-        pos = np.empty(shape, dtype=np.float64)
+        const = Constellation(source, norad_id=norad_id)
 
-        constellation.propagate_into(
-            times,
-            pos,
-            None,
-            epoch_offsets=epoch_offsets,
-            satellite_mask=None,
-            output="teme",
-            reference_jd=start_jd,
-            time_major=True,
-        )
-        return _coarse_screen(pos, n_sats, threshold, None)
+    times_arr = np.ascontiguousarray(times, dtype=np.float64)
+
+    # Pure SGP4 constellation — use fast native paths
+    if not const._sdp4_satrecs and const._zig is not None:
+        constellation = const._zig
+        epoch_offsets, start_jd = _compute_epoch_offsets(constellation, start_time)
+
+        if target is not None:
+            result = constellation.screen_conjunction(
+                times_arr,
+                target,
+                threshold,
+                epoch_offsets=epoch_offsets,
+                reference_jd=start_jd,
+            )
+            return np.array(result[0]), np.array(result[1], dtype=np.uint32)
+        else:
+            n_sats, n_times = constellation.num_satellites, len(times_arr)
+            pos = np.empty((n_times, n_sats, 3), dtype=np.float64)
+            constellation.propagate_into(
+                times_arr,
+                pos,
+                None,
+                epoch_offsets=epoch_offsets,
+                satellite_mask=None,
+                output="teme",
+                reference_jd=start_jd,
+                time_major=True,
+            )
+            return _coarse_screen(pos, n_sats, threshold, None)
+
+    # Mixed SGP4/SDP4 — propagate all then screen
+    pos = propagate(const, times_arr, start_time=start_time, output="teme")
+    n_sats = const.num_satellites
+    return _coarse_screen(pos, n_sats, threshold, None)
 
 
 __version__ = "0.4.4"

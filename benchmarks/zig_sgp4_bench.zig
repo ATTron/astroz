@@ -3,8 +3,8 @@ const astroz = @import("astroz");
 
 const Tle = astroz.Tle;
 const Sgp4 = astroz.Sgp4;
-const Sgp4Batch = astroz.Sgp4Batch;
-const Sgp4Constellation = astroz.Sgp4Constellation;
+const Sgp4Batch = astroz.Constellation.Sgp4Batch;
+const Sgp4Constellation = astroz.Constellation;
 
 // ISS TLE
 const ISS_TLE =

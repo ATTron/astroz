@@ -2,7 +2,17 @@
 //! Fast vectorized trig functions that compute N values at once (N=4 or N=8)
 
 const std = @import("std");
+const builtin = @import("builtin");
 const constants = @import("constants.zig");
+
+/// Detect AVX512 at compile time
+const has_avx512 = blk: {
+    const target = builtin.cpu;
+    break :blk target.features.isEnabled(@intFromEnum(std.Target.x86.Feature.avx512f));
+};
+
+/// Optimal SIMD batch size: 8 for AVX512, 4 for AVX2/SSE
+pub const BatchSize: usize = if (has_avx512) 8 else 4;
 
 /// Generic N-wide f64 vector type
 pub fn VecN(comptime N: usize) type {
@@ -179,6 +189,20 @@ pub fn pow15N(comptime N: usize, x: VecN(N)) VecN(N) {
     return x * @sqrt(x);
 }
 
+/// x^(2/3) via Newton iteration for cube root: y^3 = x^2
+pub fn pow23N(comptime N: usize, x: VecN(N)) VecN(N) {
+    const Vec = VecN(N);
+    const x2 = x * x;
+    var y = @sqrt(x); // x^0.5, reasonable initial guess for x^0.667
+    const third: Vec = @splat(1.0 / 3.0);
+    const two_third: Vec = @splat(2.0 / 3.0);
+    // Newton: y^3 = x^2 → y_{n+1} = (2y + x²/y²) / 3
+    inline for (0..6) |_| {
+        y = two_third * y + third * x2 / (y * y);
+    }
+    return y;
+}
+
 test "sincosN(4) accuracy" {
     const testVals = VecN(4){ 0.0, std.math.pi / 6.0, std.math.pi / 4.0, std.math.pi / 2.0 };
     const result = sincosN(4, testVals);
@@ -240,5 +264,15 @@ test "modTwoPiN(8)" {
         const expected = @mod(x[i], constants.twoPi);
         const exp_pos = if (expected < 0) expected + constants.twoPi else expected;
         try std.testing.expectApproxEqAbs(exp_pos, result[i], 1e-10);
+    }
+}
+
+test "pow23N(4)" {
+    const x = VecN(4){ 1.0, 8.0, 27.0, 0.5 };
+    const result = pow23N(4, x);
+
+    inline for (0..4) |i| {
+        const expected = std.math.pow(f64, x[i], 2.0 / 3.0);
+        try std.testing.expectApproxEqAbs(expected, result[i], 1e-12);
     }
 }

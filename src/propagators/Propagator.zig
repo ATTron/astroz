@@ -1,12 +1,10 @@
 //! Propagator orchestrates integration over a time span
 const std = @import("std");
+const calculations = @import("../calculations.zig");
 const Integrator = @import("Integrator.zig").Integrator;
 const ForceModel = @import("ForceModel.zig").ForceModel;
 
-pub const StateTime = struct {
-    time: f64, // seconds from epoch
-    state: [6]f64, // [x, y, z, vx, vy, vz] in km and km/s
-};
+pub const StateTime = calculations.StateTime;
 
 pub const Propagator = struct {
     integrator: Integrator,

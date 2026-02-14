@@ -72,7 +72,9 @@ from ._astroz import (
     days2mdhms,
     WGS72,
     WGS84,
+    sdp4_batch_propagate_into as _sdp4_batch_propagate_into,
 )
+from . import _pad_epochs_for_simd
 
 # Alias for compatibility (WGS72OLD = WGS72 in python-sgp4)
 WGS72OLD = WGS72
@@ -82,9 +84,10 @@ accelerated = True
 
 
 class Satrec:
-    """SGP4 satellite record with SIMD-accelerated batch propagation.
+    """SGP4/SDP4 satellite record with SIMD-accelerated batch propagation.
 
     Drop-in replacement for sgp4.api.Satrec. Use twoline2rv() to create.
+    Works transparently for both near-earth (SGP4) and deep-space (SDP4) orbits.
 
     Example
     -------
@@ -96,7 +99,6 @@ class Satrec:
     def __init__(self, _native):
         """Wrap a native Satrec. Use twoline2rv() instead."""
         self._native = _native
-        self._cached_array = None
 
     @classmethod
     def twoline2rv(cls, line1, line2, whichconst=WGS72):
@@ -143,7 +145,8 @@ class Satrec:
         """Propagate to multiple times using SIMD acceleration.
 
         This is the python-sgp4 compatible batch interface for a single satellite.
-        Uses SIMD internally for high throughput.
+        Uses SIMD internally via propagateN(4, ...) for high throughput.
+        Works for both SGP4 (near-earth) and SDP4 (deep-space) satellites.
 
         Parameters
         ----------
@@ -167,14 +170,14 @@ class Satrec:
         >>> fr = np.array([0.0001, 0.0002, 0.0003])
         >>> e, r, v = sat.sgp4_array(jd, fr)
         """
-        # Lazily create SatrecArray for SIMD batch propagation
-        if self._cached_array is None:
-            self._cached_array = SatrecArray([self._native])
-
-        e, r, v = self._cached_array.sgp4(jd, fr)
-
-        # Squeeze out the satellite dimension (n_sats=1)
-        return e[0], r[0], v[0]
+        jd = np.atleast_1d(np.asarray(jd, dtype=np.float64))
+        fr = np.atleast_1d(np.asarray(fr, dtype=np.float64))
+        n = len(jd)
+        r = np.empty((n, 3), dtype=np.float64)
+        v = np.empty((n, 3), dtype=np.float64)
+        self._native.sgp4_array_into(jd, fr, r, v)
+        e = np.zeros(n, dtype=np.uint8)
+        return e, r, v
 
     def __getattr__(self, name):
         """Delegate attribute access to native Satrec object."""
@@ -185,9 +188,10 @@ class Satrec:
 
 
 class SatrecArray:
-    """Batch SGP4 propagator - python-sgp4 compatible with SIMD acceleration.
+    """Batch SGP4/SDP4 propagator - python-sgp4 compatible with SIMD acceleration.
 
     Drop-in replacement for sgp4.api.SatrecArray that achieves 270-330M props/sec.
+    Transparently handles mixed SGP4 (near-earth) and SDP4 (deep-space) satellites.
 
     Parameters
     ----------
@@ -213,33 +217,41 @@ class SatrecArray:
     def __init__(self, satrecs):
         # Unwrap our Satrec wrappers if needed
         native_satrecs = [s._native if isinstance(s, Satrec) else s for s in satrecs]
-        self._zig = _SatrecArray(native_satrecs)
-        self._num_sats = self._zig.num_satellites
-        self._epochs = np.array(self._zig.epochs, dtype=np.float64)
-        # Pad epochs for SIMD alignment
-        padded = ((self._num_sats + 3) // 4) * 4
-        if padded > self._num_sats:
-            self._epochs_padded = np.concatenate(
-                [self._epochs, np.full(padded - self._num_sats, self._epochs[-1])]
-            )
-        else:
-            self._epochs_padded = self._epochs
+        self._num_sats = len(native_satrecs)
+
+        # Separate SGP4 (near-earth) and SDP4 (deep-space) satellites
+        self._sgp4_indices = []
+        self._sdp4_indices = []
+        self._sdp4_natives = []
+        sgp4_natives = []
+
+        for i, sat in enumerate(native_satrecs):
+            if sat.is_deep_space:
+                self._sdp4_indices.append(i)
+                self._sdp4_natives.append(sat)
+            else:
+                self._sgp4_indices.append(i)
+                sgp4_natives.append(sat)
+
+        # Build SIMD batch from SGP4 sats only
+        self._zig = None
+        self._epochs_padded = None
+        if sgp4_natives:
+            self._zig = _SatrecArray(sgp4_natives)
+            sgp4_epochs = np.array(self._zig.epochs, dtype=np.float64)
+            self._epochs_padded = _pad_epochs_for_simd(sgp4_epochs)
 
     @property
     def num_satellites(self):
         """Number of satellites in the array."""
         return self._num_sats
 
-    @property
-    def epochs(self):
-        """Epoch Julian dates for each satellite."""
-        return self._epochs.tolist()
-
     def sgp4(self, jd, fr, *, velocities=True):
         """Propagate all satellites to the given Julian dates.
 
         This is the python-sgp4 compatible interface that returns NumPy arrays.
-        Uses SIMD internally for 270-330M props/sec throughput.
+        SGP4 satellites use satellite-major SIMD batch propagation.
+        SDP4 satellites use time-major SIMD via propagateN(4, ...).
 
         Parameters
         ----------
@@ -276,27 +288,73 @@ class SatrecArray:
         fr = np.atleast_1d(np.asarray(fr, dtype=np.float64))
         n_times = len(jd)
         n_sats = self._num_sats
+        pure_sgp4 = not self._sdp4_indices
 
-        # Pre-allocate output arrays (time-major for SIMD, then transpose)
-        e = np.zeros((n_times, n_sats), dtype=np.uint8)
-        r = np.empty((n_times, n_sats, 3), dtype=np.float64)
-        v = np.empty((n_times, n_sats, 3), dtype=np.float64) if velocities else None
+        # Final output arrays (sat-major)
+        e = np.zeros((n_sats, n_times), dtype=np.uint8)
 
-        # Compute epoch offsets and times
-        reference_jd = jd[0] + fr[0]
-        epoch_offsets = (reference_jd - self._epochs_padded) * 1440.0
-        times = ((jd + fr) - reference_jd) * 1440.0
+        # SGP4 batch (SIMD + threaded)
+        if self._zig is not None and self._sgp4_indices:
+            n_sgp4 = len(self._sgp4_indices)
 
-        # Call SIMD propagation (passes None for velocities to skip computation)
-        self._zig.propagate_into(times, r, v, epoch_offsets=epoch_offsets)
+            reference_jd = jd[0] + fr[0]
+            epoch_offsets = (reference_jd - self._epochs_padded) * 1440.0
+            times = ((jd + fr) - reference_jd) * 1440.0
 
-        # Transpose to (n_sats, n_times, ...) to match python-sgp4 output format
-        e = e.T  # (n_sats, n_times)
-        r = r.transpose(1, 0, 2)  # (n_sats, n_times, 3)
-        if velocities:
-            v = v.transpose(1, 0, 2)  # (n_sats, n_times, 3)
+            if pure_sgp4:
+                # Fast path: all satellites are SGP4, propagate time-major
+                # then return transposed view — no copy or scatter needed
+                r_tm = np.empty((n_times, n_sgp4, 3), dtype=np.float64)
+                v_tm = (
+                    np.empty((n_times, n_sgp4, 3), dtype=np.float64)
+                    if velocities
+                    else None
+                )
+                self._zig.propagate_into(times, r_tm, v_tm, epoch_offsets=epoch_offsets)
+                r = r_tm.transpose(1, 0, 2)
+                v = (
+                    v_tm.transpose(1, 0, 2)
+                    if velocities
+                    else np.zeros((n_sats, n_times, 3), dtype=np.float64)
+                )
+                return e, r, v
+            else:
+                # Mixed: propagate SGP4 batch, scatter to correct indices
+                r = np.empty((n_sats, n_times, 3), dtype=np.float64)
+                v = (
+                    np.empty((n_sats, n_times, 3), dtype=np.float64)
+                    if velocities
+                    else np.zeros((n_sats, n_times, 3), dtype=np.float64)
+                )
+                r_tm = np.empty((n_times, n_sgp4, 3), dtype=np.float64)
+                v_tm = (
+                    np.empty((n_times, n_sgp4, 3), dtype=np.float64)
+                    if velocities
+                    else None
+                )
+                self._zig.propagate_into(times, r_tm, v_tm, epoch_offsets=epoch_offsets)
+                sgp4_idx = np.array(self._sgp4_indices)
+                r[sgp4_idx] = r_tm.transpose(1, 0, 2)
+                if velocities:
+                    v[sgp4_idx] = v_tm.transpose(1, 0, 2)
         else:
-            v = np.zeros((n_sats, n_times, 3), dtype=np.float64)
+            r = np.empty((n_sats, n_times, 3), dtype=np.float64)
+            v = (
+                np.empty((n_sats, n_times, 3), dtype=np.float64)
+                if velocities
+                else np.zeros((n_sats, n_times, 3), dtype=np.float64)
+            )
+
+        # SDP4 batch (threaded in Zig)
+        if self._sdp4_natives:
+            n_sdp4 = len(self._sdp4_natives)
+            sdp4_r = np.empty((n_sdp4, n_times, 3), dtype=np.float64)
+            sdp4_v = np.empty((n_sdp4, n_times, 3), dtype=np.float64)
+            _sdp4_batch_propagate_into(self._sdp4_natives, jd, fr, sdp4_r, sdp4_v)
+            sdp4_idx = np.array(self._sdp4_indices)
+            r[sdp4_idx] = sdp4_r
+            if velocities:
+                v[sdp4_idx] = sdp4_v
 
         return e, r, v
 
