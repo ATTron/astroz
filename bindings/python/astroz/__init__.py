@@ -149,9 +149,9 @@ def _start_jd(start_time):
 
 
 def _pad_epochs_for_simd(epochs_arr):
-    """Pad epoch array to multiple of 4 for SIMD alignment."""
+    """Pad epoch array to multiple of 8 for SIMD alignment."""
     n = len(epochs_arr)
-    padded = ((n + 3) // 4) * 4
+    padded = ((n + 7) // 8) * 8
     if padded > n:
         return np.concatenate([epochs_arr, np.full(padded - n, epochs_arr[-1])])
     return epochs_arr
@@ -535,7 +535,7 @@ def screen(
     return _coarse_screen(pos, n_sats, threshold, None)
 
 
-__version__ = "0.4.4"
+__version__ = "0.7.1"
 
 __all__ = [
     "__version__",

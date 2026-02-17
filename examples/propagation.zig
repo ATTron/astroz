@@ -2,6 +2,7 @@ const std = @import("std");
 const astroz = @import("astroz");
 const Tle = astroz.Tle;
 const Sgp4 = astroz.Sgp4;
+const Satellite = astroz.Satellite;
 const constants = astroz.constants;
 const propagators = astroz.propagators;
 
@@ -109,4 +110,32 @@ pub fn main() !void {
 
     std.debug.print("\nNote: SGP4 includes J2/drag perturbations analytically,\n", .{});
     std.debug.print("while RK4+TwoBody is pure Keplerian - expect divergence.\n", .{});
+
+    // Example 4: Unified Satellite type (auto-dispatches SGP4/SDP4)
+    std.debug.print("\n=== Unified Satellite (auto SGP4/SDP4) ===\n", .{});
+
+    // Near-earth: automatically uses SGP4
+    const sat_leo = try Satellite.init(tle, constants.wgs84);
+    std.debug.print("ISS (LEO): deep_space={}\n", .{sat_leo.isDeepSpace()});
+    const leo_result = try sat_leo.propagate(60);
+    const leo_r = @sqrt(leo_result[0][0] * leo_result[0][0] +
+        leo_result[0][1] * leo_result[0][1] +
+        leo_result[0][2] * leo_result[0][2]);
+    std.debug.print("  t=60 min: r={d:.1} km\n", .{leo_r});
+
+    // Deep-space: automatically uses SDP4
+    const gpsTleStr =
+        \\1 20413U 90005A   24186.00000000  .00000012  00000+0  10000-3 0  9992
+        \\2 20413  55.4408  61.4858 0112981 129.5765 231.5553  2.00561730104446
+    ;
+    var gpsTle = try Tle.parse(gpsTleStr, allocator);
+    defer gpsTle.deinit();
+
+    const sat_gps = try Satellite.init(gpsTle, constants.wgs72);
+    std.debug.print("GPS (MEO): deep_space={}\n", .{sat_gps.isDeepSpace()});
+    const gps_result = try sat_gps.propagate(720);
+    const gps_r = @sqrt(gps_result[0][0] * gps_result[0][0] +
+        gps_result[0][1] * gps_result[0][1] +
+        gps_result[0][2] * gps_result[0][2]);
+    std.debug.print("  t=720 min: r={d:.1} km\n", .{gps_r});
 }

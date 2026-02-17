@@ -599,7 +599,7 @@ class Satrec:
     ) -> None:
         """SIMD batch propagation writing directly into pre-allocated arrays.
 
-        Uses propagateN(4, ...) internally for both SGP4 and SDP4 satellites.
+        Uses SIMD batch propagation internally for both SGP4 and SDP4 satellites.
 
         Parameters
         ----------

@@ -6,7 +6,6 @@ const std = @import("std");
 const constants = @import("constants.zig");
 const simdMath = @import("simdMath.zig");
 const Sgp4 = @import("Sgp4.zig");
-const Sgp4Batch = @import("Sgp4Batch.zig");
 const Sdp4 = @import("Sdp4.zig");
 const Tle = @import("Tle.zig");
 
@@ -14,9 +13,6 @@ const Error = Sgp4.Error;
 
 /// Batch size: 8 for AVX512, 4 for AVX2/SSE
 pub const BatchSize: usize = simdMath.BatchSize;
-
-/// Position and velocity as VecN (SoA)
-pub const PositionVelocity = Sgp4Batch.PositionVelocity;
 
 pub fn Sdp4BatchElements(comptime N: usize) type {
     const Vec = simdMath.VecN(N);
@@ -202,7 +198,7 @@ pub fn initFromElements(comptime N: usize, els: [N]Sdp4.Elements, grav: constant
 /// Core batch propagation: N satellites × 1 time.
 /// tsince is a Vec with per-satellite tsince values (different epochs -> different tsince).
 /// carry holds resonance integration state across sequential time calls.
-pub fn propagateBatchDirect(comptime N: usize, el: *const Sdp4BatchElements(N), tsince: simdMath.VecN(N), carry: *ResonanceCarryBatch(N)) Error!PositionVelocity(N) {
+pub fn propagateBatchDirect(comptime N: usize, el: *const Sdp4BatchElements(N), tsince: simdMath.VecN(N), carry: *ResonanceCarryBatch(N)) Error!Sgp4.PositionVelocity(N) {
     const Vec = simdMath.VecN(N);
 
     const one: Vec = @splat(1.0);
@@ -345,7 +341,7 @@ pub fn propagateBatchDirect(comptime N: usize, el: *const Sdp4BatchElements(N), 
     const x7thm1 = seven * cosip2 - one;
 
     // Steps 6-8: Kepler solver + short-period corrections + position/velocity (shared with SGP4)
-    return Sgp4Batch.keplerAndPosVel(N, am, em, mm, argpm, nodem, inclm, aycof, xlcof, con41, x1mth2, x7thm1, sinip, cosip, el.xke, el.j2, el.radiusEarthKm, el.vkmpersec);
+    return Sgp4.keplerAndPosVel(N, am, em, mm, argpm, nodem, inclm, aycof, xlcof, con41, x1mth2, x7thm1, sinip, cosip, el.xke, el.j2, el.radiusEarthKm, el.vkmpersec);
 }
 
 /// Compute resonance acceleration for a heterogeneous batch.

@@ -1292,8 +1292,6 @@ pub fn propagateN(self: *const Sdp4, comptime N: usize, times: [N]f64) Error![N]
     const zero: Vec = @splat(0.0);
     const half: Vec = @splat(0.5);
     const quarter: Vec = @splat(0.25);
-    const oneHalf: Vec = @splat(1.5);
-    const two: Vec = @splat(2.0);
     const three: Vec = @splat(3.0);
     const five: Vec = @splat(5.0);
     const seven: Vec = @splat(7.0);
@@ -1394,79 +1392,27 @@ pub fn propagateN(self: *const Sdp4, comptime N: usize, times: [N]f64) Error![N]
     const con41 = three * cosip2 - one;
     const x7thm1 = seven * cosip2 - one;
 
-    // Step 6: Kepler solver (inlined with per lane aycof/xlcof)
-    // NOTE: Kepler solver and short-period corrections are inlined here rather than
-    // reusing Sgp4.solveKeplerN/applyShortPeriodCorrectionsN because dpper modifies
-    // inclination per-lane, requiring per-lane aycof, xlcof, con41, x1mth2, x7thm1.
-    // SGP4's SIMD functions splat these from scalar Elements and can't handle per-lane values.
-
-    const temp_kep = one / (am * (one - em * em));
-    const sc_argpm = simdMath.sincosN(N, argpm);
-    const axnl = em * sc_argpm.cos;
-    const aynl = em * sc_argpm.sin + temp_kep * aycof;
-    const xl = simdMath.modTwoPiN(N, mm + argpm + nodem + temp_kep * xlcof * axnl);
-
-    var u = simdMath.modTwoPiN(N, xl - nodem);
-    var eo1 = u;
-    var sineo1: Vec = zero;
-    var coseo1: Vec = one;
-
-    const tolerance: Vec = @splat(1.0e-12);
-    const clampVal: Vec = @splat(0.95);
-
-    var ktr: u32 = 0;
-    while (ktr < 10) : (ktr += 1) {
-        const sc_eo1 = simdMath.sincosN(N, eo1);
-        sineo1 = sc_eo1.sin;
-        coseo1 = sc_eo1.cos;
-        var tem5 = one - coseo1 * axnl - sineo1 * aynl;
-        tem5 = (u - aynl * coseo1 + axnl * sineo1 - eo1) / tem5;
-        tem5 = @max(-clampVal, @min(clampVal, tem5));
-        eo1 = eo1 + tem5;
-        const converged = @abs(tem5) < tolerance;
-        if (@reduce(.And, converged)) break;
-    }
-
-    const ecose = axnl * coseo1 + aynl * sineo1;
-    const esine = axnl * sineo1 - aynl * coseo1;
-    const el2 = axnl * axnl + aynl * aynl;
-    const pl = am * (one - el2);
-    const betal = @sqrt(one - el2);
-    const rl = am * (one - ecose);
-    const rdotl = @sqrt(am) * esine / rl;
-    const rvdotl = @sqrt(pl) / rl;
-
-    const aOverR = am / rl;
-    const esineTerm = esine / (one + betal);
-    const sinu = aOverR * (sineo1 - aynl - axnl * esineTerm);
-    const cosu = aOverR * (coseo1 - axnl + aynl * esineTerm);
-    u = simdMath.atan2N(N, sinu, cosu);
-
-    const sin2u = two * sinu * cosu;
-    const cos2u = one - two * sinu * sinu;
-
-    // Step 7: Short period corrections (inlined with per lane con41/x1mth2/x7thm1)
-    const j2V: Vec = @splat(sgp4El.grav.j2);
-    const temp1_sp = half * j2V / pl;
-    const temp2_sp = temp1_sp / pl;
-
-    const mrt = rl * (one - oneHalf * temp2_sp * betal * con41) + half * temp1_sp * x1mth2 * cos2u;
-    const su = u - quarter * temp2_sp * x7thm1 * sin2u;
-    const xnode = nodem + oneHalf * temp2_sp * cosip * sin2u;
-    const xinc = inclm + oneHalf * temp2_sp * cosip * sinip * cos2u;
-    const mvt = rdotl - nm * temp1_sp * x1mth2 * sin2u / xkeV;
-    const rvdot = rvdotl + nm * temp1_sp * (x1mth2 * cos2u + oneHalf * con41) / xkeV;
-
-    // Step 8: Position/velocity transform (reuse SGP4)
-    const corrected: Sgp4.CorrectedStateN(N) = .{
-        .r = mrt,
-        .rdot = mvt,
-        .rvdot = rvdot,
-        .u = su,
-        .xnode = xnode,
-        .xinc = xinc,
-    };
-    return Sgp4.computePositionVelocityN(N, sgp4El, corrected);
+    // Steps 6-8: Kepler solver + short-period corrections + position/velocity (shared with SGP4)
+    return Sgp4.pvToArrays(N, Sgp4.keplerAndPosVel(
+        N,
+        am,
+        em,
+        mm,
+        argpm,
+        nodem,
+        inclm,
+        aycof,
+        xlcof,
+        con41,
+        x1mth2,
+        x7thm1,
+        sinip,
+        cosip,
+        xkeV,
+        @as(Vec, @splat(sgp4El.grav.j2)),
+        @as(Vec, @splat(sgp4El.grav.radiusEarthKm)),
+        @as(Vec, @splat(sgp4El.vkmpersec)),
+    ));
 }
 
 const testing = std.testing;

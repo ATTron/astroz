@@ -1,6 +1,6 @@
 # astroz Python Bindings
 
-High-performance SGP4 satellite propagation, powered by Zig with SIMD acceleration (AVX512/AVX2).
+High-performance SGP4/SDP4 satellite propagation, powered by Zig with SIMD acceleration (AVX512/AVX2). Automatically handles both near-earth and deep-space satellites.
 
 **Platforms:** macOS, Linux | **Requires:** Python 3.10+
 

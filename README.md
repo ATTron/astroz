@@ -8,11 +8,11 @@
 
 ## Astronomical and Spacecraft Toolkit Written in Zig
 
-**Featuring the fastest CPU based open source SGP4 propagator**
+**Featuring the fastest CPU based open source SGP4/SDP4 propagator**
 
 | Orbital Mechanics | Spacecraft Ops | Astronomy |
 |-------------------|----------------|-----------|
-| SGP4 propagation | CCSDS packets | FITS parsing |
+| SGP4/SDP4 propagation | CCSDS packets | FITS parsing |
 | TLE parsing | VITA49 packets | WCS coordinates |
 | Orbital maneuvers | Attitude determination | Star precession |
 | Force models (J2-J4, drag, SRP, third-body) | CSPICE ephemeris | Celestial bodies |
@@ -20,7 +20,7 @@
 
 ### Performance
 
-Sub-meter accuracy validated against reference implementations. Uses SIMD (AVX512/AVX2) to process 8 satellites simultaneously, with multithreaded constellation propagation across all available cores.
+Sub-meter accuracy validated against reference implementations. Automatically dispatches between SGP4 (near-earth) and SDP4 (deep-space) based on orbital period. Uses SIMD (AVX512/AVX2) to process 8 satellites simultaneously, with multithreaded constellation propagation across all available cores.
 
 #### Single-Threaded (1.2M propagations, single satellite)
 
@@ -54,7 +54,7 @@ Force models and propagators are validated against reference implementations:
 
 | Component | Reference | Tolerance |
 |-----------|-----------|-----------|
-| SGP4 propagation | python-sgp4 | < 100m position |
+| SGP4/SDP4 propagation | python-sgp4 | < 100m position |
 | J2 RAAN drift | Vallado analytical | < 1% |
 | Hohmann transfer ΔV | poliastro | < 0.1% |
 | Orbital periods | Analytical | 1e-10 relative |
@@ -74,7 +74,7 @@ pip install astroz
 
 #### python-sgp4 Compatible API (Recommended)
 
-Drop-in replacement for [python-sgp4](https://github.com/brandon-rhodes/python-sgp4). Just change the import for instant speedup:
+Drop-in replacement for [python-sgp4](https://github.com/brandon-rhodes/python-sgp4) with transparent deep-space (SDP4) support. Just change the import for instant speedup:
 
 ```python
 # Before                                    # After
@@ -166,6 +166,20 @@ const astroz_mod = astroz_dep.module("astroz");
 exe.root_module.addImport("astroz", astroz_mod);
 ```
 
+- Propagate any satellite — the `Satellite` type auto-selects SGP4 or SDP4:
+
+```zig
+const astroz = @import("astroz");
+
+var tle = try astroz.Tle.parse(tle_string, allocator);
+defer tle.deinit();
+
+const sat = try astroz.Satellite.init(tle, astroz.constants.wgs84);
+const result = try sat.propagate(60.0); // minutes from epoch
+const pos = result[0]; // [x, y, z] km
+const vel = result[1]; // [vx, vy, vz] km/s
+```
+
 ### Examples
 
 #### Spacecraft Operations
@@ -190,15 +204,15 @@ exe.root_module.addImport("astroz", astroz_mod);
 - #### [Monte Carlo Simulation](examples/simple_monte_carlo.zig)
   Statistical analysis for mission planning with uncertainty.
 
-- #### [SGP4 Propagation](examples/sgp4_propagation.zig)
-  Analytical orbit propagation using SGP4 with TLE input. Demonstrates both direct SGP4 usage and the modular propagator interface.
+- #### [Propagation](examples/propagation.zig)
+  Analytical orbit propagation using SGP4/SDP4 with TLE input. Demonstrates direct SGP4 usage, the modular propagator interface, and the unified Satellite type that auto-dispatches between SGP4 and SDP4.
 
 - #### [SPICE Propagation](examples/spice_propagation.zig)
   High-fidelity LEO propagation with SPICE-updated Sun/Moon ephemeris. Combines TwoBody + J2 + SRP + third-body perturbations with real-time position updates.
 
 - #### [Cesium Satellite Visualization](examples/README.md) — **[Live Demo](https://attron.github.io/astroz-demo/)**
 
-  Interactive 3D visualization of the entire near-earth satellite catalog (~13,000 satellites) using Cesium. Features multithreaded SGP4 propagation at ~300M props/sec, constellation filtering, search, and satellite tracking.
+  Interactive 3D visualization of the entire near-earth satellite catalog (~13,000 satellites) using Cesium. Features multithreaded SGP4/SDP4 propagation at ~300M props/sec, constellation filtering, search, and satellite tracking.
 
 #### Telemetry & Data Handling
 

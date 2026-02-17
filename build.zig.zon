@@ -1,6 +1,6 @@
 .{
     .name = .astroz,
-    .version = "0.7.1",
+    .version = "0.9.0",
     .fingerprint = 0x2d8583fca695159f, // Changing this has security and trust implications.
     .minimum_zig_version = "0.16.0-dev.2535+b5bd49460",
     .dependencies = .{
