@@ -9,7 +9,6 @@ const Tle = @import("Tle.zig");
 const Elements = Sgp4.Elements;
 const Error = Sgp4.Error;
 
-/// Batch size: 8 for AVX512, 4 for AVX2/SSE
 pub const BatchSize: usize = simdMath.BatchSize;
 
 /// Struct-of-arrays for N satellites (generic over batch size)

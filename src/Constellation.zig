@@ -15,11 +15,11 @@ const Tle = @import("Tle.zig");
 const Datetime = @import("Datetime.zig");
 const constants = @import("constants.zig");
 pub const simdMath = @import("simdMath.zig");
+const dispatch = @import("dispatch.zig");
 const WCS = @import("WorldCoordinateSystem.zig");
 
 const Error = Sgp4.Error;
 
-/// Compile time batch size: 8 for AVX512, 4 for AVX2/SSE
 pub const BatchSize: usize = Sgp4Batch.BatchSize;
 const Vec = simdMath.VecN(BatchSize);
 const Sgp4Bels = Sgp4Batch.BatchElements(BatchSize);
@@ -433,7 +433,7 @@ inline fn sgp4Core(
     }
     const tsinceVec: Vec = @as(Vec, @splat(ctx.tsinceBase[timeIdx])) + @as(Vec, offArr);
 
-    const pv = Sgp4Batch.propagateBatchDirect(BatchSize, &ctx.sgp4Batches[batchIdx], tsinceVec) catch {
+    const pv = dispatch.sgp4Batch8(&ctx.sgp4Batches[batchIdx], tsinceVec) catch {
         writeZeros(layout, hasVel, ctx, ctx.sgp4OrigIndices, base, ctx.numSgp4, timeIdx);
         return;
     };
@@ -474,7 +474,7 @@ fn unifiedSdp4Range(
             }
             const tsinceVec: Vec = tArr;
 
-            const pv = Sdp4Batch.propagateBatchDirect(BatchSize, &ctx.sdp4Batches[batchIdx], tsinceVec, &ctx.sdp4Carries[batchIdx]) catch {
+            const pv = dispatch.sdp4Batch8(&ctx.sdp4Batches[batchIdx], tsinceVec, &ctx.sdp4Carries[batchIdx]) catch {
                 writeZeros(layout, hasVel, ctx, ctx.sdp4OrigIndices, base, ctx.numSdp4, timeIdx);
                 continue;
             };
@@ -735,7 +735,7 @@ pub fn screenConstellation(
 
     for (times, 0..) |time, timeIdx| {
         const targetTime: Vec = @splat(time + targetEpochOffset);
-        const targetPv = Sgp4Batch.propagateBatchDirect(BatchSize, targetBatch, targetTime) catch continue;
+        const targetPv = dispatch.sgp4Batch8(targetBatch, targetTime) catch continue;
         const targetPos = eciToEcefDirect(BatchSize, targetPv.rx, targetPv.ry, targetPv.rz, sinBuf[timeIdx], cosBuf[timeIdx]);
         const tArr: [BatchSize]f64 = targetPos.x;
         const tx = tArr[targetLane];
@@ -751,7 +751,7 @@ pub fn screenConstellation(
                 batchTimes[i] = time + epochOffsets[satBase + i];
             }
 
-            const pv = Sgp4Batch.propagateBatchDirect(BatchSize, batch, batchTimes) catch continue;
+            const pv = dispatch.sgp4Batch8(batch, batchTimes) catch continue;
             const pos = eciToEcefDirect(BatchSize, pv.rx, pv.ry, pv.rz, sinBuf[timeIdx], cosBuf[timeIdx]);
             const xArr: [BatchSize]f64 = pos.x;
             const yArr: [BatchSize]f64 = pos.y;

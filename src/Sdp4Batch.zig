@@ -11,7 +11,6 @@ const Tle = @import("Tle.zig");
 
 const Error = Sgp4.Error;
 
-/// Batch size: 8 for AVX512, 4 for AVX2/SSE
 pub const BatchSize: usize = simdMath.BatchSize;
 
 pub fn Sdp4BatchElements(comptime N: usize) type {

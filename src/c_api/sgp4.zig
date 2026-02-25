@@ -4,8 +4,8 @@ const astroz = @import("astroz");
 const Sgp4 = astroz.Sgp4;
 const Tle = astroz.Tle;
 const constants = astroz.constants;
+const dispatch = astroz.dispatch;
 
-/// Batch size from core library (4 for AVX2, 8 for AVX512)
 const BatchSize = astroz.Constellation.BatchSize;
 
 const allocator = @import("allocator.zig");
@@ -66,7 +66,7 @@ pub fn propagateBatch(handle: Handle, times: [*]const f64, results: [*]f64, coun
         var batch: [BatchSize]f64 = undefined;
         inline for (0..BatchSize) |j| batch[j] = times[i + @min(j, remaining - 1)];
 
-        const batchResult = ptr.propagateN(BatchSize, batch) catch |e| {
+        const batchResult = dispatch.sgp4Times8(ptr, batch) catch |e| {
             return switch (e) {
                 Sgp4.Error.SatelliteDecayed => .satelliteDecayed,
                 else => err.fromError(e),
