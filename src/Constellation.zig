@@ -21,7 +21,7 @@ const WCS = @import("WorldCoordinateSystem.zig");
 const Error = Sgp4.Error;
 
 pub const BatchSize: usize = Sgp4Batch.BatchSize;
-const Vec = simdMath.VecN(BatchSize);
+const BatchResults = Sgp4.PosVelArray(BatchSize);
 const Sgp4Bels = Sgp4Batch.BatchElements(BatchSize);
 const Sdp4Bels = Sdp4Batch.Sdp4BatchElements(BatchSize);
 const Sdp4Carry = Sdp4Batch.ResonanceCarryBatch(BatchSize);
@@ -50,16 +50,9 @@ pub inline fn outBase(comptime layout: Layout, satIdx: usize, timeIdx: usize, nu
         timeIdx * numSatellites * 3 + satIdx * 3;
 }
 
-/// Rotate N ECI position vectors to ECEF using precomputed sin/cos values
-pub inline fn eciToEcefDirect(comptime N: usize, x: simdMath.VecN(N), y: simdMath.VecN(N), z: simdMath.VecN(N), sinG: f64, cosG: f64) WCS.Vec3N(N) {
-    const VecT = simdMath.VecN(N);
-    const cosVec: VecT = @splat(cosG);
-    const sinVec: VecT = @splat(sinG);
-    return .{
-        .x = x * cosVec + y * sinVec,
-        .y = y * cosVec - x * sinVec,
-        .z = z,
-    };
+/// Scalar ECI to ECEF rotation for a single position vector
+inline fn eciToEcef(pos: [3]f64, sinG: f64, cosG: f64) [3]f64 {
+    return .{ pos[0] * cosG + pos[1] * sinG, pos[1] * cosG - pos[0] * sinG, pos[2] };
 }
 
 /// Cached thread count to avoid repeated syscalls
@@ -155,7 +148,7 @@ pub fn init(allocator: Allocator, tles: []const Tle, grav: constants.Sgp4Gravity
         }
         sgp4Batches[bi] = try Sgp4Batch.initBatchElements(BatchSize, bt, grav);
 
-        const epochs: [BatchSize]f64 = sgp4Batches[bi].epochJd;
+        const epochs: [BatchSize]f64 = simdMath.readArray(BatchSize, &sgp4Batches[bi].epochJd);
         for (0..BatchSize) |lane| {
             sgp4EpochOff[base + lane] = (refEpoch - epochs[lane]) * 1440.0;
             sgp4Orig[base + lane] = if (base + lane < nSgp4) sgp4Idx[base + lane] else sgp4Idx[nSgp4 - 1];
@@ -427,18 +420,17 @@ inline fn sgp4Core(
 ) void {
     const base = batchIdx * BatchSize;
 
-    var offArr: [BatchSize]f64 = undefined;
+    var tsince: [BatchSize]f64 = undefined;
     inline for (0..BatchSize) |lane| {
-        offArr[lane] = ctx.sgp4EpochOffsets[base + lane];
+        tsince[lane] = ctx.tsinceBase[timeIdx] + ctx.sgp4EpochOffsets[base + lane];
     }
-    const tsinceVec: Vec = @as(Vec, @splat(ctx.tsinceBase[timeIdx])) + @as(Vec, offArr);
 
-    const pv = dispatch.sgp4Batch8(&ctx.sgp4Batches[batchIdx], tsinceVec) catch {
+    const results = dispatch.sgp4Batch8(&ctx.sgp4Batches[batchIdx], tsince) catch {
         writeZeros(layout, hasVel, ctx, ctx.sgp4OrigIndices, base, ctx.numSgp4, timeIdx);
         return;
     };
 
-    writeOutput(layout, mode, hasVel, ctx, ctx.sgp4OrigIndices, base, ctx.numSgp4, timeIdx, pv.rx, pv.ry, pv.rz, pv.vx, pv.vy, pv.vz);
+    writeOutput(layout, mode, hasVel, ctx, ctx.sgp4OrigIndices, base, ctx.numSgp4, timeIdx, results);
 }
 
 /// Check if any lane in a batch is active (not masked out)
@@ -472,14 +464,13 @@ fn unifiedSdp4Range(
             inline for (0..BatchSize) |lane| {
                 tArr[lane] = (jdT - batchEpochs[lane]) * 1440.0;
             }
-            const tsinceVec: Vec = tArr;
 
-            const pv = dispatch.sdp4Batch8(&ctx.sdp4Batches[batchIdx], tsinceVec, &ctx.sdp4Carries[batchIdx]) catch {
+            const results = dispatch.sdp4Batch8(&ctx.sdp4Batches[batchIdx], tArr, &ctx.sdp4Carries[batchIdx]) catch {
                 writeZeros(layout, hasVel, ctx, ctx.sdp4OrigIndices, base, ctx.numSdp4, timeIdx);
                 continue;
             };
 
-            writeOutput(layout, mode, hasVel, ctx, ctx.sdp4OrigIndices, base, ctx.numSdp4, timeIdx, pv.rx, pv.ry, pv.rz, pv.vx, pv.vy, pv.vz);
+            writeOutput(layout, mode, hasVel, ctx, ctx.sdp4OrigIndices, base, ctx.numSdp4, timeIdx, results);
         }
     }
 }
@@ -493,29 +484,26 @@ inline fn writeOutput(
     base: usize,
     numReal: usize,
     timeIdx: usize,
-    rx: Vec,
-    ry: Vec,
-    rz: Vec,
-    vx: Vec,
-    vy: Vec,
-    vz: Vec,
+    results: BatchResults,
 ) void {
-    const pos = if (mode != .teme) eciToEcefDirect(BatchSize, rx, ry, rz, ctx.gmstSin[timeIdx], ctx.gmstCos[timeIdx]) else .{ .x = rx, .y = ry, .z = rz };
-    const vel = if (hasVel)
-        (if (mode != .teme) eciToEcefDirect(BatchSize, vx, vy, vz, ctx.gmstSin[timeIdx], ctx.gmstCos[timeIdx]) else .{ .x = vx, .y = vy, .z = vz })
-    else
-        undefined;
+    const sinG = if (mode != .teme) ctx.gmstSin[timeIdx] else 0.0;
+    const cosG = if (mode != .teme) ctx.gmstCos[timeIdx] else 0.0;
 
     inline for (0..BatchSize) |lane| {
         if (base + lane < numReal and laneActive(ctx.satelliteMask, origIndices[base + lane])) {
             const origIdx = origIndices[base + lane];
             const ob = outBase(layout, @as(usize, origIdx), timeIdx, ctx.numTimes, ctx.numSatellites);
-            if (mode == .geodetic) {
-                ctx.resultsPos[ob..][0..3].* = WCS.ecefToGeodetic(.{ pos.x[lane], pos.y[lane], pos.z[lane] });
-            } else {
-                ctx.resultsPos[ob..][0..3].* = .{ pos.x[lane], pos.y[lane], pos.z[lane] };
+            ctx.resultsPos[ob..][0..3].* = switch (mode) {
+                .geodetic => WCS.ecefToGeodetic(eciToEcef(results[lane][0], sinG, cosG)),
+                .ecef => eciToEcef(results[lane][0], sinG, cosG),
+                .teme => results[lane][0],
+            };
+            if (hasVel) {
+                ctx.resultsVel.?[ob..][0..3].* = if (mode != .teme)
+                    eciToEcef(results[lane][1], sinG, cosG)
+                else
+                    results[lane][1];
             }
-            if (hasVel) ctx.resultsVel.?[ob..][0..3].* = .{ vel.x[lane], vel.y[lane], vel.z[lane] };
         }
     }
 }
@@ -734,36 +722,28 @@ pub fn screenConstellation(
     }
 
     for (times, 0..) |time, timeIdx| {
-        const targetTime: Vec = @splat(time + targetEpochOffset);
-        const targetPv = dispatch.sgp4Batch8(targetBatch, targetTime) catch continue;
-        const targetPos = eciToEcefDirect(BatchSize, targetPv.rx, targetPv.ry, targetPv.rz, sinBuf[timeIdx], cosBuf[timeIdx]);
-        const tArr: [BatchSize]f64 = targetPos.x;
-        const tx = tArr[targetLane];
-        const tyArr: [BatchSize]f64 = targetPos.y;
-        const ty = tyArr[targetLane];
-        const tzArr: [BatchSize]f64 = targetPos.z;
-        const tz = tzArr[targetLane];
+        var targetTimeArr: [BatchSize]f64 = undefined;
+        @memset(&targetTimeArr, time + targetEpochOffset);
+        const targetResults = dispatch.sgp4Batch8(targetBatch, targetTimeArr) catch continue;
+        const targetPos = eciToEcef(targetResults[targetLane][0], sinBuf[timeIdx], cosBuf[timeIdx]);
 
         for (batches, 0..) |*batch, batchIdx| {
             const satBase = batchIdx * BatchSize;
-            var batchTimes: Vec = undefined;
+            var batchTimes: [BatchSize]f64 = undefined;
             inline for (0..BatchSize) |i| {
                 batchTimes[i] = time + epochOffsets[satBase + i];
             }
 
-            const pv = dispatch.sgp4Batch8(batch, batchTimes) catch continue;
-            const pos = eciToEcefDirect(BatchSize, pv.rx, pv.ry, pv.rz, sinBuf[timeIdx], cosBuf[timeIdx]);
-            const xArr: [BatchSize]f64 = pos.x;
-            const yArr: [BatchSize]f64 = pos.y;
-            const zArr: [BatchSize]f64 = pos.z;
+            const batchResults = dispatch.sgp4Batch8(batch, batchTimes) catch continue;
 
             for (0..BatchSize) |lane| {
                 const satIdx = satBase + lane;
                 if (satIdx >= numSatellites or satIdx == targetIdx) continue;
 
-                const dx = tx - xArr[lane];
-                const dy = ty - yArr[lane];
-                const dz = tz - zArr[lane];
+                const pos = eciToEcef(batchResults[lane][0], sinBuf[timeIdx], cosBuf[timeIdx]);
+                const dx = targetPos[0] - pos[0];
+                const dy = targetPos[1] - pos[1];
+                const dz = targetPos[2] - pos[2];
                 const distSq = dx * dx + dy * dy + dz * dz;
 
                 if (distSq < outMinDists[satIdx]) {

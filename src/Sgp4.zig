@@ -619,6 +619,12 @@ fn SecularStateN(comptime N: usize) type {
     };
 }
 
+/// AoS position/velocity arrays: [satellite][pos=0/vel=1][x/y/z]
+/// Plain array type used at dispatch boundaries (no vector instructions).
+pub fn PosVelArray(comptime N: usize) type {
+    return [N][2][3]f64;
+}
+
 /// Position and velocity as VecN (SoA layout for SIMD)
 pub fn PositionVelocity(comptime N: usize) type {
     const Vec = simdMath.VecN(N);
@@ -632,9 +638,9 @@ pub fn PositionVelocity(comptime N: usize) type {
     };
 }
 
-/// Convert SoA PositionVelocity to AoS [N][2][3]f64
-pub fn pvToArrays(comptime N: usize, pv: PositionVelocity(N)) [N][2][3]f64 {
-    var results: [N][2][3]f64 = undefined;
+/// Convert SoA PositionVelocity to AoS PosVelArray
+pub fn pvToArrays(comptime N: usize, pv: PositionVelocity(N)) PosVelArray(N) {
+    var results: PosVelArray(N) = undefined;
     inline for (0..N) |i| {
         results[i] = .{ .{ pv.rx[i], pv.ry[i], pv.rz[i] }, .{ pv.vx[i], pv.vy[i], pv.vz[i] } };
     }
@@ -750,7 +756,7 @@ pub fn keplerAndPosVel(
 }
 
 /// Propagate one satellite at N times simultaneously (time-major SIMD)
-pub fn propagateN(self: *const Sgp4, comptime N: usize, times: [N]f64) Error![N][2][3]f64 {
+pub fn propagateN(self: *const Sgp4, comptime N: usize, times: [N]f64) Error!PosVelArray(N) {
     const Vec = simdMath.VecN(N);
     const el = &self.elements;
     const timeVec: Vec = times;
@@ -1000,7 +1006,7 @@ test "propagateN(8) matches scalar" {
     const times = [8]f64{ 0.0, 10.0, 60.0, 120.0, 360.0, 720.0, 1080.0, 1440.0 };
 
     // scalar run
-    var scalarResults: [8][2][3]f64 = undefined;
+    var scalarResults: PosVelArray(8) = undefined;
     for (0..8) |i| {
         const result = try sgp4.propagate(times[i]);
         scalarResults[i][0] = result[0];

@@ -26,7 +26,7 @@ pub fn propagate(self: *const Satellite, tsince: f64) Sgp4.Error![2][3]f64 {
     }
 }
 
-pub fn propagateN(self: *const Satellite, comptime N: usize, times: [N]f64) Sgp4.Error![N][2][3]f64 {
+pub fn propagateN(self: *const Satellite, comptime N: usize, times: [N]f64) Sgp4.Error!Sgp4.PosVelArray(N) {
     switch (self.impl) {
         inline else => |*s| return s.propagateN(N, times),
     }

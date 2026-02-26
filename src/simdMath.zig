@@ -181,6 +181,22 @@ pub fn pow15N(comptime N: usize, x: VecN(N)) VecN(N) {
     return x * @sqrt(x);
 }
 
+/// Store an array into a VecN field without emitting high-ISA vector instructions.
+/// Used by init functions that run outside oma dispatch.
+pub inline fn storeArray(comptime N: usize, dest: *VecN(N), src: [N]f64) void {
+    @as(*[N]f64, @ptrCast(dest)).* = src;
+}
+
+/// Fill a VecN field with a scalar value without emitting high-ISA vector instructions.
+pub inline fn fillScalar(comptime N: usize, dest: *VecN(N), val: f64) void {
+    @memset(@as(*[N]f64, @ptrCast(dest)), val);
+}
+
+/// Read a VecN field as a plain array without emitting high-ISA vector loads.
+pub inline fn readArray(comptime N: usize, src: *const VecN(N)) [N]f64 {
+    return @as(*const [N]f64, @ptrCast(src)).*;
+}
+
 /// x^(2/3) via Newton iteration for cube root: y^3 = x^2
 pub fn pow23N(comptime N: usize, x: VecN(N)) VecN(N) {
     const Vec = VecN(N);
