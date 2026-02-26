@@ -12,6 +12,10 @@
             .url = "git+https://github.com/arrufat/zignal#2db97fcf6b95222b9c0568a129f93d1a72f5f494",
             .hash = "zignal-0.10.0-dev-OrZ3sxJyJgATX9TyC9k2sFPlGmwaMav02bCxSKQvyfZr",
         },
+        .oma = .{
+            .url = "git+https://github.com/ATTron/oma?ref=HEAD#60b5b80ad7e647d4eb0721b5c0820f87128fcc3c",
+            .hash = "oma-0.0.0-lqmw5e47AAC7RqFAVuOBeQapmwmss1gtz2s5S8dhGOBi",
+        },
     },
     .paths = .{
         "src/",

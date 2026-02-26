@@ -5,6 +5,7 @@ const Tle = astroz.Tle;
 const Sgp4 = astroz.Sgp4;
 const Sgp4Batch = astroz.Constellation.Sgp4Batch;
 const Sgp4Constellation = astroz.Constellation;
+const dispatch = astroz.dispatch;
 
 // ISS TLE
 const ISS_TLE =
@@ -12,7 +13,6 @@ const ISS_TLE =
     \\2 25544  51.6393 160.4574 0003580 140.6673 205.7250 15.50957674452123
 ;
 
-// Batch size from the library (4 for AVX2, 8 for AVX512)
 const BatchSize = Sgp4Batch.BatchSize;
 
 // scenarios
@@ -29,7 +29,7 @@ const iterations = 10;
 fn simdWorker(sgp4: *const Sgp4, times: []const f64) void {
     var i: usize = 0;
     while (i + BatchSize <= times.len) : (i += BatchSize) {
-        const result = sgp4.propagateN(BatchSize, times[i..][0..BatchSize].*) catch continue;
+        const result = dispatch.sgp4Times8(sgp4, times[i..][0..BatchSize].*) catch continue;
         std.mem.doNotOptimizeAway(result);
     }
     while (i < times.len) : (i += 1) {
@@ -57,10 +57,7 @@ pub fn main(init: std.process.Init) !void {
 
     std.debug.print("\nastroz SGP4 Benchmark\n", .{});
     std.debug.print("==================================================\n", .{});
-    std.debug.print("SIMD Batch Size: {} ({s})\n", .{
-        BatchSize,
-        if (BatchSize == 8) "AVX512" else "AVX2/SSE",
-    });
+    std.debug.print("SIMD Batch Size: {} (oma runtime dispatch)\n", .{BatchSize});
     std.debug.print("\n--- Scalar Propagation ---\n", .{});
 
     var total_props_per_sec: f64 = 0.0;
@@ -121,7 +118,7 @@ pub fn main(init: std.process.Init) !void {
             var i: usize = 0;
 
             while (i + BatchSize <= scenario.points) : (i += BatchSize) {
-                const result = sgp4.propagateN(BatchSize, times[i..][0..BatchSize].*) catch continue;
+                const result = dispatch.sgp4Times8(&sgp4, times[i..][0..BatchSize].*) catch continue;
                 std.mem.doNotOptimizeAway(result);
             }
 

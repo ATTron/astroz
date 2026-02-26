@@ -1282,7 +1282,7 @@ fn dpperN(
 }
 
 /// Propagate one satellite at N times simultaneously (time major SIMD)
-pub fn propagateN(self: *const Sdp4, comptime N: usize, times: [N]f64) Error![N][2][3]f64 {
+pub fn propagateN(self: *const Sdp4, comptime N: usize, times: [N]f64) Error!Sgp4.PosVelArray(N) {
     const Vec = simdMath.VecN(N);
     const el = &self.elements;
     const sgp4El = &el.sgp4;

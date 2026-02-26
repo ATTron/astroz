@@ -257,34 +257,31 @@ fn buildSuccessResult(pv: [2][3]f64) [*c]c.PyObject {
 const SgpSimdN = Sgp4Batch.BatchSize;
 
 /// Generic SIMD batch propagation for a single satellite (SGP4 or SDP4).
-/// Processes times in chunks of SgpSimdN using propagateN, remainder with scalar propagate.
+/// Processes times in chunks of SgpSimdN via oma dispatch, remainder with scalar propagate.
 fn propagateArray(comptime T: type, propagator: *const T, n: usize, epochJd: f64, jd_ptr: [*]const f64, fr_ptr: [*]const f64, pos_ptr: [*]f64, vel_ptr: [*]f64) void {
+    const PVA = Sgp4.PosVelArray(SgpSimdN);
     var i: usize = 0;
-    // Process in SIMD chunks
+    // Process in SIMD chunks via dispatch
     while (i + SgpSimdN <= n) : (i += SgpSimdN) {
         var times: [SgpSimdN]f64 = undefined;
         for (0..SgpSimdN) |j| {
             times[j] = ((jd_ptr[i + j] + fr_ptr[i + j]) - epochJd) * constants.minutesPerDay;
         }
-        if (propagator.propagateN(SgpSimdN, times)) |results| {
+        const maybe_results: ?PVA = if (T == Sgp4)
+            astroz.dispatch.sgp4Times8(propagator, times) catch null
+        else
+            astroz.dispatch.sdp4Times8(propagator, times) catch null;
+
+        if (maybe_results) |results| {
             for (0..SgpSimdN) |j| {
                 const base = (i + j) * 3;
-                pos_ptr[base + 0] = results[j][0][0];
-                pos_ptr[base + 1] = results[j][0][1];
-                pos_ptr[base + 2] = results[j][0][2];
-                vel_ptr[base + 0] = results[j][1][0];
-                vel_ptr[base + 1] = results[j][1][1];
-                vel_ptr[base + 2] = results[j][1][2];
+                pos_ptr[base..][0..3].* = results[j][0];
+                vel_ptr[base..][0..3].* = results[j][1];
             }
-        } else |_| {
+        } else {
             for (0..SgpSimdN) |j| {
-                const base = (i + j) * 3;
-                pos_ptr[base + 0] = 0;
-                pos_ptr[base + 1] = 0;
-                pos_ptr[base + 2] = 0;
-                vel_ptr[base + 0] = 0;
-                vel_ptr[base + 1] = 0;
-                vel_ptr[base + 2] = 0;
+                @memset(pos_ptr[(i + j) * 3 ..][0..3], 0);
+                @memset(vel_ptr[(i + j) * 3 ..][0..3], 0);
             }
         }
     }
@@ -293,20 +290,11 @@ fn propagateArray(comptime T: type, propagator: *const T, n: usize, epochJd: f64
         const tsince = ((jd_ptr[i] + fr_ptr[i]) - epochJd) * constants.minutesPerDay;
         if (propagator.propagate(tsince)) |result| {
             const base = i * 3;
-            pos_ptr[base + 0] = result[0][0];
-            pos_ptr[base + 1] = result[0][1];
-            pos_ptr[base + 2] = result[0][2];
-            vel_ptr[base + 0] = result[1][0];
-            vel_ptr[base + 1] = result[1][1];
-            vel_ptr[base + 2] = result[1][2];
+            pos_ptr[base..][0..3].* = result[0];
+            vel_ptr[base..][0..3].* = result[1];
         } else |_| {
-            const base = i * 3;
-            pos_ptr[base + 0] = 0;
-            pos_ptr[base + 1] = 0;
-            pos_ptr[base + 2] = 0;
-            vel_ptr[base + 0] = 0;
-            vel_ptr[base + 1] = 0;
-            vel_ptr[base + 2] = 0;
+            @memset(pos_ptr[i * 3 ..][0..3], 0);
+            @memset(vel_ptr[i * 3 ..][0..3], 0);
         }
     }
 }

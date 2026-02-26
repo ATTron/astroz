@@ -1,18 +1,10 @@
 //! SIMD Math for SGP4
-//! Fast vectorized trig functions that compute N values at once (N=4 or N=8)
+//! Fast vectorized trig functions that compute N values at once
 
 const std = @import("std");
-const builtin = @import("builtin");
 const constants = @import("constants.zig");
 
-/// Detect AVX512 at compile time
-const has_avx512 = blk: {
-    const target = builtin.cpu;
-    break :blk target.features.isEnabled(@intFromEnum(std.Target.x86.Feature.avx512f));
-};
-
-/// Optimal SIMD batch size: 8 for AVX512, 4 for AVX2/SSE
-pub const BatchSize: usize = if (has_avx512) 8 else 4;
+pub const BatchSize: usize = 8;
 
 /// Generic N-wide f64 vector type
 pub fn VecN(comptime N: usize) type {
@@ -187,6 +179,22 @@ pub fn atan2N(comptime N: usize, y: VecN(N), x: VecN(N)) VecN(N) {
 /// x^1.5 = x * sqrt(x)
 pub fn pow15N(comptime N: usize, x: VecN(N)) VecN(N) {
     return x * @sqrt(x);
+}
+
+/// Store an array into a VecN field without emitting high-ISA vector instructions.
+/// Used by init functions that run outside oma dispatch.
+pub inline fn storeArray(comptime N: usize, dest: *VecN(N), src: [N]f64) void {
+    @as(*[N]f64, @ptrCast(dest)).* = src;
+}
+
+/// Fill a VecN field with a scalar value without emitting high-ISA vector instructions.
+pub inline fn fillScalar(comptime N: usize, dest: *VecN(N), val: f64) void {
+    @memset(@as(*[N]f64, @ptrCast(dest)), val);
+}
+
+/// Read a VecN field as a plain array without emitting high-ISA vector loads.
+pub inline fn readArray(comptime N: usize, src: *const VecN(N)) [N]f64 {
+    return @as(*const [N]f64, @ptrCast(src)).*;
 }
 
 /// x^(2/3) via Newton iteration for cube root: y^3 = x^2

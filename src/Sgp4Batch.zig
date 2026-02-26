@@ -9,7 +9,6 @@ const Tle = @import("Tle.zig");
 const Elements = Sgp4.Elements;
 const Error = Sgp4.Error;
 
-/// Batch size: 8 for AVX512, 4 for AVX2/SSE
 pub const BatchSize: usize = simdMath.BatchSize;
 
 /// Struct-of-arrays for N satellites (generic over batch size)
@@ -91,7 +90,7 @@ pub fn initBatchElements(comptime N: usize, tles: [N]Tle, grav: constants.Sgp4Gr
             inline for (0..N) |i| {
                 arr[i] = @field(els[i], field.name);
             }
-            @field(result, field.name) = arr;
+            simdMath.storeArray(N, &@field(result, field.name), arr);
         }
     }
 
@@ -100,20 +99,14 @@ pub fn initBatchElements(comptime N: usize, tles: [N]Tle, grav: constants.Sgp4Gr
     inline for (0..N) |i| {
         isimpArr[i] = if (els[i].isimp) 1.0 else 0.0;
     }
-    result.isimpMask = isimpArr;
+    simdMath.storeArray(N, &result.isimpMask, isimpArr);
 
     // Splat gravity constants
-    result.xke = @splat(grav.xke);
-    result.j2 = @splat(grav.j2);
-    result.radiusEarthKm = @splat(grav.radiusEarthKm);
+    simdMath.fillScalar(N, &result.xke, grav.xke);
+    simdMath.fillScalar(N, &result.j2, grav.j2);
+    simdMath.fillScalar(N, &result.radiusEarthKm, grav.radiusEarthKm);
 
     return result;
-}
-
-/// Propagate N satellites, returns [N][2][3]f64 (AoS)
-pub fn propagateSatellites(comptime N: usize, el: *const BatchElements(N), tsince: f64) Error![N][2][3]f64 {
-    const Vec = simdMath.VecN(N);
-    return Sgp4.pvToArrays(N, try propagateBatchDirect(N, el, @as(Vec, @splat(tsince))));
 }
 
 /// Core propagation, returns VecN directly (hot path)
@@ -163,6 +156,12 @@ pub fn propagateBatchDirect(comptime N: usize, el: *const BatchElements(N), tsin
     return Sgp4.keplerAndPosVel(N, am, em, mm, argpm, nodem, el.inclo, el.aycof, el.xlcof, el.con41, el.x1mth2, el.x7thm1, el.sinio, el.cosio, el.xke, el.j2, el.radiusEarthKm, el.vkmpersec);
 }
 
+/// Test helper: propagate N satellites at a single time, returns PosVelArray
+fn testPropagateSatellites(comptime N: usize, el: *const BatchElements(N), tsince: f64) Error!Sgp4.PosVelArray(N) {
+    const Vec = simdMath.VecN(N);
+    return Sgp4.pvToArrays(N, try propagateBatchDirect(N, el, @as(Vec, @splat(tsince))));
+}
+
 test "SIMD matches scalar" {
     const allocator = std.testing.allocator;
     const tleStrs = [_][]const u8{
@@ -180,7 +179,7 @@ test "SIMD matches scalar" {
 
     // Tolerances: position < 1m, velocity < 1µm/s
     for ([_]f64{ 0.0, 10.0, 60.0, 1440.0 }) |t| {
-        const simd = try propagateSatellites(4, &els, t);
+        const simd = try testPropagateSatellites(4, &els, t);
         for (0..4) |i| {
             const scalar = try (try Sgp4.init(tles[i], constants.wgs84)).propagate(t);
             for (0..3) |j| {
@@ -214,8 +213,8 @@ test "Vec8 matches Vec4 output" {
 
     // Test that first 4 elements of Vec8 batch match Vec4 batch exactly
     for ([_]f64{ 0.0, 10.0, 60.0, 1440.0 }) |t| {
-        const r4 = try propagateSatellites(4, &elsV4, t);
-        const r8 = try propagateSatellites(8, &elsV8, t);
+        const r4 = try testPropagateSatellites(4, &elsV4, t);
+        const r8 = try testPropagateSatellites(8, &elsV8, t);
 
         for (0..4) |i| {
             for (0..3) |j| {
@@ -261,7 +260,7 @@ test "Vallado AIAA 2006-6753 near-earth vectors" {
     // r = (7022.46529266, -1400.08296755, 0.03995155) km
     // v = (1.893841015, 6.405893759, 4.534807250) km/s
     {
-        const result = try propagateSatellites(4, &els, 0.0);
+        const result = try testPropagateSatellites(4, &els, 0.0);
         try std.testing.expectApproxEqAbs(@as(f64, 7022.46529266), result[0][0][0], 0.01);
         try std.testing.expectApproxEqAbs(@as(f64, -1400.08296755), result[0][0][1], 0.01);
         try std.testing.expectApproxEqAbs(@as(f64, 0.03995155), result[0][0][2], 0.01);
@@ -274,7 +273,7 @@ test "Vallado AIAA 2006-6753 near-earth vectors" {
     // r = (-7154.03120202, -3783.17682504, -3536.19412294) km
     // v = (4.741887409, -4.151817765, -2.093935425) km/s
     {
-        const result = try propagateSatellites(4, &els, 360.0);
+        const result = try testPropagateSatellites(4, &els, 360.0);
         try std.testing.expectApproxEqAbs(@as(f64, -7154.03120202), result[0][0][0], 0.01);
         try std.testing.expectApproxEqAbs(@as(f64, -3783.17682504), result[0][0][1], 0.01);
         try std.testing.expectApproxEqAbs(@as(f64, -3536.19412294), result[0][0][2], 0.01);
@@ -287,7 +286,7 @@ test "Vallado AIAA 2006-6753 near-earth vectors" {
     // r = (3988.31022699, 5498.96657235, 0.90055879) km
     // v = (-3.290032738, 2.357652820, 6.496623475) km/s
     {
-        const result = try propagateSatellites(4, &els, 0.0);
+        const result = try testPropagateSatellites(4, &els, 0.0);
         try std.testing.expectApproxEqAbs(@as(f64, 3988.31022699), result[1][0][0], 0.01);
         try std.testing.expectApproxEqAbs(@as(f64, 5498.96657235), result[1][0][1], 0.01);
         try std.testing.expectApproxEqAbs(@as(f64, 0.90055879), result[1][0][2], 0.01);

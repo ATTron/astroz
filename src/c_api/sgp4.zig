@@ -4,8 +4,8 @@ const astroz = @import("astroz");
 const Sgp4 = astroz.Sgp4;
 const Tle = astroz.Tle;
 const constants = astroz.constants;
+const dispatch = astroz.dispatch;
 
-/// Batch size from core library (4 for AVX2, 8 for AVX512)
 const BatchSize = astroz.Constellation.BatchSize;
 
 const allocator = @import("allocator.zig");
@@ -66,7 +66,7 @@ pub fn propagateBatch(handle: Handle, times: [*]const f64, results: [*]f64, coun
         var batch: [BatchSize]f64 = undefined;
         inline for (0..BatchSize) |j| batch[j] = times[i + @min(j, remaining - 1)];
 
-        const batchResult = ptr.propagateN(BatchSize, batch) catch |e| {
+        const batchResult = dispatch.sgp4Times8(ptr, batch) catch |e| {
             return switch (e) {
                 Sgp4.Error.SatelliteDecayed => .satelliteDecayed,
                 else => err.fromError(e),
@@ -91,20 +91,23 @@ pub fn propagateBatch(handle: Handle, times: [*]const f64, results: [*]f64, coun
 // Multi-Satellite Batch API
 pub const BatchHandle = *anyopaque;
 
-/// Initialize batch propagator for 4 satellites
-const Elements4 = astroz.Constellation.Sgp4Batch.BatchElements(4);
+const Elements8 = astroz.Constellation.Sgp4Batch.BatchElements(8);
+const PVA = Sgp4.PosVelArray(8);
 
-/// All 4 satellites must use the same gravity model
+/// Initialize batch propagator for up to 4 satellites (padded to 8 for SIMD)
+/// All satellites must use the same gravity model
 pub fn initBatch(tleHandles: [*]const tleApi.Handle, gravModel: i32, out: *BatchHandle) err.Code {
     const grav = if (gravModel == 1) constants.wgs72 else constants.wgs84;
 
-    var tles: [4]Tle = undefined;
+    var tles: [8]Tle = undefined;
     for (0..4) |i| {
         const tlePtr: *Tle = @ptrCast(@alignCast(tleHandles[i]));
         tles[i] = tlePtr.*;
     }
+    // Pad unused lanes with last real TLE
+    for (4..8) |i| tles[i] = tles[3];
 
-    const elements = astroz.Constellation.Sgp4Batch.initBatchElements(4, tles, grav) catch |e| {
+    const elements = astroz.Constellation.Sgp4Batch.initBatchElements(8, tles, grav) catch |e| {
         return switch (e) {
             Sgp4.Error.DeepSpaceNotSupported => .deepSpaceNotSupported,
             Sgp4.Error.InvalidEccentricity => .invalidEccentricity,
@@ -112,7 +115,7 @@ pub fn initBatch(tleHandles: [*]const tleApi.Handle, gravModel: i32, out: *Batch
         };
     };
 
-    const ptr = allocator.get().create(Elements4) catch return .allocFailed;
+    const ptr = allocator.get().create(Elements8) catch return .allocFailed;
     ptr.* = elements;
     out.* = @ptrCast(ptr);
     return .ok;
@@ -120,15 +123,17 @@ pub fn initBatch(tleHandles: [*]const tleApi.Handle, gravModel: i32, out: *Batch
 
 /// Free batch propagator handle
 pub fn freeBatch(handle: BatchHandle) void {
-    const ptr: *Elements4 = @ptrCast(@alignCast(handle));
+    const ptr: *Elements8 = @ptrCast(@alignCast(handle));
     allocator.get().destroy(ptr);
 }
 
-/// Propagate 4 satellites at a single time point
+/// Propagate 4 satellites at a single time point (via dispatch)
 pub fn propagateSatellites(handle: BatchHandle, tsince: f64, results: [*]f64) err.Code {
-    const ptr: *Elements4 = @ptrCast(@alignCast(handle));
+    const ptr: *Elements8 = @ptrCast(@alignCast(handle));
 
-    const result = astroz.Constellation.Sgp4Batch.propagateSatellites(4, ptr, tsince) catch |e| {
+    var times: [8]f64 = undefined;
+    @memset(&times, tsince);
+    const result: PVA = dispatch.sgp4Batch8(ptr, times) catch |e| {
         return switch (e) {
             Sgp4.Error.SatelliteDecayed => .satelliteDecayed,
             else => err.fromError(e),
@@ -136,24 +141,21 @@ pub fn propagateSatellites(handle: BatchHandle, tsince: f64, results: [*]f64) er
     };
 
     for (0..4) |i| {
-        const base = i * 6;
-        results[base + 0] = result[i][0][0];
-        results[base + 1] = result[i][0][1];
-        results[base + 2] = result[i][0][2];
-        results[base + 3] = result[i][1][0];
-        results[base + 4] = result[i][1][1];
-        results[base + 5] = result[i][1][2];
+        results[i * 6 ..][0..3].* = result[i][0];
+        results[i * 6 + 3 ..][0..3].* = result[i][1];
     }
 
     return .ok;
 }
 
-/// Propagate 4 satellites across multiple time points
+/// Propagate 4 satellites across multiple time points (via dispatch)
 pub fn propagateSatellitesBatch(handle: BatchHandle, times: [*]const f64, results: [*]f64, count: u32) err.Code {
-    const ptr: *Elements4 = @ptrCast(@alignCast(handle));
+    const ptr: *Elements8 = @ptrCast(@alignCast(handle));
 
     for (0..count) |t| {
-        const result = astroz.Constellation.Sgp4Batch.propagateSatellites(4, ptr, times[t]) catch |e| {
+        var tArr: [8]f64 = undefined;
+        @memset(&tArr, times[t]);
+        const result: PVA = dispatch.sgp4Batch8(ptr, tArr) catch |e| {
             return switch (e) {
                 Sgp4.Error.SatelliteDecayed => .satelliteDecayed,
                 else => err.fromError(e),
@@ -162,13 +164,8 @@ pub fn propagateSatellitesBatch(handle: BatchHandle, times: [*]const f64, result
 
         const timeBase = t * 24;
         for (0..4) |i| {
-            const base = timeBase + i * 6;
-            results[base + 0] = result[i][0][0];
-            results[base + 1] = result[i][0][1];
-            results[base + 2] = result[i][0][2];
-            results[base + 3] = result[i][1][0];
-            results[base + 4] = result[i][1][1];
-            results[base + 5] = result[i][1][2];
+            results[timeBase + i * 6 ..][0..3].* = result[i][0];
+            results[timeBase + i * 6 + 3 ..][0..3].* = result[i][1];
         }
     }
 

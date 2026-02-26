@@ -1,4 +1,5 @@
 const std = @import("std");
+const oma = @import("oma");
 
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
@@ -69,6 +70,13 @@ pub fn build(b: *std.Build) void {
 
     lib.root_module.addImport("cfitsio", cfitsio_dep.module("cfitsio"));
     astroz_mod.addImport("cfitsio", cfitsio_dep.module("cfitsio"));
+
+    const oma_dep = b.dependency("oma", .{});
+    astroz_mod.addImport("oma", oma_dep.module("oma"));
+
+    oma.addMultiVersion(oma_dep, lib, .{
+        .source = b.path("src/simdKernels.zig"),
+    });
 
     const lib_install = b.addInstallArtifact(lib, .{});
     lib_step.dependOn(&lib_install.step);
@@ -147,6 +155,8 @@ pub fn build(b: *std.Build) void {
         .root_source_file = b.path("src/lib.zig"),
     });
     astroz_python_mod.addImport("zignal", zignal_dependency.module("zignal"));
+    astroz_python_mod.addImport("oma", oma_dep.module("oma"));
+    astroz_python_mod.addOptions("build_options", build_options);
 
     const python_mod = b.createModule(.{
         .target = target,
@@ -193,6 +203,10 @@ pub fn build(b: *std.Build) void {
         .name = "_astroz",
         .root_module = python_mod,
         .use_llvm = use_llvm,
+    });
+
+    oma.addMultiVersion(oma_dep, python_lib, .{
+        .source = b.path("src/simdKernels.zig"),
     });
 
     // On macOS, allow undefined symbols - they resolve when loaded by Python

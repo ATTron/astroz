@@ -11,7 +11,6 @@ const Tle = @import("Tle.zig");
 
 const Error = Sgp4.Error;
 
-/// Batch size: 8 for AVX512, 4 for AVX2/SSE
 pub const BatchSize: usize = simdMath.BatchSize;
 
 pub fn Sdp4BatchElements(comptime N: usize) type {
@@ -137,12 +136,11 @@ pub fn ResonanceCarryBatch(comptime N: usize) type {
 
 /// Initialize carry state from batch elements
 pub fn initCarry(comptime N: usize, el: *const Sdp4BatchElements(N)) ResonanceCarryBatch(N) {
-    const zero: simdMath.VecN(N) = @splat(0.0);
-    return .{
-        .atime = zero,
-        .xli = el.xlamo,
-        .xni = el.noUnkozai,
-    };
+    var result: ResonanceCarryBatch(N) = undefined;
+    simdMath.fillScalar(N, &result.atime, 0.0);
+    simdMath.storeArray(N, &result.xli, simdMath.readArray(N, &el.xlamo));
+    simdMath.storeArray(N, &result.xni, simdMath.readArray(N, &el.noUnkozai));
+    return result;
 }
 
 /// Transpose N scalar Sdp4.Elements into Sdp4BatchElements(N).
@@ -158,20 +156,20 @@ pub fn initFromElements(comptime N: usize, els: [N]Sdp4.Elements, grav: constant
             const suffix = comptime name["solar_".len..];
             var arr: [N]f64 = undefined;
             inline for (0..N) |i| arr[i] = @field(els[i].solar, suffix);
-            @field(result, name) = arr;
+            simdMath.storeArray(N, &@field(result, name), arr);
         } else if (comptime std.mem.startsWith(u8, name, "lunar_")) {
             const suffix = comptime name["lunar_".len..];
             var arr: [N]f64 = undefined;
             inline for (0..N) |i| arr[i] = @field(els[i].lunar, suffix);
-            @field(result, name) = arr;
+            simdMath.storeArray(N, &@field(result, name), arr);
         } else if (comptime @hasField(Sgp4.Elements, name)) {
             var arr: [N]f64 = undefined;
             inline for (0..N) |i| arr[i] = @field(els[i].sgp4, name);
-            @field(result, name) = arr;
+            simdMath.storeArray(N, &@field(result, name), arr);
         } else if (comptime @hasField(Sdp4.Elements, name)) {
             var arr: [N]f64 = undefined;
             inline for (0..N) |i| arr[i] = @field(els[i], name);
-            @field(result, name) = arr;
+            simdMath.storeArray(N, &@field(result, name), arr);
         }
     }
 
@@ -182,15 +180,15 @@ pub fn initFromElements(comptime N: usize, els: [N]Sdp4.Elements, grav: constant
         hasRes_arr[i] = if (els[i].irez != 0) 1.0 else 0.0;
         isHalf_arr[i] = if (els[i].irez == 2) 1.0 else 0.0;
     }
-    result.hasResonance = hasRes_arr;
-    result.isHalfDay = isHalf_arr;
+    simdMath.storeArray(N, &result.hasResonance, hasRes_arr);
+    simdMath.storeArray(N, &result.isHalfDay, isHalf_arr);
 
     // Splat gravity constants
-    result.xke = @splat(grav.xke);
-    result.j2 = @splat(grav.j2);
-    result.j3oj2 = @splat(grav.j3oj2);
-    result.radiusEarthKm = @splat(grav.radiusEarthKm);
-    result.vkmpersec = @splat(grav.xke * grav.radiusEarthKm / 60.0);
+    simdMath.fillScalar(N, &result.xke, grav.xke);
+    simdMath.fillScalar(N, &result.j2, grav.j2);
+    simdMath.fillScalar(N, &result.j3oj2, grav.j3oj2);
+    simdMath.fillScalar(N, &result.radiusEarthKm, grav.radiusEarthKm);
+    simdMath.fillScalar(N, &result.vkmpersec, grav.xke * grav.radiusEarthKm / 60.0);
 
     return result;
 }
