@@ -145,6 +145,25 @@ c = Constellation("starlink")
 positions = propagate(c, np.arange(1440))
 ```
 
+#### Orbital Mechanics & Numerical Propagation
+
+```python
+from astroz import hohmann_transfer, propagate_numerical, EARTH_MU, EARTH_J2, EARTH_R_EQ
+
+# Hohmann transfer: LEO to GEO
+result = hohmann_transfer(EARTH_MU, 6778, 42164)
+print(f"Total ΔV: {result['total_dv']:.3f} km/s")
+
+# Numerical propagation with J2 perturbation
+state = (6778.0, 0.0, 0.0, 0.0, 7.668, 0.0)  # [x,y,z,vx,vy,vz] km, km/s
+times, states = propagate_numerical(
+    state, 0.0, 86400.0, 60.0, EARTH_MU,
+    j2=EARTH_J2, r_eq=EARTH_R_EQ,
+)
+```
+
+Also available: `bi_elliptic_transfer`, `lambert`, `orbital_velocity`, `orbital_period`, `escape_velocity`. See [Python README](bindings/python/README.md) for full details.
+
 ### Usage
 
 - Add `astroz` as a dependency in your `build.zig.zon`.

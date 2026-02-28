@@ -10,7 +10,7 @@ The main classes are:
 - ``Sgp4Constellation``: Multi-satellite constellation propagator with SIMD
 """
 
-from typing import Tuple, Optional, List, Literal
+from typing import Tuple, Optional, List, Literal, Dict
 
 import numpy as np
 import numpy.typing as npt
@@ -21,6 +21,22 @@ WGS84: int
 
 WGS72: int
 """WGS72 gravity model constant (legacy)."""
+
+# Physical constants
+EARTH_MU: float
+"""Earth gravitational parameter (km^3/s^2), WGS84 value 398600.5."""
+
+EARTH_R_EQ: float
+"""Earth equatorial radius (km), WGS84 value 6378.137."""
+
+EARTH_J2: float
+"""Earth J2 zonal harmonic coefficient, WGS84 value 0.00108262998905."""
+
+SUN_MU: float
+"""Sun gravitational parameter (km^3/s^2), 1.32712e11."""
+
+MOON_MU: float
+"""Moon gravitational parameter (km^3/s^2), 4902.80."""
 
 def version() -> str:
     """Return astroz version string.
@@ -144,6 +160,184 @@ def coarse_screen(
     See Also
     --------
     Sgp4Constellation.screen_conjunction : Fused propagate+screen for single target.
+    """
+
+def hohmann_transfer(mu: float, r1: float, r2: float) -> Dict[str, float]:
+    """Compute Hohmann transfer between two circular orbits.
+
+    Parameters
+    ----------
+    mu : float
+        Gravitational parameter (km^3/s^2).
+    r1 : float
+        Initial orbit radius (km).
+    r2 : float
+        Final orbit radius (km).
+
+    Returns
+    -------
+    dict
+        Keys: sma, dv1, dv2, total_dv, transfer_time, transfer_time_days.
+    """
+
+def bi_elliptic_transfer(
+    mu: float, r1: float, r2: float, r_intermediate: float
+) -> Dict[str, float]:
+    """Compute bi-elliptic transfer between two circular orbits.
+
+    Parameters
+    ----------
+    mu : float
+        Gravitational parameter (km^3/s^2).
+    r1 : float
+        Initial orbit radius (km).
+    r2 : float
+        Final orbit radius (km).
+    r_intermediate : float
+        Apoapsis radius of the intermediate transfer orbit (km).
+
+    Returns
+    -------
+    dict
+        Keys: sma, dv1, dv2, dv3, total_dv, total_time, total_time_days.
+    """
+
+def lambert(
+    mu: float,
+    r1: Tuple[float, float, float],
+    r2: Tuple[float, float, float],
+    tof: float,
+) -> Dict[str, object]:
+    """Solve Lambert's problem for two position vectors and time of flight.
+
+    Parameters
+    ----------
+    mu : float
+        Gravitational parameter (km^3/s^2).
+    r1 : tuple of float
+        Initial position vector (x, y, z) in km.
+    r2 : tuple of float
+        Final position vector (x, y, z) in km.
+    tof : float
+        Time of flight in seconds.
+
+    Returns
+    -------
+    dict
+        Keys: departure_velocity (3-tuple), arrival_velocity (3-tuple),
+        transfer_angle, sma, tof.
+    """
+
+def orbital_velocity(mu: float, radius: float, sma: Optional[float] = None) -> float:
+    """Compute orbital velocity using the vis-viva equation.
+
+    Parameters
+    ----------
+    mu : float
+        Gravitational parameter (km^3/s^2).
+    radius : float
+        Current orbital radius (km).
+    sma : float, optional
+        Semi-major axis (km). If None, assumes circular orbit.
+
+    Returns
+    -------
+    float
+        Orbital velocity in km/s.
+    """
+
+def orbital_period(mu: float, sma: float) -> float:
+    """Compute orbital period from Kepler's third law.
+
+    Parameters
+    ----------
+    mu : float
+        Gravitational parameter (km^3/s^2).
+    sma : float
+        Semi-major axis (km).
+
+    Returns
+    -------
+    float
+        Orbital period in seconds.
+    """
+
+def escape_velocity(mu: float, radius: float) -> float:
+    """Compute escape velocity at a given radius.
+
+    Parameters
+    ----------
+    mu : float
+        Gravitational parameter (km^3/s^2).
+    radius : float
+        Radial distance (km).
+
+    Returns
+    -------
+    float
+        Escape velocity in km/s.
+    """
+
+def propagate_numerical(
+    state: Tuple[float, float, float, float, float, float],
+    t0: float,
+    duration: float,
+    dt: float,
+    mu: float,
+    *,
+    j2: Optional[float] = None,
+    r_eq: Optional[float] = None,
+    drag_cd: Optional[float] = None,
+    drag_area: Optional[float] = None,
+    drag_mass: Optional[float] = None,
+    integrator: str = "dp87",
+    rtol: float = 1e-9,
+    atol: float = 1e-12,
+) -> Tuple[List[float], List[Tuple[float, float, float, float, float, float]]]:
+    """Numerically propagate an orbit with optional perturbations.
+
+    All positions are in km, velocities in km/s, times in seconds.
+
+    Parameters
+    ----------
+    state : tuple of float
+        Initial state vector [x, y, z, vx, vy, vz] in km and km/s.
+    t0 : float
+        Start time (s).
+    duration : float
+        Propagation duration (s).
+    dt : float
+        Time step (s).
+    mu : float
+        Central body gravitational parameter (km^3/s^2).
+    j2 : float, optional
+        J2 zonal harmonic coefficient. Enables J2 perturbation.
+        Requires ``r_eq``.
+    r_eq : float, optional
+        Body equatorial radius (km). Required when ``j2`` or
+        ``drag_cd`` is specified.
+    drag_cd : float, optional
+        Drag coefficient (dimensionless). Enables atmospheric drag
+        using an exponential Earth atmosphere model (sea-level density
+        1.225 kg/m^3, scale height 7.249 km, cutoff 1500 km).
+        Requires ``drag_area``, ``drag_mass``, and ``r_eq``.
+    drag_area : float, optional
+        Spacecraft cross-sectional area (m^2). Required with ``drag_cd``.
+    drag_mass : float, optional
+        Spacecraft mass (kg). Required with ``drag_cd``.
+    integrator : str, optional
+        Integrator: ``"dp87"`` (default, adaptive) or ``"rk4"`` (fixed-step).
+    rtol : float, optional
+        Relative tolerance for DP87 (default 1e-9).
+    atol : float, optional
+        Absolute tolerance for DP87 (default 1e-12).
+
+    Returns
+    -------
+    times : list of float
+        Time values (s).
+    states : list of tuple
+        State vectors (x, y, z, vx, vy, vz) in km and km/s at each time.
     """
 
 class Tle:
