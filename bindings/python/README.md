@@ -186,6 +186,81 @@ For typical satellite tracking and visualization, astroz is a full drop-in repla
 
 Set `ASTROZ_THREADS` to control thread count (defaults to all cores).
 
+## Orbital Mechanics
+
+```python
+from astroz import (
+    hohmann_transfer, bi_elliptic_transfer, lambert,
+    orbital_velocity, orbital_period, escape_velocity,
+    EARTH_MU,
+)
+
+# Hohmann transfer: LEO (400 km) to GEO
+result = hohmann_transfer(EARTH_MU, 6778, 42164)
+print(f"Total ΔV: {result['total_dv']:.3f} km/s")
+print(f"Transfer time: {result['transfer_time_days']:.2f} days")
+
+# Bi-elliptic transfer (more efficient for large radius ratios)
+result = bi_elliptic_transfer(EARTH_MU, 6778, 42164, 100000)
+print(f"Total ΔV: {result['total_dv']:.3f} km/s")
+
+# Lambert solver: find transfer orbit between two positions
+r1 = (7000.0, 0.0, 0.0)
+r2 = (0.0, 7000.0, 0.0)
+tof = 3600.0  # 1 hour
+result = lambert(EARTH_MU, r1, r2, tof)
+print(f"Departure velocity: {result['departure_velocity']}")
+
+# Orbital velocity, period, escape velocity
+v = orbital_velocity(EARTH_MU, 6778)          # Circular orbit at 400 km
+T = orbital_period(EARTH_MU, 6778)            # Period in seconds
+v_esc = escape_velocity(EARTH_MU, 6778)       # Escape velocity
+```
+
+## Numerical Propagation
+
+Propagate orbits with perturbation models (J2, atmospheric drag) using RK4 or
+Dormand-Prince 8(7) adaptive integrators. `r_eq` is required when using J2 or
+drag perturbations. Drag uses an exponential Earth atmosphere model (sea-level
+density 1.225 kg/m^3, scale height 7.249 km, cutoff altitude 1500 km).
+`drag_area` is in m^2 and `drag_mass` in kg.
+
+```python
+from astroz import propagate_numerical, EARTH_MU, EARTH_J2, EARTH_R_EQ
+
+# Initial state: LEO circular orbit [x, y, z, vx, vy, vz] (km, km/s)
+state = (6778.0, 0.0, 0.0, 0.0, 7.668, 0.0)
+
+# Two-body propagation (1 orbit, 60s steps)
+times, states = propagate_numerical(state, 0.0, 5554.0, 60.0, EARTH_MU)
+
+# With J2 perturbation
+times, states = propagate_numerical(
+    state, 0.0, 5554.0, 60.0, EARTH_MU,
+    j2=EARTH_J2, r_eq=EARTH_R_EQ,
+)
+
+# With J2 + atmospheric drag
+times, states = propagate_numerical(
+    state, 0.0, 86400.0, 60.0, EARTH_MU,
+    j2=EARTH_J2, r_eq=EARTH_R_EQ,
+    drag_cd=2.2, drag_area=10.0, drag_mass=500.0,
+    integrator="dp87",  # or "rk4"
+)
+```
+
+## Constants
+
+```python
+from astroz import EARTH_MU, EARTH_R_EQ, EARTH_J2, SUN_MU, MOON_MU
+
+print(f"Earth μ: {EARTH_MU} km³/s²")
+print(f"Earth radius: {EARTH_R_EQ} km")
+print(f"Earth J2: {EARTH_J2}")
+print(f"Sun μ: {SUN_MU} km³/s²")
+print(f"Moon μ: {MOON_MU} km³/s²")
+```
+
 ## Building
 
 Requires [Zig](https://ziglang.org/) and Python 3.10+.

@@ -105,19 +105,62 @@ pub fn listFromU32(data: []const u32) ?*c.PyObject {
     return list;
 }
 
-pub fn vec3Tuple(v: [3]f64) ?*c.PyObject {
-    const t = tuple(3) orelse return null;
-    tupleSet(t, 0, float(v[0]) orelse {
-        c.Py_DECREF(t);
-        return null;
-    });
-    tupleSet(t, 1, float(v[1]) orelse {
-        c.Py_DECREF(t);
-        return null;
-    });
-    tupleSet(t, 2, float(v[2]) orelse {
-        c.Py_DECREF(t);
-        return null;
-    });
+pub fn vecTuple(v: anytype) ?*c.PyObject {
+    const N = @typeInfo(@TypeOf(v)).array.len;
+    const t = tuple(N) orelse return null;
+    inline for (0..N) |i| {
+        tupleSet(t, @intCast(i), float(v[i]) orelse {
+            c.Py_DECREF(t);
+            return null;
+        });
+    }
     return t;
+}
+
+/// Parse an optional float from a PyObject. Returns `default` if None/null,
+/// the parsed value on success, or `null` if a Python error occurred.
+pub fn optionalFloat(obj: [*c]c.PyObject, default: f64) ?f64 {
+    if (isNone(obj)) return default;
+    const val = c.PyFloat_AsDouble(obj);
+    if (val == -1.0 and c.PyErr_Occurred() != null) return null;
+    return val;
+}
+
+/// Convert a Zig struct with all-f64 fields to a Python dict.
+/// `keys` must be a comptime tuple of string literals, one per struct field (in order).
+pub fn structToDict(result: anytype, comptime keys: anytype) ?*c.PyObject {
+    const fields = @typeInfo(@TypeOf(result)).@"struct".fields;
+    if (keys.len != fields.len) @compileError("key count must match struct field count");
+    const dict = c.PyDict_New() orelse return null;
+    inline for (fields, 0..) |field, i| {
+        const val = c.PyFloat_FromDouble(@field(result, field.name)) orelse {
+            c.Py_DECREF(dict);
+            return null;
+        };
+        defer c.Py_DECREF(val);
+        if (c.PyDict_SetItemString(dict, keys[i], val) < 0) {
+            c.Py_DECREF(dict);
+            return null;
+        }
+    }
+    return dict;
+}
+
+pub fn parseVec3(obj: [*c]c.PyObject) ?[3]f64 {
+    if (obj == null) {
+        raiseType("expected a sequence of 3 floats");
+        return null;
+    }
+    if (c.PySequence_Size(obj) != 3) {
+        raiseValue("sequence must have exactly 3 elements");
+        return null;
+    }
+    var result: [3]f64 = undefined;
+    inline for (0..3) |i| {
+        const item = c.PySequence_GetItem(obj, @intCast(i)) orelse return null;
+        defer c.Py_DECREF(item);
+        result[i] = c.PyFloat_AsDouble(item);
+        if (result[i] == -1.0 and c.PyErr_Occurred() != null) return null;
+    }
+    return result;
 }

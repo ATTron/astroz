@@ -209,11 +209,12 @@ fn satrec_sgp4(self_obj: [*c]c.PyObject, args: [*c]c.PyObject) callconv(.c) [*c]
 fn buildErrorResult(errorCode: c_int) [*c]c.PyObject {
     // Return (error_code, (0,0,0), (0,0,0))
     const err = py.int(@intCast(errorCode)) orelse return null;
-    const zero_pos = py.vec3Tuple(.{ 0.0, 0.0, 0.0 }) orelse {
+    const zero = [3]f64{ 0.0, 0.0, 0.0 };
+    const zero_pos = py.vecTuple(zero) orelse {
         c.Py_DECREF(err);
         return null;
     };
-    const zero_vel = py.vec3Tuple(.{ 0.0, 0.0, 0.0 }) orelse {
+    const zero_vel = py.vecTuple(zero) orelse {
         c.Py_DECREF(err);
         c.Py_DECREF(zero_pos);
         return null;
@@ -233,11 +234,11 @@ fn buildErrorResult(errorCode: c_int) [*c]c.PyObject {
 fn buildSuccessResult(pv: [2][3]f64) [*c]c.PyObject {
     // Return (0, (x,y,z), (vx,vy,vz))
     const err = py.int(0) orelse return null;
-    const pos = py.vec3Tuple(pv[0]) orelse {
+    const pos = py.vecTuple(pv[0]) orelse {
         c.Py_DECREF(err);
         return null;
     };
-    const vel = py.vec3Tuple(pv[1]) orelse {
+    const vel = py.vecTuple(pv[1]) orelse {
         c.Py_DECREF(err);
         c.Py_DECREF(pos);
         return null;

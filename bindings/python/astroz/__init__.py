@@ -1,7 +1,8 @@
 """astroz - High-performance astrodynamics library.
 
-A Python library for satellite orbit propagation and conjunction screening,
-powered by a Zig backend with SIMD acceleration (AVX2/AVX512).
+A Python library for satellite orbit propagation, conjunction screening,
+orbital mechanics, and numerical propagation, powered by a Zig backend
+with SIMD acceleration (AVX2/AVX512).
 
 APIs
 ----
@@ -34,6 +35,40 @@ propagate
 screen
     Screen a constellation for conjunction events, either all-vs-all or
     single-target mode.
+
+Orbital Mechanics
+-----------------
+hohmann_transfer
+    Compute Hohmann transfer between two circular orbits.
+bi_elliptic_transfer
+    Compute bi-elliptic transfer between two circular orbits.
+lambert
+    Solve Lambert's problem for two position vectors and time of flight.
+orbital_velocity
+    Compute orbital velocity using the vis-viva equation.
+orbital_period
+    Compute orbital period from Kepler's third law.
+escape_velocity
+    Compute escape velocity at a given radius.
+
+Numerical Propagation
+---------------------
+propagate_numerical
+    Numerically propagate an orbit with optional perturbations (J2,
+    atmospheric drag). Supports RK4 and Dormand-Prince 8(7) integrators.
+
+Constants
+---------
+EARTH_MU
+    Earth gravitational parameter (km^3/s^2), WGS84 value 398600.5.
+EARTH_R_EQ
+    Earth equatorial radius (km), WGS84 value 6378.137.
+EARTH_J2
+    Earth J2 zonal harmonic coefficient, WGS84 value 0.00108262998905.
+SUN_MU
+    Sun gravitational parameter (km^3/s^2), 1.32712e11.
+MOON_MU
+    Moon gravitational parameter (km^3/s^2), 4902.80.
 
 Classes
 -------
@@ -76,6 +111,18 @@ from ._astroz import (
     Sgp4Constellation as _Sgp4Constellation,
     coarse_screen as _coarse_screen,
     sdp4_batch_propagate_into as _sdp4_batch_propagate_into,
+    hohmann_transfer,
+    bi_elliptic_transfer,
+    lambert,
+    orbital_velocity,
+    orbital_period,
+    escape_velocity,
+    propagate_numerical,
+    EARTH_MU,
+    EARTH_R_EQ,
+    EARTH_J2,
+    SUN_MU,
+    MOON_MU,
 )
 
 _CELESTRAK_ALIASES = {
@@ -543,4 +590,16 @@ __all__ = [
     "Constellation",
     "propagate",
     "screen",
+    "hohmann_transfer",
+    "bi_elliptic_transfer",
+    "lambert",
+    "orbital_velocity",
+    "orbital_period",
+    "escape_velocity",
+    "propagate_numerical",
+    "EARTH_MU",
+    "EARTH_R_EQ",
+    "EARTH_J2",
+    "SUN_MU",
+    "MOON_MU",
 ]
