@@ -7,14 +7,32 @@ pub const c = @cImport({
 
 const std = @import("std");
 
-/// Get PyTypeObject from a PyObject - workaround for Py_TYPE being a static inline function in Python 3.10+
+/// Zig's translate-c can't handle CPython 3.12+'s ob_refcnt_split union (ziglang/zig#3949).
+/// On 3.10/3.11 ob_refcnt is a plain field; on 3.12+ it's inside unnamed_0.
+inline fn refcnt(obj: *c.PyObject) *c.Py_ssize_t {
+    if (@hasField(c.PyObject, "ob_refcnt")) {
+        return &obj.ob_refcnt;
+    } else {
+        return &obj.unnamed_0.ob_refcnt;
+    }
+}
+
+pub inline fn incref(obj: *c.PyObject) void {
+    refcnt(obj).* += 1;
+}
+
+pub inline fn decref(obj: *c.PyObject) void {
+    refcnt(obj).* -= 1;
+    if (refcnt(obj).* == 0) {
+        obj.ob_type.*.tp_dealloc.?(obj);
+    }
+}
+
 pub inline fn pyType(obj: [*c]c.PyObject) ?*c.PyTypeObject {
     if (obj == null) return null;
-    // Access ob_type directly from the PyObject structure
     return obj.*.ob_type;
 }
 
-/// Manual PyModuleDef since C macro doesn't translate
 pub const PyModuleDef_Base = extern struct {
     ob_base: c.PyObject,
     m_init: ?*const fn () callconv(.c) ?*c.PyObject,
@@ -35,7 +53,6 @@ pub const PyModuleDef = extern struct {
 };
 
 pub fn makeBaseObject() c.PyObject {
-    // PyModule_Create will properly initialize the object header.
     return std.mem.zeroes(c.PyObject);
 }
 
@@ -44,8 +61,9 @@ pub fn moduleCreate(def: *PyModuleDef) ?*c.PyObject {
 }
 
 pub fn none() *c.PyObject {
-    c.Py_INCREF(@constCast(&c._Py_NoneStruct));
-    return @constCast(&c._Py_NoneStruct);
+    const obj: *c.PyObject = @constCast(&c._Py_NoneStruct);
+    incref(obj);
+    return obj;
 }
 
 pub fn raiseValue(msg: [:0]const u8) void {
@@ -76,7 +94,6 @@ pub fn tupleSet(t: *c.PyObject, idx: c.Py_ssize_t, val: *c.PyObject) void {
     _ = c.PyTuple_SetItem(t, idx, val);
 }
 
-/// Check if a PyObject pointer is null or Python None.
 pub fn isNone(obj: [*c]c.PyObject) bool {
     return obj == null or obj == @as([*c]c.PyObject, @ptrCast(@constCast(&c._Py_NoneStruct)));
 }
@@ -85,7 +102,7 @@ pub fn listFromF64(data: []const f64) ?*c.PyObject {
     const list = c.PyList_New(@intCast(data.len)) orelse return null;
     for (data, 0..) |val, i| {
         const obj = c.PyFloat_FromDouble(val) orelse {
-            c.Py_DECREF(list);
+            decref(list);
             return null;
         };
         _ = c.PyList_SetItem(list, @intCast(i), obj);
@@ -97,7 +114,7 @@ pub fn listFromU32(data: []const u32) ?*c.PyObject {
     const list = c.PyList_New(@intCast(data.len)) orelse return null;
     for (data, 0..) |val, i| {
         const obj = c.PyLong_FromUnsignedLong(@as(c_ulong, val)) orelse {
-            c.Py_DECREF(list);
+            decref(list);
             return null;
         };
         _ = c.PyList_SetItem(list, @intCast(i), obj);
@@ -110,15 +127,13 @@ pub fn vecTuple(v: anytype) ?*c.PyObject {
     const t = tuple(N) orelse return null;
     inline for (0..N) |i| {
         tupleSet(t, @intCast(i), float(v[i]) orelse {
-            c.Py_DECREF(t);
+            decref(t);
             return null;
         });
     }
     return t;
 }
 
-/// Parse an optional float from a PyObject. Returns `default` if None/null,
-/// the parsed value on success, or `null` if a Python error occurred.
 pub fn optionalFloat(obj: [*c]c.PyObject, default: f64) ?f64 {
     if (isNone(obj)) return default;
     const val = c.PyFloat_AsDouble(obj);
@@ -126,20 +141,18 @@ pub fn optionalFloat(obj: [*c]c.PyObject, default: f64) ?f64 {
     return val;
 }
 
-/// Convert a Zig struct with all-f64 fields to a Python dict.
-/// `keys` must be a comptime tuple of string literals, one per struct field (in order).
 pub fn structToDict(result: anytype, comptime keys: anytype) ?*c.PyObject {
     const fields = @typeInfo(@TypeOf(result)).@"struct".fields;
     if (keys.len != fields.len) @compileError("key count must match struct field count");
     const dict = c.PyDict_New() orelse return null;
     inline for (fields, 0..) |field, i| {
         const val = c.PyFloat_FromDouble(@field(result, field.name)) orelse {
-            c.Py_DECREF(dict);
+            decref(dict);
             return null;
         };
-        defer c.Py_DECREF(val);
+        defer decref(val);
         if (c.PyDict_SetItemString(dict, keys[i], val) < 0) {
-            c.Py_DECREF(dict);
+            decref(dict);
             return null;
         }
     }
@@ -158,7 +171,7 @@ pub fn parseVec3(obj: [*c]c.PyObject) ?[3]f64 {
     var result: [3]f64 = undefined;
     inline for (0..3) |i| {
         const item = c.PySequence_GetItem(obj, @intCast(i)) orelse return null;
-        defer c.Py_DECREF(item);
+        defer decref(item);
         result[i] = c.PyFloat_AsDouble(item);
         if (result[i] == -1.0 and c.PyErr_Occurred() != null) return null;
     }

@@ -49,17 +49,17 @@ pub export fn PyInit__astroz() ?*c.PyObject {
     if (tle.ready() < 0 or sgp4.ready() < 0 or satrec.ready() < 0) return null;
     const m = py.moduleCreate(&module_def) orelse return null;
 
-    c.Py_INCREF(@as(*c.PyObject, @ptrCast(&tle.TleType)));
+    py.incref(@as(*c.PyObject, @ptrCast(&tle.TleType)));
     if (c.PyModule_AddObject(m, "Tle", @ptrCast(&tle.TleType)) < 0) return null;
 
-    c.Py_INCREF(@as(*c.PyObject, @ptrCast(&sgp4.Sgp4ConstellationType)));
+    py.incref(@as(*c.PyObject, @ptrCast(&sgp4.Sgp4ConstellationType)));
     if (c.PyModule_AddObject(m, "Sgp4Constellation", @ptrCast(&sgp4.Sgp4ConstellationType)) < 0) return null;
 
     // python-sgp4 compatible API
-    c.Py_INCREF(@as(*c.PyObject, @ptrCast(&satrec.SatrecType)));
+    py.incref(@as(*c.PyObject, @ptrCast(&satrec.SatrecType)));
     if (c.PyModule_AddObject(m, "Satrec", @ptrCast(&satrec.SatrecType)) < 0) return null;
 
-    c.Py_INCREF(@as(*c.PyObject, @ptrCast(&satrec.SatrecArrayType)));
+    py.incref(@as(*c.PyObject, @ptrCast(&satrec.SatrecArrayType)));
     if (c.PyModule_AddObject(m, "SatrecArray", @ptrCast(&satrec.SatrecArrayType)) < 0) return null;
 
     // Gravity model constants

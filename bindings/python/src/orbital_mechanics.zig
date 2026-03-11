@@ -57,25 +57,25 @@ pub fn pyLambert(_: [*c]c.PyObject, args: [*c]c.PyObject) callconv(.c) [*c]c.PyO
 
     const dict = c.PyDict_New() orelse return null;
     const dv = py.vecTuple(lr.departureVelocity.array()) orelse {
-        c.Py_DECREF(dict);
+        py.decref(dict);
         return null;
     };
     const av = py.vecTuple(lr.arrivalVelocity.array()) orelse {
-        c.Py_DECREF(dict);
-        c.Py_DECREF(dv);
+        py.decref(dict);
+        py.decref(dv);
         return null;
     };
 
     if (c.PyDict_SetItemString(dict, "departure_velocity", dv) < 0 or
         c.PyDict_SetItemString(dict, "arrival_velocity", av) < 0)
     {
-        c.Py_DECREF(dict);
-        c.Py_DECREF(dv);
-        c.Py_DECREF(av);
+        py.decref(dict);
+        py.decref(dv);
+        py.decref(av);
         return null;
     }
-    c.Py_DECREF(dv);
-    c.Py_DECREF(av);
+    py.decref(dv);
+    py.decref(av);
 
     // Add scalar fields with proper refcount management
     inline for (.{
@@ -84,12 +84,12 @@ pub fn pyLambert(_: [*c]c.PyObject, args: [*c]c.PyObject) callconv(.c) [*c]c.PyO
         .{ "tof", lr.timeOfFlight },
     }) |entry| {
         const val = c.PyFloat_FromDouble(entry[1]) orelse {
-            c.Py_DECREF(dict);
+            py.decref(dict);
             return null;
         };
-        defer c.Py_DECREF(val);
+        defer py.decref(val);
         if (c.PyDict_SetItemString(dict, entry[0], val) < 0) {
-            c.Py_DECREF(dict);
+            py.decref(dict);
             return null;
         }
     }

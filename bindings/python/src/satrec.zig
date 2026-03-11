@@ -112,7 +112,7 @@ fn satrec_twoline2rv(cls: [*c]c.PyObject, args: [*c]c.PyObject, kwds: [*c]c.PyOb
     // Parse TLE
     const tle = Tle.parseLines(line1, line2, allocator) catch {
         py.raiseValue("Failed to parse TLE lines");
-        c.Py_DECREF(@as([*c]c.PyObject, @ptrCast(self)));
+        py.decref(@as(*c.PyObject, @ptrCast(self)));
         return null;
     };
 
@@ -120,7 +120,7 @@ fn satrec_twoline2rv(cls: [*c]c.PyObject, args: [*c]c.PyObject, kwds: [*c]c.PyOb
         py.raiseRuntime("Out of memory");
         var tle_copy = tle;
         tle_copy.deinit();
-        c.Py_DECREF(@as([*c]c.PyObject, @ptrCast(self)));
+        py.decref(@as(*c.PyObject, @ptrCast(self)));
         return null;
     };
     tle_ptr.* = tle;
@@ -147,7 +147,7 @@ fn satrec_twoline2rv(cls: [*c]c.PyObject, args: [*c]c.PyObject, kwds: [*c]c.PyOb
             };
             const sdp4_ptr = allocator.create(Sdp4) catch {
                 py.raiseRuntime("Out of memory");
-                c.Py_DECREF(@as([*c]c.PyObject, @ptrCast(self)));
+                py.decref(@as(*c.PyObject, @ptrCast(self)));
                 return null;
             };
             sdp4_ptr.* = sdp4;
@@ -162,7 +162,7 @@ fn satrec_twoline2rv(cls: [*c]c.PyObject, args: [*c]c.PyObject, kwds: [*c]c.PyOb
 
     const sgp4_ptr = allocator.create(Sgp4) catch {
         py.raiseRuntime("Out of memory");
-        c.Py_DECREF(@as([*c]c.PyObject, @ptrCast(self)));
+        py.decref(@as(*c.PyObject, @ptrCast(self)));
         return null;
     };
     sgp4_ptr.* = sgp4;
@@ -211,18 +211,18 @@ fn buildErrorResult(errorCode: c_int) [*c]c.PyObject {
     const err = py.int(@intCast(errorCode)) orelse return null;
     const zero = [3]f64{ 0.0, 0.0, 0.0 };
     const zero_pos = py.vecTuple(zero) orelse {
-        c.Py_DECREF(err);
+        py.decref(err);
         return null;
     };
     const zero_vel = py.vecTuple(zero) orelse {
-        c.Py_DECREF(err);
-        c.Py_DECREF(zero_pos);
+        py.decref(err);
+        py.decref(zero_pos);
         return null;
     };
     const result = py.tuple(3) orelse {
-        c.Py_DECREF(err);
-        c.Py_DECREF(zero_pos);
-        c.Py_DECREF(zero_vel);
+        py.decref(err);
+        py.decref(zero_pos);
+        py.decref(zero_vel);
         return null;
     };
     py.tupleSet(result, 0, err);
@@ -235,18 +235,18 @@ fn buildSuccessResult(pv: [2][3]f64) [*c]c.PyObject {
     // Return (0, (x,y,z), (vx,vy,vz))
     const err = py.int(0) orelse return null;
     const pos = py.vecTuple(pv[0]) orelse {
-        c.Py_DECREF(err);
+        py.decref(err);
         return null;
     };
     const vel = py.vecTuple(pv[1]) orelse {
-        c.Py_DECREF(err);
-        c.Py_DECREF(pos);
+        py.decref(err);
+        py.decref(pos);
         return null;
     };
     const result = py.tuple(3) orelse {
-        c.Py_DECREF(err);
-        c.Py_DECREF(pos);
-        c.Py_DECREF(vel);
+        py.decref(err);
+        py.decref(pos);
+        py.decref(vel);
         return null;
     };
     py.tupleSet(result, 0, err);
@@ -569,7 +569,7 @@ pub fn pySdp4BatchPropagateInto(_: [*c]c.PyObject, args: [*c]c.PyObject, kwds: [
             py.raiseValue("Failed to get Satrec from sequence");
             return null;
         };
-        defer c.Py_DECREF(item);
+        defer py.decref(item);
 
         if (c.PyObject_TypeCheck(item, &SatrecType) == 0) {
             py.raiseType("All items must be Satrec objects");
@@ -714,12 +714,12 @@ pub fn pyJday(_: [*c]c.PyObject, args: [*c]c.PyObject) callconv(.c) [*c]c.PyObje
 
     const jd_obj = py.float(result.jd) orelse return null;
     const fr_obj = py.float(result.fr) orelse {
-        c.Py_DECREF(jd_obj);
+        py.decref(jd_obj);
         return null;
     };
     const tup = py.tuple(2) orelse {
-        c.Py_DECREF(jd_obj);
-        c.Py_DECREF(fr_obj);
+        py.decref(jd_obj);
+        py.decref(fr_obj);
         return null;
     };
     py.tupleSet(tup, 0, jd_obj);
@@ -739,34 +739,34 @@ pub fn pyDays2mdhms(_: [*c]c.PyObject, args: [*c]c.PyObject) callconv(.c) [*c]c.
 
     const month_obj = py.int(@intCast(result.month)) orelse return null;
     const day_obj = py.int(@intCast(result.day)) orelse {
-        c.Py_DECREF(month_obj);
+        py.decref(month_obj);
         return null;
     };
     const hour_obj = py.int(@intCast(result.hour)) orelse {
-        c.Py_DECREF(month_obj);
-        c.Py_DECREF(day_obj);
+        py.decref(month_obj);
+        py.decref(day_obj);
         return null;
     };
     const minute_obj = py.int(@intCast(result.minute)) orelse {
-        c.Py_DECREF(month_obj);
-        c.Py_DECREF(day_obj);
-        c.Py_DECREF(hour_obj);
+        py.decref(month_obj);
+        py.decref(day_obj);
+        py.decref(hour_obj);
         return null;
     };
     const second_obj = py.float(result.second) orelse {
-        c.Py_DECREF(month_obj);
-        c.Py_DECREF(day_obj);
-        c.Py_DECREF(hour_obj);
-        c.Py_DECREF(minute_obj);
+        py.decref(month_obj);
+        py.decref(day_obj);
+        py.decref(hour_obj);
+        py.decref(minute_obj);
         return null;
     };
 
     const tup = py.tuple(5) orelse {
-        c.Py_DECREF(month_obj);
-        c.Py_DECREF(day_obj);
-        c.Py_DECREF(hour_obj);
-        c.Py_DECREF(minute_obj);
-        c.Py_DECREF(second_obj);
+        py.decref(month_obj);
+        py.decref(day_obj);
+        py.decref(hour_obj);
+        py.decref(minute_obj);
+        py.decref(second_obj);
         return null;
     };
     py.tupleSet(tup, 0, month_obj);
@@ -796,7 +796,7 @@ fn satrecarray_get_epochs(self_obj: [*c]c.PyObject, _: ?*anyopaque) callconv(.c)
     const list = c.PyList_New(@intCast(num_sats)) orelse return null;
     for (0..num_sats) |i| {
         const jd_obj = py.float(epoch_jds[i]) orelse {
-            c.Py_DECREF(list);
+            py.decref(list);
             return null;
         };
         _ = c.PyList_SetItem(list, @intCast(i), jd_obj);
@@ -869,7 +869,7 @@ fn satrecarray_init(self_obj: [*c]c.PyObject, args: [*c]c.PyObject, _: [*c]c.PyO
             py.raiseValue("Failed to get Satrec from sequence");
             return -1;
         };
-        defer c.Py_DECREF(item);
+        defer py.decref(item);
 
         if (c.PyObject_TypeCheck(item, &SatrecType) == 0) {
             py.raiseType("All items must be Satrec objects");
