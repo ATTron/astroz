@@ -52,8 +52,12 @@ jobs:
         run: zig build fmt
 
   python:
-    name: Python bindings
+    name: Python ${{ matrix.python }} bindings
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ['3.10', '3.11', '3.12', '3.13', '3.14']
 
     steps:
       - name: Check out repository
@@ -62,7 +66,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.12'
+          python-version: ${{ matrix.python }}
 
       - name: Set up Zig
         uses: mlugg/setup-zig@v2
@@ -74,11 +78,12 @@ jobs:
         run: |
           PYTHON_INCLUDE=$(python -c "import sysconfig; print(sysconfig.get_path('include'))")
           PYTHON_LIBDIR=$(python -c "import sysconfig; print(sysconfig.get_config_var('LIBDIR'))")
+          PYTHON_LIB=$(python -c "import sys; print(f'python{sys.version_info.major}.{sys.version_info.minor}')")
           echo "Python include: $PYTHON_INCLUDE"
           echo "Python libdir: $PYTHON_LIBDIR"
           zig build python-bindings \
             -Dpython-include="$PYTHON_INCLUDE" \
-            -Dpython-lib=python3.12 \
+            -Dpython-lib="$PYTHON_LIB" \
             -Dpython-lib-path="$PYTHON_LIBDIR" \
             -Doptimize=ReleaseFast
 
