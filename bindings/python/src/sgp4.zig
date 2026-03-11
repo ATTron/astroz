@@ -70,7 +70,7 @@ fn constellation_init(self_obj: [*c]c.PyObject, args: [*c]c.PyObject, kwds: [*c]
             py.raiseValue("Failed to get TLE from sequence");
             return -1;
         };
-        defer c.Py_DECREF(item);
+        defer py.decref(item);
 
         if (c.PyObject_TypeCheck(item, &tle_mod.TleType) == 0) {
             py.raiseType("All items must be Tle objects");
@@ -425,13 +425,13 @@ fn constellation_screen_conjunction(self_obj: [*c]c.PyObject, args: [*c]c.PyObje
     // Build Python result: (min_distances, min_t_indices)
     const dists_list = py.listFromF64(out_min_dists[0..self.num_satellites]) orelse return null;
     const indices_list = py.listFromU32(out_min_t_indices[0..self.num_satellites]) orelse {
-        c.Py_DECREF(dists_list);
+        py.decref(dists_list);
         return null;
     };
 
     const result = py.tuple(2) orelse {
-        c.Py_DECREF(dists_list);
-        c.Py_DECREF(indices_list);
+        py.decref(dists_list);
+        py.decref(indices_list);
         return null;
     };
     py.tupleSet(result, 0, dists_list);

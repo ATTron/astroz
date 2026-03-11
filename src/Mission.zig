@@ -80,7 +80,7 @@ pub fn init(allocator: std.mem.Allocator, parameters: MissionParameters, orbital
         .allocator = allocator,
         .parameters = parameters,
         .orbitalMechanics = orbitalMechanics,
-        .trajectoryPredictions = std.ArrayList(TrajectoryPoint){},
+        .trajectoryPredictions = std.ArrayList(TrajectoryPoint).empty,
     };
 }
 
@@ -223,7 +223,7 @@ pub fn propagateTransfer(self: *Mission, totalDays: f64, timeStepDays: f64) !voi
 }
 
 pub fn planetaryPositions(self: *Mission, timeYears: f64) std.ArrayList(PlanetaryPositions) {
-    var positions = std.ArrayList(PlanetaryPositions){};
+    var positions = std.ArrayList(PlanetaryPositions).empty;
 
     for (constants.allBodies) |planet| {
         if (std.mem.eql(u8, planet.name, "sun")) {

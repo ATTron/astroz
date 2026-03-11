@@ -2,15 +2,15 @@
     .name = .astroz,
     .version = "0.10.0",
     .fingerprint = 0x2d8583fca695159f, // Changing this has security and trust implications.
-    .minimum_zig_version = "0.16.0-dev.2535+b5bd49460",
+    .minimum_zig_version = "0.16.0-dev.2821+3edaef9e0",
     .dependencies = .{
         .cfitsio = .{
             .url = "git+https://github.com/ATTron/cfitsio/?ref=HEAD#2faa5c5b263e0c4a903d7bbf54bb71a4597e876c",
             .hash = "cfitsio-4.6.2-LaSYACsZAAD1UX_WWiQXcsBWwPnoMjwMzBA7WFNw8Xu2",
         },
         .zignal = .{
-            .url = "git+https://github.com/arrufat/zignal#2db97fcf6b95222b9c0568a129f93d1a72f5f494",
-            .hash = "zignal-0.10.0-dev-OrZ3sxJyJgATX9TyC9k2sFPlGmwaMav02bCxSKQvyfZr",
+            .url = "git+https://github.com/arrufat/zignal#7e322c141f7f631a23a07b60c7394215c4018a37",
+            .hash = "zignal-0.10.0-dev-OrZ3s5kSKAAXeSkJO-xMJCBG7QeSXdiB8vtiJzsaUuvP",
         },
         .oma = .{
             .url = "git+https://github.com/ATTron/oma?ref=HEAD#60b5b80ad7e647d4eb0721b5c0820f87128fcc3c",

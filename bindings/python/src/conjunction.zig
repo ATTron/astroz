@@ -214,28 +214,28 @@ pub fn py_coarse_screen(_: [*c]c.PyObject, args: [*c]c.PyObject) callconv(.c) [*
     const pairs_list = c.PyList_New(@intCast(count)) orelse return null;
     for (0..count) |i| {
         const pair_tuple = py.tuple(2) orelse {
-            c.Py_DECREF(pairs_list);
+            py.decref(pairs_list);
             return null;
         };
         py.tupleSet(pair_tuple, 0, c.PyLong_FromUnsignedLong(@as(c_ulong, out_pairs[i * 2])) orelse {
-            c.Py_DECREF(pairs_list);
+            py.decref(pairs_list);
             return null;
         });
         py.tupleSet(pair_tuple, 1, c.PyLong_FromUnsignedLong(@as(c_ulong, out_pairs[i * 2 + 1])) orelse {
-            c.Py_DECREF(pairs_list);
+            py.decref(pairs_list);
             return null;
         });
         _ = c.PyList_SetItem(pairs_list, @intCast(i), pair_tuple);
     }
 
     const times_list = py.listFromU32(out_t_indices[0..count]) orelse {
-        c.Py_DECREF(pairs_list);
+        py.decref(pairs_list);
         return null;
     };
 
     const result = py.tuple(2) orelse {
-        c.Py_DECREF(pairs_list);
-        c.Py_DECREF(times_list);
+        py.decref(pairs_list);
+        py.decref(times_list);
         return null;
     };
     py.tupleSet(result, 0, pairs_list);

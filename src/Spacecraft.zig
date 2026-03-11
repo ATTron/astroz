@@ -114,7 +114,7 @@ pub fn init(name: []const u8, tle: Tle, mass: f64, size: SatelliteSize, orbiting
             .{ 0.0, 1.0, 0.0 },
         },
         .orbitingObject = orbitingObject.?,
-        .orbitPredictions = std.ArrayList(calculations.StateTime){},
+        .orbitPredictions = std.ArrayList(calculations.StateTime).empty,
         .allocator = allocator,
     };
 }

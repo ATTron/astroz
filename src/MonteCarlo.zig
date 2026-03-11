@@ -62,7 +62,7 @@ pub fn init(allocator: std.mem.Allocator, config: MonteCarloConfig) MonteCarlo {
     return .{
         .allocator = allocator,
         .config = config,
-        .results = std.ArrayList(SimulationResult){},
+        .results = std.ArrayList(SimulationResult).empty,
         .random = prng,
     };
 }
@@ -162,7 +162,7 @@ pub fn calculateStatistics(self: *MonteCarlo) !StatisticalSummary {
         return ValidationError.ValueError;
     }
 
-    var successfulResults = std.ArrayList(SimulationResult){};
+    var successfulResults = std.ArrayList(SimulationResult).empty;
     defer successfulResults.deinit(self.allocator);
 
     for (self.results.items) |result| {

@@ -26,7 +26,7 @@ pub const Propagator = struct {
         duration: f64,
         dt: f64,
     ) !std.ArrayList(StateTime) {
-        var trajectory = std.ArrayList(StateTime){};
+        var trajectory = std.ArrayList(StateTime).empty;
         errdefer trajectory.deinit(self.allocator);
 
         var state = initial;
