@@ -7,14 +7,23 @@ pub const c = @cImport({
 
 const std = @import("std");
 
-/// Zig's translate-c can't handle CPython's ob_refcnt_split union (ziglang/zig#3949)
+/// Zig's translate-c can't handle CPython 3.12+'s ob_refcnt_split union (ziglang/zig#3949).
+/// On 3.10/3.11 ob_refcnt is a plain field; on 3.12+ it's inside unnamed_0.
+inline fn refcnt(obj: *c.PyObject) *c.Py_ssize_t {
+    if (@hasField(c.PyObject, "ob_refcnt")) {
+        return &obj.ob_refcnt;
+    } else {
+        return &obj.unnamed_0.ob_refcnt;
+    }
+}
+
 pub inline fn incref(obj: *c.PyObject) void {
-    obj.ob_refcnt += 1;
+    refcnt(obj).* += 1;
 }
 
 pub inline fn decref(obj: *c.PyObject) void {
-    obj.ob_refcnt -= 1;
-    if (obj.ob_refcnt == 0) {
+    refcnt(obj).* -= 1;
+    if (refcnt(obj).* == 0) {
         obj.ob_type.*.tp_dealloc.?(obj);
     }
 }
