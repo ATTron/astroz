@@ -4,6 +4,7 @@ const std = @import("std");
 
 const Ccsds = @This();
 
+packetType: pktType,
 header: HeaderMetadata,
 primaryHeader: []const u8,
 secondaryHeader: ?[]const u8,
@@ -13,6 +14,24 @@ allocator: std.mem.Allocator,
 
 pub fn init(pl: []const u8, allocator: std.mem.Allocator, config: ?Config) !Ccsds {
     var rawPackets = try allocator.dupe(u8, pl); // dupe so it doesn't go out of scope too early
+    const primaryHeader = rawPackets[0..6];
+    const headers = fetchHeader(rawPackets, config);
+    const end = 5 + headers.header.packetSize; // num of header bytes + packet_size
+    const packets = rawPackets[headers.start..end];
+
+    _ = allocator.resize(rawPackets, end);
+
+    return .{
+        .header = headers.header,
+        .primaryHeader = primaryHeader,
+        .secondaryHeader = headers.secondaryHeader,
+        .packets = packets,
+        .rawData = rawPackets,
+        .allocator = allocator,
+    };
+}
+
+pub fn fetchHeader(rawPackets: []u8, config: ?Config) struct {header: HeaderMetadata, secondaryHeader: ?[]const u8, start: u8} {
     const primaryHeader = rawPackets[0..6];
     const version = @as(u3, @truncate((primaryHeader[0] >> 5) & 0x07));
     const packetType = @as(u1, @truncate((primaryHeader[0] >> 4) & 0x01));
@@ -46,18 +65,11 @@ pub fn init(pl: []const u8, allocator: std.mem.Allocator, config: ?Config) !Ccsd
         .packetSequenceCount = packetSequenceCount,
         .packetSize = packetSize + 1,
     };
-    const end = 5 + header.packetSize; // num of header bytes + packet_size
-    const packets = rawPackets[start..end];
-
-    _ = allocator.resize(rawPackets, end);
 
     return .{
-        .header = header,
-        .primaryHeader = primaryHeader,
-        .secondaryHeader = secondaryHeader,
-        .packets = packets,
-        .rawData = rawPackets,
-        .allocator = allocator,
+        .header = header, 
+        .secondaryHeader = secondaryHeader, 
+        .start = start,
     };
 }
 
@@ -81,6 +93,11 @@ pub const HeaderMetadata = packed struct {
     sequenceFlag: u2,
     packetSequenceCount: u14,
     packetSize: u16,
+};
+
+pub const pktType = enum {
+    spacePkt,
+    uslp
 };
 
 /// If you choose to use the CCSDS config you need to call this function first to get the Config struct
