@@ -9,8 +9,8 @@
             .hash = "cfitsio-4.6.2-LaSYACsZAAD1UX_WWiQXcsBWwPnoMjwMzBA7WFNw8Xu2",
         },
         .zignal = .{
-            .url = "git+https://github.com/arrufat/zignal#7e322c141f7f631a23a07b60c7394215c4018a37",
-            .hash = "zignal-0.10.0-dev-OrZ3s5kSKAAXeSkJO-xMJCBG7QeSXdiB8vtiJzsaUuvP",
+            .url = "git+https://github.com/arrufat/zignal#6f6b8ee01f337294d667ad000a82b5358c0a45d7",
+            .hash = "zignal-0.10.0-dev-OrZ3s7UAKABFoYmKmvQ2PRBOTvtL-8zXuAWJ7ZJmzROK",
         },
         .oma = .{
             .url = "git+https://github.com/ATTron/oma?ref=HEAD#60b5b80ad7e647d4eb0721b5c0820f87128fcc3c",
