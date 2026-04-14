@@ -108,7 +108,7 @@ pub fn Parser(comptime Frame: type) type {
             var reader = stream.reader(io, &readerBuffer);
             while (!self.shouldStop) {
                 const bytesRead = try reader.interface.readSliceShort(&incomingBuffer);
-                if (bytesRead == 0) continue;
+                if (bytesRead == 0) return error.ReadFailed;
 
                 const newFrame = Frame.init(incomingBuffer[0..bytesRead], self.allocator, null) catch continue;
                 std.log.debug("message received: {any}", .{newFrame});
