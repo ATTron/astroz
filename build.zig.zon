@@ -2,7 +2,7 @@
     .name = .astroz,
     .version = "0.10.0",
     .fingerprint = 0x2d8583fca695159f, // Changing this has security and trust implications.
-    .minimum_zig_version = "0.16.0-dev.2821+3edaef9e0",
+    .minimum_zig_version = "0.16.0",
     .dependencies = .{
         .cfitsio = .{
             .url = "git+https://github.com/ATTron/cfitsio/?ref=HEAD#2faa5c5b263e0c4a903d7bbf54bb71a4597e876c",

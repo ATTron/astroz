@@ -65,9 +65,9 @@ pub fn coarseScreen(
             const y = positions[base + 1];
             const z = positions[base + 2];
 
-            const cx = @as(i32, @intFromFloat(@floor(x * inv_cell_size)));
-            const cy = @as(i32, @intFromFloat(@floor(y * inv_cell_size)));
-            const cz = @as(i32, @intFromFloat(@floor(z * inv_cell_size)));
+            const cx = @as(i32, @floor(x * inv_cell_size));
+            const cy = @as(i32, @floor(y * inv_cell_size));
+            const cz = @as(i32, @floor(z * inv_cell_size));
             sat_cx[s] = cx;
             sat_cy[s] = cy;
             sat_cz[s] = cz;

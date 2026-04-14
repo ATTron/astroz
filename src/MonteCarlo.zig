@@ -248,14 +248,17 @@ pub fn printStatistics(self: *MonteCarlo) !void {
 }
 
 /// Export results to CSV format for Python analysis
-pub fn exportToCSV(self: *MonteCarlo, filePath: []const u8) !void {
-    const file = try std.fs.cwd().createFile(filePath, .{});
-    defer file.close();
+pub fn exportToCSV(self: *MonteCarlo, io: std.Io, filePath: []const u8) !void {
+    const file = try std.Io.Dir.cwd().createFile(io, filePath, .{});
+    defer file.close(io);
 
-    try file.writeAll("simulation,success,deltaV_km_s,transferTime_days,semiMajorAxis_km,departureRadius_km,arrivalRadius_km,departure_uncertainty_pct,arrival_uncertainty_pct,mu_uncertainty_pct\n");
+    var write_buffer: [4096]u8 = undefined;
+    var file_writer = file.writer(io, &write_buffer);
+    var buffered = &file_writer.interface;
+
+    try buffered.writeAll("simulation,success,deltaV_km_s,transferTime_days,semiMajorAxis_km,departureRadius_km,arrivalRadius_km,departure_uncertainty_pct,arrival_uncertainty_pct,mu_uncertainty_pct\n");
     for (self.results.items, 0..) |result, i| {
-        var buffer: [512]u8 = undefined;
-        const line = try std.fmt.bufPrint(buffer[0..], "{d},{},{d:.6},{d:.3},{d:.0},{d:.0},{d:.0},{d:.6},{d:.6},{d:.6}\n", .{
+        try buffered.print("{d},{},{d:.6},{d:.3},{d:.0},{d:.0},{d:.0},{d:.6},{d:.6},{d:.6}\n", .{
             i,
             if (result.success) @as(u8, 1) else @as(u8, 0),
             result.deltaV,
@@ -267,7 +270,6 @@ pub fn exportToCSV(self: *MonteCarlo, filePath: []const u8) !void {
             result.uncertainty.arrivalRadiusUncertainty * 100.0,
             result.uncertainty.muUncertainty * 100.0,
         });
-        try file.writeAll(line);
     }
 
     log.info("Results exported to: {s}", .{filePath});

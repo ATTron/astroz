@@ -159,7 +159,7 @@ pub fn doyToMonthDay(year: u16, doy: f64) struct { month: u8, day: u8 } {
 
     return .{
         .month = month,
-        .day = @as(u8, @intFromFloat(day)),
+        .day = @as(u8, @trunc(day)),
     };
 }
 
@@ -210,8 +210,8 @@ pub fn fromYearDoy(year: u16, doy: f64) Datetime {
     const md = doyToMonthDay(year, doy);
     const fractionalDay = doy - @floor(doy);
     const totalSeconds = fractionalDay * constants.secondsPerDay;
-    const hours: u8 = @intFromFloat(@floor(totalSeconds / constants.secondsPerHour));
-    const minutes: u8 = @intFromFloat(@floor(@mod(totalSeconds, constants.secondsPerHour) / constants.secondsPerMinute));
+    const hours: u8 = @floor(totalSeconds / constants.secondsPerHour);
+    const minutes: u8 = @floor(@mod(totalSeconds, constants.secondsPerHour) / constants.secondsPerMinute);
     const seconds: f16 = @floatCast(@mod(totalSeconds, constants.secondsPerMinute));
 
     return Datetime.initDatetime(year, md.month, md.day, hours, minutes, seconds);

@@ -27,7 +27,7 @@ pub fn precess(self: EquatorialCoordinateSystem, date: Datetime) EquatorialCoord
 
     const totalSeconds = self.rightAscension.seconds + deltas.ra;
     const newSeconds = @mod(totalSeconds, 60.0);
-    const totalMinutes = self.rightAscension.minutes + @as(u16, @intFromFloat(totalSeconds)) / 60;
+    const totalMinutes = self.rightAscension.minutes + @as(u16, @trunc(totalSeconds)) / 60;
     const newMinutes = @mod(totalMinutes, 60);
     const newHours = self.rightAscension.hours + totalMinutes / 60;
 
@@ -39,7 +39,7 @@ pub fn precess(self: EquatorialCoordinateSystem, date: Datetime) EquatorialCoord
 
     const totalArcseconds = self.declination.arcseconds + deltas.dec;
     const newArcseconds = @mod(totalArcseconds, 60.0);
-    const totalArcminutes = self.declination.arcminutes + @as(u16, @intFromFloat(totalArcseconds)) / 60;
+    const totalArcminutes = self.declination.arcminutes + @as(u16, @trunc(totalArcseconds)) / 60;
     const newArcminutes = @mod(totalArcminutes, 60);
     const newDegrees = self.declination.degrees + totalArcminutes / 60;
 
