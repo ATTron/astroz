@@ -30,25 +30,25 @@ pub fn free(handle: Handle) void {
 
 pub fn getSatelliteNumber(handle: Handle) u32 {
     const ptr: *Tle = @ptrCast(@alignCast(handle));
-    return ptr.firstLine.satelliteNumber;
+    return ptr.satelliteNumber;
 }
 
 pub fn getEpoch(handle: Handle) f64 {
     const ptr: *Tle = @ptrCast(@alignCast(handle));
-    return ptr.firstLine.epoch;
+    return ptr.epoch;
 }
 
 pub fn getInclination(handle: Handle) f64 {
     const ptr: *Tle = @ptrCast(@alignCast(handle));
-    return ptr.secondLine.inclination;
+    return ptr.inclination;
 }
 
 pub fn getEccentricity(handle: Handle) f64 {
     const ptr: *Tle = @ptrCast(@alignCast(handle));
-    return ptr.secondLine.eccentricity;
+    return ptr.eccentricity;
 }
 
 pub fn getMeanMotion(handle: Handle) f64 {
     const ptr: *Tle = @ptrCast(@alignCast(handle));
-    return ptr.secondLine.mMotion;
+    return ptr.mMotion;
 }

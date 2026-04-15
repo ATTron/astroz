@@ -533,11 +533,7 @@ inline fn laneActive(satelliteMask: ?[]const u8, origIdx: u32) bool {
 }
 
 fn tleEpochJd(tle: Tle) f64 {
-    const fullYear: u16 = if (tle.firstLine.epochYear < 57)
-        2000 + tle.firstLine.epochYear
-    else
-        1900 + tle.firstLine.epochYear;
-    return Datetime.yearDoyToJulianDate(fullYear, tle.firstLine.epochDay);
+    return tle.epochJd;
 }
 
 /// Propagate SGP4 constellation with specified memory layout and threading strategy

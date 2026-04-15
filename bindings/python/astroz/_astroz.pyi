@@ -50,7 +50,7 @@ def version() -> str:
     --------
     >>> import astroz._astroz as _astroz
     >>> _astroz.version()
-    '0.4.4'
+    '0.12.1'
     """
 
 def jday(

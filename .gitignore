@@ -35,6 +35,3 @@ uv.lock
 bindings/python/astroz/*.so
 bindings/python/astroz/*.dylib
 bindings/python/astroz/*.pyd
-
-# Legacy paths (old ctypes bindings - removed)
-/python/

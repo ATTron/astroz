@@ -77,13 +77,17 @@ Constellation
 
 Data Sources
 ------------
-The library supports multiple TLE data sources:
+The library supports TLE and OMM (CCSDS 502.0-B-3) formats:
 
 - **CelesTrak groups**: ``"starlink"``, ``"gps"``, ``"stations"``, etc.
 - **NORAD IDs**: ``norad_id=25544`` (ISS) or ``norad_id=[25544, 48274]``
-- **URLs**: Any URL returning TLE-format data
-- **Local files**: Path to a TLE file
+- **URLs**: Any URL returning TLE or OMM JSON data
+- **Local files**: Path to a TLE or OMM JSON file
 - **Raw TLE text**: Direct TLE string input
+- **Raw OMM JSON**: Direct JSON string (single object or array)
+
+OMM JSON is auto-detected and supports 6+ digit NORAD catalog IDs
+(required after the TLE format's 5-digit limit is exhausted in mid-2026).
 
 Performance
 -----------
@@ -110,7 +114,6 @@ from ._astroz import (
     Satrec as _Satrec,
     Sgp4Constellation as _Sgp4Constellation,
     coarse_screen as _coarse_screen,
-    sdp4_batch_propagate_into as _sdp4_batch_propagate_into,
     hohmann_transfer,
     bi_elliptic_transfer,
     lambert,
@@ -132,6 +135,7 @@ _CELESTRAK_ALIASES = {
     "glonass": "glo-ops",
 }
 
+DAY_SECONDS = 86400.0
 
 def _fetch_url(url):
     """Fetch URL content."""
@@ -141,32 +145,40 @@ def _fetch_url(url):
     return urllib.request.urlopen(req, timeout=60).read().decode("utf-8")
 
 
-def _celestrak_url(group=None, norad_id=None):
+def _celestrak_url(group=None, norad_id=None, fmt="tle"):
     """Build CelesTrak URL."""
+    fmt_str = fmt.upper()
     if norad_id is not None:
         ids = (
             ",".join(str(i) for i in norad_id)
             if isinstance(norad_id, (list, tuple))
             else str(norad_id)
         )
-        return f"https://celestrak.org/NORAD/elements/gp.php?CATNR={ids}&FORMAT=tle"
-    group_name = _CELESTRAK_ALIASES.get(group.lower(), group)
-    return f"https://celestrak.org/NORAD/elements/gp.php?GROUP={group_name}&FORMAT=tle"
+        return f"https://celestrak.org/NORAD/elements/gp.php?CATNR={ids}&FORMAT={fmt_str}"
+    if group is not None:
+        group_name = _CELESTRAK_ALIASES.get(group.lower(), group)
+    return f"https://celestrak.org/NORAD/elements/gp.php?GROUP={group_name}&FORMAT={fmt_str}"
 
 
 def _load_tle_text(source, norad_id=None):
-    """Load TLE text from various sources."""
+    """Load TLE text from various sources. Returns (text, format) tuple."""
     if norad_id is not None:
-        return _fetch_url(_celestrak_url(norad_id=norad_id))
+        return _fetch_url(_celestrak_url(norad_id=norad_id)), "tle"
     if source is None:
         raise ValueError("Must specify 'source' or 'norad_id'")
     if source.startswith(("http://", "https://")):
-        return _fetch_url(source)
+        text = _fetch_url(source)
+        fmt = "json" if text.lstrip().startswith(("[", "{")) else "tle"
+        return text, fmt
     if "1 " in source and "2 " in source:
-        return source
+        return source, "tle"
+    if source.lstrip().startswith(("[", "{")):
+        return source, "json"
     if Path(source).exists():
-        return Path(source).read_text()
-    return _fetch_url(_celestrak_url(group=source))
+        text = Path(source).read_text()
+        fmt = "json" if text.lstrip().startswith(("[", "{")) else "tle"
+        return text, fmt
+    return _fetch_url(_celestrak_url(group=source)), "tle"
 
 
 def _parse_tle_pairs(tle_text):
@@ -185,6 +197,85 @@ def _parse_tle_pairs(tle_text):
             continue
         # Skip name lines
         i += 1
+    return pairs
+
+
+def _omm_to_tle_pairs(json_text):
+    """Convert OMM JSON (single object or array) to list of (line1, line2) pairs."""
+    import json
+    import math
+    from datetime import datetime
+
+    data = json.loads(json_text)
+    if isinstance(data, dict):
+        data = [data]
+
+    pairs = []
+    for rec in data:
+        norad = rec["NORAD_CAT_ID"]
+        cls = rec.get("CLASSIFICATION_TYPE", "U") or "U"
+        intl = rec.get("OBJECT_ID", "00000A") or "00000A"
+        epoch_str = rec["EPOCH"]
+        ndot = rec.get("MEAN_MOTION_DOT", 0) or 0
+        nddot = rec.get("MEAN_MOTION_DDOT", 0) or 0
+        bstar = rec["BSTAR"]
+        etype = rec.get("EPHEMERIS_TYPE", 0) or 0
+        elset = rec.get("ELEMENT_SET_NO", 0) or 0
+        inc = rec["INCLINATION"]
+        raan = rec["RA_OF_ASC_NODE"]
+        ecc = rec["ECCENTRICITY"]
+        argp = rec["ARG_OF_PERICENTER"]
+        ma = rec["MEAN_ANOMALY"]
+        mm = rec["MEAN_MOTION"]
+        revnum = rec.get("REV_AT_EPOCH", 0) or 0
+
+        # Parse ISO 8601 epoch to 2-digit year + day-of-year
+        dt = datetime.fromisoformat(epoch_str).replace(tzinfo=None)
+        year = dt.year
+        yy = year % 100
+        # Day of year: Jan 1 = day 1
+        jan1 = datetime(year, 1, 1)
+        doy = (dt - jan1).total_seconds() / DAY_SECONDS + 1.0
+
+        # OMM OBJECT_ID: "1998-067A" → TLE: "98067A  "
+        if "-" in intl:
+            parts = intl.split("-", 1)
+            intl_year = parts[0][-2:]
+            rest = parts[1]
+            intl_tle = f"{intl_year}{rest:<6s}"
+        else:
+            intl_tle = f"{intl:<8s}"
+
+        def _fmt_exp(val):
+            if val == 0:
+                return " 00000+0"
+            sign = "-" if val < 0 else " "
+            av = abs(val)
+            exp = math.floor(math.log10(av)) + 1
+            mantissa = round(av * 10 ** (5 - exp))
+            return f"{sign}{int(mantissa):05d}{exp:+d}"
+
+        # no leading zero, implied decimal
+        ndot_sign = "-" if ndot < 0 else " "
+        ndot_frac = f"{abs(ndot):.8f}"
+        ndot_str = f"{ndot_sign}{ndot_frac[1:]}"
+
+        # Build TLE line 1 character by character (69 chars)
+        # Cols: 1 | 3-7 | 8 | 10-17 | 19-32 | 34-43 | 45-52 | 54-61 | 63 | 65-68 | 69
+        l1 = f"1 {norad:05d}{cls[0]} {intl_tle} {yy:02d}{doy:012.8f} {ndot_str} {_fmt_exp(nddot)} {_fmt_exp(bstar)} {etype} {elset:4d}"
+        l1 = l1[:68].ljust(68)
+        cksum1 = sum(int(c) if c.isdigit() else (1 if c == "-" else 0) for c in l1) % 10
+        l1 = l1 + str(cksum1)
+
+        # Build TLE line 2 (69 chars)
+        ecc_str = f"{ecc:.7f}"[2:]  # "0.0011446" → "0011446"
+        l2 = f"2 {norad:05d} {inc:8.4f} {raan:8.4f} {ecc_str} {argp:8.4f} {ma:8.4f} {mm:11.8f}{revnum:5d}"
+        l2 = l2[:68].ljust(68)
+        cksum2 = sum(int(c) if c.isdigit() else (1 if c == "-" else 0) for c in l2) % 10
+        l2 = l2 + str(cksum2)
+
+        pairs.append((l1, l2))
+
     return pairs
 
 
@@ -225,12 +316,13 @@ class Constellation:
     Parameters
     ----------
     source : str, optional
-        TLE data source. Can be one of:
+        Orbital element data source. Can be one of:
 
         - CelesTrak group name (e.g., ``"starlink"``, ``"gps"``, ``"stations"``)
-        - URL to TLE data
-        - Local file path
+        - URL to TLE or OMM JSON data
+        - Local file path (TLE or OMM JSON, auto-detected)
         - Raw TLE text string
+        - Raw OMM JSON string (single object or array)
 
     norad_id : int or list of int, optional
         NORAD catalog ID(s) to fetch from CelesTrak. If provided, ``source``
@@ -241,7 +333,7 @@ class Constellation:
     num_satellites : int
         Number of satellites in the constellation.
     epochs : list of float
-        TLE epoch for each satellite as Julian Date.
+        Epoch for each satellite as Julian Date.
 
     Examples
     --------
@@ -257,6 +349,12 @@ class Constellation:
     >>> iss.num_satellites
     1
 
+    Load from OMM JSON (supports 6+ digit NORAD IDs):
+
+    >>> import json
+    >>> omm = [{"NORAD_CAT_ID": 25544, "EPOCH": "2026-04-15T12:00:00.000000", ...}]
+    >>> c = Constellation(json.dumps(omm))
+
     Propagate multiple times efficiently:
 
     >>> c = Constellation("gps")
@@ -270,8 +368,8 @@ class Constellation:
     """
 
     def __init__(self, source=None, *, norad_id=None):
-        tle_text = _load_tle_text(source, norad_id)
-        pairs = _parse_tle_pairs(tle_text)
+        tle_text, fmt = _load_tle_text(source, norad_id)
+        pairs = _omm_to_tle_pairs(tle_text) if fmt == "json" else _parse_tle_pairs(tle_text)
 
         # Separate near-earth (SGP4) and deep-space (SDP4) TLEs.
         # Output ordering: SGP4 sats first [0, n_sgp4), SDP4 after [n_sgp4, n_total).
@@ -289,7 +387,6 @@ class Constellation:
 
         self._n_sgp4 = len(sgp4_lines) // 2
 
-        # Build SGP4 constellation from near-earth TLEs only
         self._zig = None
         if sgp4_lines:
             sgp4_text = "\n".join(sgp4_lines)
@@ -322,13 +419,13 @@ def propagate(
     Parameters
     ----------
     source : Constellation, str, or None
-        TLE data source. Can be:
+        Orbital element data source. Can be:
 
         - ``Constellation`` object (most efficient for repeated calls)
         - CelesTrak group name (e.g., ``"starlink"``, ``"gps"``)
-        - URL to TLE data
-        - Local file path
-        - Raw TLE text string
+        - URL to TLE or OMM JSON data
+        - Local file path (TLE or OMM JSON, auto-detected)
+        - Raw TLE text string or OMM JSON string
         - ``None`` if using ``norad_id``
 
     times : array-like
@@ -430,27 +527,6 @@ def propagate(
             output=output,
             reference_jd=start,
             time_major=True,
-            output_stride=n_sats,
-        )
-
-    # SDP4 batch: positions [n_sgp4, n_total) — threaded in Zig
-    n_sdp4 = len(const._sdp4_satrecs)
-    if n_sdp4 > 0:
-        abs_jd_times = start + times / 1440.0
-        common_jd = np.full(
-            n_times, np.floor(abs_jd_times[0] - 0.5) + 0.5, dtype=np.float64
-        )
-        common_fr = np.ascontiguousarray(abs_jd_times - common_jd[0], dtype=np.float64)
-
-        # Write directly into output array using stride — no temp, no copy
-        _sdp4_batch_propagate_into(
-            const._sdp4_satrecs,
-            common_jd,
-            common_fr,
-            pos,
-            vel if velocities else pos,  # vel unused if no velocities
-            output_stride=n_sats,
-            sat_offset=n_sgp4,
         )
 
     return (pos, vel) if velocities else pos
@@ -467,13 +543,13 @@ def screen(
     Parameters
     ----------
     source : Constellation, str, or None
-        TLE data source. Can be:
+        Orbital element data source. Can be:
 
         - ``Constellation`` object (most efficient for repeated calls)
         - CelesTrak group name (e.g., ``"starlink"``, ``"gps"``)
-        - URL to TLE data
-        - Local file path
-        - Raw TLE text string
+        - URL to TLE or OMM JSON data
+        - Local file path (TLE or OMM JSON, auto-detected)
+        - Raw TLE text string or OMM JSON string
         - ``None`` if using ``norad_id``
 
     times : array-like

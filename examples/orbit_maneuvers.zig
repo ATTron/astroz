@@ -25,7 +25,7 @@ pub fn main() !void {
     var sc1 = Spacecraft.init("basic_sc", tle1, 300.0, Spacecraft.SatelliteSize.Cube, constants.earth, allocator);
     defer sc1.deinit();
 
-    try sc1.propagate(sc1.tle.firstLine.epoch, 3, 1, null);
+    try sc1.propagate(sc1.tle.epoch, 3, 1, null);
     std.debug.print("Generated {d} orbit predictions\n", .{sc1.orbitPredictions.items.len});
 
     // Example 2: Orbit Propagation with Impulse Maneuvers
@@ -42,7 +42,7 @@ pub fn main() !void {
         .{ .time = 10800.0, .maneuver = .{ .absolute = .{ -0.03, 0.08, -0.01 } } },
     };
 
-    try sc2.propagate(sc2.tle.firstLine.epoch, 3, 1, &impulses);
+    try sc2.propagate(sc2.tle.epoch, 3, 1, &impulses);
     std.debug.print("Applied {d} impulse maneuvers\n", .{impulses.len});
 
     // Example 3: Plane Change Maneuver
@@ -64,7 +64,7 @@ pub fn main() !void {
     };
 
     const planeImpulses = [_]Impulse{planeChangeManeuver};
-    try sc3.propagate(sc3.tle.firstLine.epoch, 3, 1, &planeImpulses);
+    try sc3.propagate(sc3.tle.epoch, 3, 1, &planeImpulses);
     std.debug.print("Applied plane change: Δi={d:.1}°, ΔRAAN={d:.1}°\n", .{
         math.degreesToRadians(10.0),
         math.degreesToRadians(5.0),
@@ -89,7 +89,7 @@ pub fn main() !void {
     };
 
     const phaseImpulses = [_]Impulse{phaseManeuver};
-    try sc4.propagate(sc4.tle.firstLine.epoch, 3, 1, &phaseImpulses);
+    try sc4.propagate(sc4.tle.epoch, 3, 1, &phaseImpulses);
     std.debug.print("Applied phase change: {d:.1}° (π/2 radians)\n", .{90.0});
 
     std.debug.print("\nAll maneuver examples completed successfully!\n", .{});

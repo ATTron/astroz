@@ -317,7 +317,7 @@ fn constellation_from_tle_text(cls: [*c]c.PyObject, args: [*c]c.PyObject, kwds: 
         const tle = astroz.Tle.parseLines(pair.line1, pair.line2, allocator) catch continue;
 
         // Filter: period <= 225 minutes (near-earth only, no deep space)
-        const period = astroz.constants.minutesPerDay / tle.secondLine.mMotion;
+        const period = astroz.constants.minutesPerDay / tle.mMotion;
         if (period <= astroz.constants.sgp4DeepSpaceThresholdMinutes) {
             tles.append(allocator, tle) catch {
                 py.raiseRuntime("Out of memory");

@@ -126,15 +126,9 @@ fn satrec_twoline2rv(cls: [*c]c.PyObject, args: [*c]c.PyObject, kwds: [*c]c.PyOb
     tle_ptr.* = tle;
     self.tle = tle_ptr;
 
-    // Compute epoch JD
-    const fullYear: u16 = if (tle.firstLine.epochYear < 57)
-        2000 + tle.firstLine.epochYear
-    else
-        1900 + tle.firstLine.epochYear;
-    const epochJd = Datetime.yearDoyToJulianDate(fullYear, tle.firstLine.epochDay);
-    // Split into integer (at noon) and fractional parts like python-sgp4
-    self.jdsatepoch = @floor(epochJd - 0.5) + 0.5;
-    self.jdsatepochF = epochJd - self.jdsatepoch;
+    // Split epoch JD into integer (at noon) and fractional parts like python-sgp4
+    self.jdsatepoch = @floor(tle.epochJd - 0.5) + 0.5;
+    self.jdsatepochF = tle.epochJd - self.jdsatepoch;
 
     // Initialize SGP4, fallback to SDP4 for deep-space orbits
     const grav = shared.getGravity(whichconst);
@@ -394,40 +388,40 @@ fn makeTleGetter(comptime getter: fn (*const Tle) [*c]c.PyObject) fn ([*c]c.PyOb
 }
 
 fn getSatnum(tle: *const Tle) [*c]c.PyObject {
-    return py.int(@intCast(tle.firstLine.satelliteNumber));
+    return py.int(@intCast(tle.satelliteNumber));
 }
 fn getEpochyr(tle: *const Tle) [*c]c.PyObject {
-    return py.int(@intCast(tle.firstLine.epochYear));
+    return py.int(@intCast(tle.epochYear));
 }
 fn getEpochdays(tle: *const Tle) [*c]c.PyObject {
-    return py.float(tle.firstLine.epochDay);
+    return py.float(tle.epochDay);
 }
 fn getEcco(tle: *const Tle) [*c]c.PyObject {
-    return py.float(tle.secondLine.eccentricity);
+    return py.float(tle.eccentricity);
 }
 fn getInclo(tle: *const Tle) [*c]c.PyObject {
-    return py.float(tle.secondLine.inclination * constants.deg2rad);
+    return py.float(tle.inclination * constants.deg2rad);
 }
 fn getNodeo(tle: *const Tle) [*c]c.PyObject {
-    return py.float(tle.secondLine.rightAscension * constants.deg2rad);
+    return py.float(tle.rightAscension * constants.deg2rad);
 }
 fn getArgpo(tle: *const Tle) [*c]c.PyObject {
-    return py.float(tle.secondLine.perigee * constants.deg2rad);
+    return py.float(tle.perigee * constants.deg2rad);
 }
 fn getMo(tle: *const Tle) [*c]c.PyObject {
-    return py.float(tle.secondLine.mAnomaly * constants.deg2rad);
+    return py.float(tle.mAnomaly * constants.deg2rad);
 }
 fn getNoKozai(tle: *const Tle) [*c]c.PyObject {
     // Convert rev/day to rad/min: mMotion * 2π / 1440
-    return py.float(tle.secondLine.mMotion * constants.twoPi / constants.minutesPerDay);
+    return py.float(tle.mMotion * constants.twoPi / constants.minutesPerDay);
 }
 fn getBstar(tle: *const Tle) [*c]c.PyObject {
-    return py.float(tle.firstLine.bstarDrag);
+    return py.float(tle.bstarDrag);
 }
 fn getNdot(tle: *const Tle) [*c]c.PyObject {
     // First derivative of mean motion (rev/day^2 -> rad/min^2)
     // The TLE stores it in rev/day^2 / 2
-    return py.float(tle.firstLine.firstDerMeanMotion * constants.twoPi / (constants.minutesPerDay * constants.minutesPerDay));
+    return py.float(tle.firstDerMeanMotion * constants.twoPi / (constants.minutesPerDay * constants.minutesPerDay));
 }
 
 fn getJdsatepoch(self: *const SatrecObject) [*c]c.PyObject {

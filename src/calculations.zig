@@ -156,12 +156,12 @@ pub fn multiplyMatrices(a: [3][3]f64, b: [3][3]f64) [3][3]f64 {
 
 /// convert tle to orbital elements
 pub fn tleToOrbitalElements(tle: Tle) OrbitalElements {
-    const inclination = tle.secondLine.inclination * constants.deg2rad;
-    const raan = tle.secondLine.rightAscension * constants.deg2rad;
-    const eccentricity = tle.secondLine.eccentricity;
-    const argPeriapsis = tle.secondLine.perigee * constants.deg2rad;
-    const mAnomaly = tle.secondLine.mAnomaly * constants.deg2rad;
-    const mMotion = meanMotionToRadiansPerMinute(tle.secondLine.mMotion);
+    const inclination = tle.inclination * constants.deg2rad;
+    const raan = tle.rightAscension * constants.deg2rad;
+    const eccentricity = tle.eccentricity;
+    const argPeriapsis = tle.perigee * constants.deg2rad;
+    const mAnomaly = tle.mAnomaly * constants.deg2rad;
+    const mMotion = meanMotionToRadiansPerMinute(tle.mMotion);
 
     const a = meanMotionToSemiMajorAxis(mMotion);
 

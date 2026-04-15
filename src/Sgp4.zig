@@ -129,15 +129,9 @@ pub fn initElements(tle: Tle, grav: constants.Sgp4GravityModel) Error!Elements {
     const drag = computeDragCoefficients(meanElements, recovered, trig, poly, perige, grav);
     const higherOrder = computeHigherOrderDrag(recovered, drag, perige, grav);
 
-    const fullYear: u16 = if (tle.firstLine.epochYear < 57)
-        2000 + tle.firstLine.epochYear
-    else
-        1900 + tle.firstLine.epochYear;
-    const epochJd = Datetime.yearDoyToJulianDate(fullYear, tle.firstLine.epochDay);
-
     return Elements{
         .grav = grav,
-        .epochJd = epochJd,
+        .epochJd = tle.epochJd,
         .noKozai = meanElements.noKozai,
         .ecco = meanElements.ecco,
         .inclo = meanElements.inclo,
@@ -197,13 +191,13 @@ pub const MeanElements = struct {
 
 pub fn extractMeanElements(tle: Tle) MeanElements {
     return .{
-        .noKozai = tle.secondLine.mMotion * constants.twoPi / constants.minutesPerDay,
-        .ecco = tle.secondLine.eccentricity,
-        .inclo = tle.secondLine.inclination * constants.deg2rad,
-        .nodeo = tle.secondLine.rightAscension * constants.deg2rad,
-        .argpo = tle.secondLine.perigee * constants.deg2rad,
-        .mo = tle.secondLine.mAnomaly * constants.deg2rad,
-        .bstar = tle.firstLine.bstarDrag,
+        .noKozai = tle.mMotion * constants.twoPi / constants.minutesPerDay,
+        .ecco = tle.eccentricity,
+        .inclo = tle.inclination * constants.deg2rad,
+        .nodeo = tle.rightAscension * constants.deg2rad,
+        .argpo = tle.perigee * constants.deg2rad,
+        .mo = tle.mAnomaly * constants.deg2rad,
+        .bstar = tle.bstarDrag,
     };
 }
 

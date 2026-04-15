@@ -251,7 +251,7 @@ pub fn propagateBatchDirect(comptime N: usize, el: *const Sdp4BatchElements(N), 
         const steppV: Vec = @splat(Sdp4.stepp);
         const step2V: Vec = @splat(Sdp4.step2);
         const positive = tsince > zero;
-        const delt = @select(f64, positive, @as(Vec, @splat(Sdp4.stepp)), @as(Vec, @splat(Sdp4.stepn)));
+        const delt = @select(f64, positive, @as(Vec, @splat(Sdp4.stepp)), @as(Vec, @splat(-Sdp4.stepp)));
 
         // Masked integration loop
         var active = hasRes & (@abs(tsince - carry.atime) >= steppV);
