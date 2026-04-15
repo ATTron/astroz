@@ -364,9 +364,9 @@ fn applyStretch(self: *Fits, pixels: []f32, width: u32, height: u32, output_path
         const color = applyColorMap(stretched);
 
         i.* = .{
-            .r = @intFromFloat(color[0] * 255),
-            .g = @intFromFloat(color[1] * 255),
-            .b = @intFromFloat(color[2] * 255),
+            .r = @trunc(color[0] * 255),
+            .g = @trunc(color[1] * 255),
+            .b = @trunc(color[2] * 255),
         };
     }
 

@@ -1,0 +1,60 @@
+name: Zig Nightly
+
+on:
+  schedule:
+    - cron: '0 0 * * *'
+
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Zig
+        uses: mlugg/setup-zig@v2
+        with:
+          version: master
+          use-cache: false
+
+      - name: Download FITS file
+        run: |
+          curl -o ${{ github.workspace }}/test/table.fits http://data.astropy.org/tutorials/FITS-tables/chandra_events.fits
+        working-directory: ${{ github.workspace }}
+
+      - name: Run `test`
+        run: zig build test --summary all
+        working-directory: ${{ github.workspace }}
+
+  python:
+    name: Python 3.12 bindings (nightly)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Set up Zig
+        uses: mlugg/setup-zig@v2
+        with:
+          version: master
+          use-cache: false
+
+      - name: Build Python bindings
+        run: |
+          PYTHON_INCLUDE=$(python -c "import sysconfig; print(sysconfig.get_path('include'))")
+          PYTHON_LIBDIR=$(python -c "import sysconfig; print(sysconfig.get_config_var('LIBDIR'))")
+          PYTHON_LIB=$(python -c "import sys; print(f'python{sys.version_info.major}.{sys.version_info.minor}')")
+          zig build python-bindings \
+            -Dpython-include="$PYTHON_INCLUDE" \
+            -Dpython-lib="$PYTHON_LIB" \
+            -Dpython-lib-path="$PYTHON_LIBDIR" \
+            -Doptimize=ReleaseFast

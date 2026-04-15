@@ -95,13 +95,9 @@ pub fn Parser(comptime Frame: type) type {
         pub fn start(self: *Self, io: std.Io, comptime callback: ?fn (Frame) void) !void {
             const addr = try std.Io.net.IpAddress.parseIp4(self.ipAddress, self.port);
 
-            const stream = try std.Io.net.IpAddress.connect(addr, io, .{
-                .mode = .raw,
+            const stream = try std.Io.net.IpAddress.connect(&addr, io, .{
+                .mode = .stream,
                 .protocol = .tcp,
-                .timeout = .{ .duration = .{
-                    .raw = std.Io.Duration.fromNanoseconds(500 * std.time.ns_per_ms),
-                    .clock = .real,
-                } },
             });
             defer stream.close(io);
 
@@ -112,7 +108,7 @@ pub fn Parser(comptime Frame: type) type {
             var reader = stream.reader(io, &readerBuffer);
             while (!self.shouldStop) {
                 const bytesRead = try reader.interface.readSliceShort(&incomingBuffer);
-                if (bytesRead == 0) continue;
+                if (bytesRead == 0) return error.ReadFailed;
 
                 const newFrame = Frame.init(incomingBuffer[0..bytesRead], self.allocator, null) catch continue;
                 std.log.debug("message received: {any}", .{newFrame});
@@ -189,5 +185,127 @@ test "CCSDS Parse From File w/ sync" {
     _ = try parser.parseFromFile(&file_name, &sync_pattern, null);
     for (parser.packets.items) |packet| {
         try std.testing.expectEqualSlices(u8, &packets, packet.packets);
+    }
+}
+
+/// Dummy TCP server for tests — listens, accepts one connection, sends packets, closes.
+fn runTestServer(comptime pkt: []const u8, comptime count: usize, io: std.Io) void {
+    const addr = std.Io.net.IpAddress.parseIp4("127.0.0.1", 0) catch return;
+    var server = std.Io.net.IpAddress.listen(&addr, io, .{ .reuse_address = true }) catch return;
+    defer server.deinit(io);
+
+    // Write the bound port so the client knows where to connect.
+    // We stash it in a global so the test thread can read it.
+    serverPort = server.socket.address.getPort();
+    serverReady.store(.signaled, .release);
+
+    const client = server.accept(io) catch return;
+    defer client.close(io);
+
+    var write_buf: [4096]u8 = undefined;
+    var writer = client.writer(io, &write_buf);
+
+    for (0..count) |_| {
+        writer.interface.writeAll(pkt) catch return;
+        writer.interface.flush() catch return;
+    }
+}
+
+var serverPort: u16 = 0;
+var serverReady: std.atomic.Value(enum(u8) { waiting, signaled }) = .init(.waiting);
+
+fn waitForServer() u16 {
+    while (serverReady.load(.acquire) != .signaled) {
+        std.atomic.spinLoopHint();
+    }
+    const port = serverPort;
+    // Reset for next test
+    serverReady.store(.waiting, .release);
+    return port;
+}
+
+test "Vita49 TCP Parser" {
+    const io = std.Io.Threaded.global_single_threaded.io();
+    const vita49_pkt = &[_]u8{
+        0x3A, 0x02, 0x0A, 0x00, 0x34, 0x12, 0x00, 0x00, 0x00, 0x56, 0x34,
+        0x12, 0x78, 0x9A, 0xBC, 0xDE, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x48, 0x65, 0x6C, 0x6C, 0x6F, 0x2C, 0x20, 0x56, 0x49,
+        0x54, 0x41, 0x20, 0x34, 0x39, 0x21,
+    };
+
+    const server_thread = try std.Thread.spawn(.{}, runTestServer, .{ vita49_pkt, 3, io });
+
+    const port = waitForServer();
+    var p = try Parser(Vita49).init("127.0.0.1", port, 1024, io, std.testing.allocator);
+    defer p.deinit();
+
+    // start() will read until the server closes the connection (EndOfStream)
+    p.start(io, null) catch |err| switch (err) {
+        error.ReadFailed => {}, // expected: server closed connection
+        else => return err,
+    };
+
+    server_thread.join();
+
+    try std.testing.expect(p.packets.items.len > 0);
+    for (p.packets.items) |packet| {
+        try std.testing.expectEqualStrings("Hello, VITA 49!", packet.payload);
+    }
+}
+
+fn testVita49Callback(_: Vita49) void {}
+
+test "Vita49 TCP Parser w/ Callback" {
+    const io = std.Io.Threaded.global_single_threaded.io();
+    const vita49_pkt = &[_]u8{
+        0x3A, 0x02, 0x0A, 0x00, 0x34, 0x12, 0x00, 0x00, 0x00, 0x56, 0x34,
+        0x12, 0x78, 0x9A, 0xBC, 0xDE, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x48, 0x65, 0x6C, 0x6C, 0x6F, 0x2C, 0x20, 0x56, 0x49,
+        0x54, 0x41, 0x20, 0x34, 0x39, 0x21,
+    };
+
+    const server_thread = try std.Thread.spawn(.{}, runTestServer, .{ vita49_pkt, 3, io });
+
+    const port = waitForServer();
+    var p = try Parser(Vita49).init("127.0.0.1", port, 1024, io, std.testing.allocator);
+    defer p.deinit();
+
+    p.start(io, testVita49Callback) catch |err| switch (err) {
+        error.ReadFailed => {},
+        else => return err,
+    };
+
+    server_thread.join();
+
+    try std.testing.expect(p.packets.items.len > 0);
+    for (p.packets.items) |packet| {
+        try std.testing.expectEqualStrings("Hello, VITA 49!", packet.payload);
+    }
+}
+
+test "CCSDS TCP Parser" {
+    const io = std.Io.Threaded.global_single_threaded.io();
+    const ccsds_pkt = &[_]u8{
+        0x78, 0x97, 0xC0, 0x00, 0x00, 0x0A, 0x01, 0x02,
+        0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A,
+    };
+
+    const server_thread = try std.Thread.spawn(.{}, runTestServer, .{ ccsds_pkt, 3, io });
+
+    const port = waitForServer();
+    var p = try Parser(Ccsds).init("127.0.0.1", port, 1024, io, std.testing.allocator);
+    defer p.deinit();
+
+    p.start(io, null) catch |err| switch (err) {
+        error.ReadFailed => {},
+        else => return err,
+    };
+
+    server_thread.join();
+
+    try std.testing.expect(p.packets.items.len > 0);
+    for (p.packets.items) |packet| {
+        const expected = .{ 5, 6, 7, 8, 9, 10 };
+        try std.testing.expectEqualSlices(u8, &expected, packet.packets);
     }
 }

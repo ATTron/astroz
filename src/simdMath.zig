@@ -61,7 +61,7 @@ pub fn sincosN(comptime N: usize, angle: VecN(N)) SinCosN(N) {
 
     var reduced = @mulAdd(Vec, -piOver2Hi, kRounded, angle);
     reduced = @mulAdd(Vec, -piOver2Lo, kRounded, reduced);
-    const k: VecI = @intFromFloat(kRounded);
+    const k: VecI = @trunc(kRounded);
 
     // Step 2: Polynomial approximation
     const r2 = reduced * reduced;
