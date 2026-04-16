@@ -80,19 +80,19 @@ fn makeGetter(comptime getter: fn (*const Tle) [*c]c.PyObject) fn ([*c]c.PyObjec
 }
 
 fn getSatNum(tle: *const Tle) [*c]c.PyObject {
-    return py.int(@intCast(tle.firstLine.satelliteNumber));
+    return py.int(@intCast(tle.satelliteNumber));
 }
 fn getEpoch(tle: *const Tle) [*c]c.PyObject {
-    return py.float(tle.firstLine.epoch);
+    return py.float(tle.epoch);
 }
 fn getInc(tle: *const Tle) [*c]c.PyObject {
-    return py.float(tle.secondLine.inclination);
+    return py.float(tle.inclination);
 }
 fn getEcc(tle: *const Tle) [*c]c.PyObject {
-    return py.float(tle.secondLine.eccentricity);
+    return py.float(tle.eccentricity);
 }
 fn getMM(tle: *const Tle) [*c]c.PyObject {
-    return py.float(tle.secondLine.mMotion);
+    return py.float(tle.mMotion);
 }
 
 const tle_getset = [_]c.PyGetSetDef{

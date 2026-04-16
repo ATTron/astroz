@@ -13,7 +13,7 @@
 | Orbital Mechanics | Spacecraft Ops | Astronomy |
 |-------------------|----------------|-----------|
 | SGP4/SDP4 propagation | CCSDS packets | FITS parsing |
-| TLE parsing | VITA49 packets | WCS coordinates |
+| TLE & OMM parsing | VITA49 packets | WCS coordinates |
 | Orbital maneuvers | Attitude determination | Star precession |
 | Force models (J2-J4, drag, SRP, third-body) | CSPICE ephemeris | Celestial bodies |
 | Dormand-Prince 8(7) integrator | Monte Carlo sims | |

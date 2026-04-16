@@ -173,7 +173,7 @@ pub fn propagate(self: *Spacecraft, t0: f64, days: f64, h: f64, impulseList: ?[]
     const y0OE = calculations.tleToOrbitalElements(self.tle);
     var y = calculations.orbitalElementsToStateVector(y0OE, self.orbitingObject.mu);
     var t = t0;
-    const tf = self.tle.firstLine.epoch + days * constants.secondsPerDay;
+    const tf = self.tle.epoch + days * constants.secondsPerDay;
 
     // setup force models and integrator
     var forces = self.createForceModels();
@@ -341,7 +341,7 @@ test "init spacecraft" {
     defer test_sc.deinit();
 
     try test_sc.propagate(
-        test_sc.tle.firstLine.epoch,
+        test_sc.tle.epoch,
         3, // days to predict
         1, // steps, i.e. predict every simulated second
         null,
@@ -392,7 +392,7 @@ test "prop spacecraft w/ impulse" {
     };
 
     try test_sc.propagate(
-        test_sc.tle.firstLine.epoch,
+        test_sc.tle.epoch,
         3, // days to predict
         1, // steps, i.e. predict every simulated second
         &impulses,
@@ -431,7 +431,7 @@ test "prop spacecraft w/ phase" {
     const impulses = [_]Impulse{phase_maneuver};
 
     try test_sc.propagate(
-        test_sc.tle.firstLine.epoch,
+        test_sc.tle.epoch,
         3, // days to predict
         1, // steps, i.e. predict every simulated second
         &impulses,
@@ -487,7 +487,7 @@ test "prop spacecraft w/ plane change" {
     const impulses = [_]Impulse{plane_change_maneuver};
 
     try test_sc.propagate(
-        test_sc.tle.firstLine.epoch,
+        test_sc.tle.epoch,
         3, // days to predict
         1, // steps, i.e. predict every simulated second
         &impulses,

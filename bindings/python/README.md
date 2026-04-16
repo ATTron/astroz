@@ -53,9 +53,12 @@ positions = propagate("all", times)  # ~13k active satellites
 positions = propagate(None, times, norad_id=25544)  # ISS
 positions = propagate(None, times, norad_id=[25544, 48274])  # Multiple
 
-# Local file or URL
+# Local file or URL (TLE or OMM JSON auto-detected)
 positions = propagate("satellites.tle", times)
 positions = propagate("https://example.com/tles.txt", times)
+
+# OMM JSON (CCSDS 502.0-B-3) — supports 6+ digit NORAD IDs
+positions = propagate('{"NORAD_CAT_ID":25544,"EPOCH":"2026-04-15T12:00:00.000000","MEAN_MOTION":15.489,...}', times)
 
 # For repeated propagation, pre-parse to avoid overhead
 c = Constellation("starlink")

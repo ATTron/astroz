@@ -49,7 +49,6 @@ pub const g54 = 4.4108898;
 const nearEquatorialThreshold = 5.2359877e-2;
 
 pub const stepp = 720.0;
-pub const stepn = -720.0;
 pub const step2 = 259200.0;
 
 pub const PerturbCoeffs = struct {
@@ -186,11 +185,7 @@ pub fn initElements(tle: Tle, grav: constants.Sgp4GravityModel) Error!Elements {
     const perige = (rec.a * (1.0 - meanEl.ecco) - 1.0) * grav.radiusEarthKm;
     const drag = Sgp4.computeDragCoefficients(meanEl, rec, trig, poly, perige, grav);
 
-    const fullYear: u16 = if (tle.firstLine.epochYear < 57)
-        2000 + tle.firstLine.epochYear
-    else
-        1900 + tle.firstLine.epochYear;
-    const epochJd = Datetime.yearDoyToJulianDate(fullYear, tle.firstLine.epochDay);
+    const epochJd = tle.epochJd;
     const gsto = gstime(epochJd);
 
     // Deep space initialization
@@ -795,7 +790,7 @@ fn dspace(el: *const Elements, tsince: f64, s: *DspaceState) void {
         s.xli = el.xlamo;
     }
 
-    const delt: f64 = if (tsince > 0.0) stepp else stepn;
+    const delt: f64 = if (tsince > 0.0) stepp else -stepp;
 
     // Integration loop
     while (@abs(tsince - s.atime) >= stepp) {
@@ -1117,7 +1112,7 @@ fn dspaceN(comptime N: usize, el: *const Elements, tsince: simdMath.VecN(N), s: 
     const steppV: Vec = @splat(stepp);
     const step2V: Vec = @splat(step2);
     const positive = tsince > zero;
-    const delt = @select(f64, positive, @as(Vec, @splat(stepp)), @as(Vec, @splat(stepn)));
+    const delt = @select(f64, positive, @as(Vec, @splat(stepp)), @as(Vec, @splat(-stepp)));
 
     // Masked integration loop
     var active = @abs(tsince - s.atime) >= steppV;
