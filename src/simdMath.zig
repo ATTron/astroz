@@ -4,7 +4,7 @@
 const std = @import("std");
 const constants = @import("constants.zig");
 
-pub const BatchSize: usize = 8;
+pub const batchSize: usize = 8;
 
 /// Generic N-wide f64 vector type
 pub fn VecN(comptime N: usize) type {

@@ -5,18 +5,15 @@ const DateTime = @import("Datetime.zig");
 
 const Tle = @This();
 
-// Identification
 satelliteNumber: u32,
 classification: u8,
 intlDesignator: []u8,
 
-// Epoch
 epochYear: u16,
 epochDay: f64,
 epoch: f64, // J2000 seconds
 epochJd: f64, // Julian Date (precomputed)
 
-// Drag / perturbation
 firstDerMeanMotion: f64,
 bstarDrag: f64,
 ephemType: u8,
@@ -32,10 +29,6 @@ mMotion: f64,
 revNum: u32,
 
 allocator: std.mem.Allocator,
-
-// ---------------------------------------------------------------------------
-// TLE text parsing
-// ---------------------------------------------------------------------------
 
 pub fn parse(tle: []const u8, allocator: std.mem.Allocator) !Tle {
     var lines = std.mem.splitAny(u8, tle, "\n\r");
@@ -56,7 +49,6 @@ pub fn parse(tle: []const u8, allocator: std.mem.Allocator) !Tle {
 pub fn parseLines(line1: []const u8, line2: []const u8, allocator: std.mem.Allocator) !Tle {
     if (line1.len < 69 or line2.len < 69) return Error.BadTleLength;
 
-    // International designator
     const intlYearField = trimField(line1, 9, 11);
     const intlLaunchField = trimField(line1, 11, 14);
     const intlPiece = std.mem.trim(u8, line1[14..17], " ");
@@ -74,18 +66,15 @@ pub fn parseLines(line1: []const u8, line2: []const u8, allocator: std.mem.Alloc
     };
     errdefer allocator.free(intlDesignator);
 
-    // B* drag
     const mantissa = try std.fmt.parseFloat(f64, trimField(line1, 53, 59));
     const exponent = try std.fmt.parseInt(i32, trimField(line1, 59, 61), 10);
     const bstarDrag = (mantissa * 1e-5) * std.math.pow(f64, 10.0, @as(f64, @floatFromInt(exponent)));
 
-    // Epoch
     const epochYear = try std.fmt.parseInt(u16, trimField(line1, 18, 20), 10);
     const epochDay = try std.fmt.parseFloat(f64, trimField(line1, 20, 32));
     const epoch = tleEpochToJ2000(epochYear, epochDay);
     const epochJd = tleEpochToJd(epochYear, epochDay);
 
-    // Eccentricity: TLE stores as integer, e.g. 0011446 → 0.0011446
     const eccentricity = try std.fmt.parseFloat(f64, trimField(line2, 26, 33)) / 1e7;
 
     return .{
@@ -142,10 +131,6 @@ pub const MultiIterator = struct {
     }
 };
 
-// ---------------------------------------------------------------------------
-// OMM JSON parsing
-// ---------------------------------------------------------------------------
-
 pub fn parseOmm(json_text: []const u8, allocator: std.mem.Allocator) !Tle {
     const parsed = try std.json.parseFromSlice(OmmRecord, allocator, json_text, .{
         .ignore_unknown_fields = true,
@@ -199,7 +184,6 @@ const OmmRecord = struct {
 };
 
 fn ommRecordToTle(rec: OmmRecord, allocator: std.mem.Allocator) !Tle {
-    // Parse ISO 8601 epoch: "2026-04-15T13:17:52.692576"
     const ep = try parseIso8601Epoch(rec.EPOCH);
 
     const intlDesignator = if (rec.OBJECT_ID) |id|
@@ -233,7 +217,6 @@ fn ommRecordToTle(rec: OmmRecord, allocator: std.mem.Allocator) !Tle {
 const ParsedEpoch = struct { year: u16, doy: f64, jd: f64, j2000: f64 };
 
 fn parseIso8601Epoch(epoch: []const u8) !ParsedEpoch {
-    // "2026-04-15T13:17:52.692576"
     if (epoch.len < 19) return Error.BadTleLength;
 
     const year = try std.fmt.parseInt(u16, epoch[0..4], 10);
@@ -242,16 +225,13 @@ fn parseIso8601Epoch(epoch: []const u8) !ParsedEpoch {
     const hour = try std.fmt.parseInt(u8, epoch[11..13], 10);
     const min = try std.fmt.parseInt(u8, epoch[14..16], 10);
 
-    // Seconds may have fractional part; strip trailing 'Z' if present
     const secEnd = if (epoch[epoch.len - 1] == 'Z') epoch.len - 1 else epoch.len;
     const sec = try std.fmt.parseFloat(f64, epoch[17..secEnd]);
 
-    // Day of year (fractional)
     const doy = dayOfYear(year, month, day) +
         (@as(f64, @floatFromInt(hour)) +
             (@as(f64, @floatFromInt(min)) + sec / 60.0) / 60.0) / 24.0;
 
-    // Two-digit year for epochYear field (OMM uses 4-digit, store mod 100)
     const epochYear: u16 = year % 100;
     const jd = DateTime.yearDoyToJulianDate(year, doy);
     const j2000 = tleEpochToJ2000(epochYear, doy);
@@ -267,10 +247,6 @@ fn dayOfYear(year: u16, month: u8, day: u8) f64 {
     }
     return @floatFromInt(doy);
 }
-
-// ---------------------------------------------------------------------------
-// Common
-// ---------------------------------------------------------------------------
 
 pub fn deinit(self: *Tle) void {
     self.allocator.free(self.intlDesignator);
@@ -326,10 +302,6 @@ fn tleEpochToJd(epochYear: u16, epochDay: f64) f64 {
         1900 + epochYear;
     return DateTime.yearDoyToJulianDate(fullYear, epochDay);
 }
-
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
 
 test "parseLines and MultiIterator" {
     const line1 = "1 55909U 23035B   24187.51050877  .00023579  00000+0  16099-2 0  9998";

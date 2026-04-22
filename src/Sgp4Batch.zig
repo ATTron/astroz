@@ -9,7 +9,7 @@ const Tle = @import("Tle.zig");
 const Elements = Sgp4.Elements;
 const Error = Sgp4.Error;
 
-pub const BatchSize: usize = simdMath.BatchSize;
+pub const batchSize: usize = simdMath.batchSize;
 
 /// Struct-of-arrays for N satellites (generic over batch size)
 pub fn BatchElements(comptime N: usize) type {

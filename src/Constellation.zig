@@ -20,11 +20,11 @@ const WCS = @import("WorldCoordinateSystem.zig");
 
 const Error = Sgp4.Error;
 
-pub const BatchSize: usize = Sgp4Batch.BatchSize;
-const BatchResults = Sgp4.PosVelArray(BatchSize);
-const Sgp4Bels = Sgp4Batch.BatchElements(BatchSize);
-const Sdp4Bels = Sdp4Batch.Sdp4BatchElements(BatchSize);
-const Sdp4Carry = Sdp4Batch.ResonanceCarryBatch(BatchSize);
+pub const batchSize: usize = Sgp4Batch.batchSize;
+const BatchResults = Sgp4.PosVelArray(batchSize);
+const Sgp4Bels = Sgp4Batch.BatchElements(batchSize);
+const Sdp4Bels = Sdp4Batch.Sdp4BatchElements(batchSize);
+const Sdp4Carry = Sdp4Batch.ResonanceCarryBatch(batchSize);
 
 /// Output coordinate modes for propagation
 pub const OutputMode = enum(u8) {
@@ -83,7 +83,7 @@ numSgp4: usize,
 
 // SDP4 (deep space) batches
 sdp4Batches: []Sdp4Bels,
-sdp4BatchEpochs: [][BatchSize]f64,
+sdp4BatchEpochs: [][batchSize]f64,
 sdp4OrigIndices: []u32,
 sdp4Carries: []Sdp4Carry,
 numSdp4: usize,
@@ -126,8 +126,8 @@ pub fn init(allocator: Allocator, tles: []const Tle, grav: constants.Sgp4Gravity
     }
 
     // Batch SGP4
-    const nSgp4B = if (nSgp4 == 0) 0 else (nSgp4 + BatchSize - 1) / BatchSize;
-    const sgp4Pad = nSgp4B * BatchSize;
+    const nSgp4B = if (nSgp4 == 0) 0 else (nSgp4 + batchSize - 1) / batchSize;
+    const sgp4Pad = nSgp4B * batchSize;
 
     const sgp4Batches = allocator.alloc(Sgp4Bels, nSgp4B) catch return Error.OutOfMemory;
     errdefer allocator.free(sgp4Batches);
@@ -140,28 +140,28 @@ pub fn init(allocator: Allocator, tles: []const Tle, grav: constants.Sgp4Gravity
     if (nSgp4 > 0) refEpoch = tleEpochJd(tles[sgp4Idx[0]]);
 
     for (0..nSgp4B) |bi| {
-        const base = bi * BatchSize;
-        var bt: [BatchSize]Tle = undefined;
-        for (0..BatchSize) |lane| {
+        const base = bi * batchSize;
+        var bt: [batchSize]Tle = undefined;
+        for (0..batchSize) |lane| {
             const src = if (base + lane < nSgp4) sgp4Idx[base + lane] else sgp4Idx[nSgp4 - 1];
             bt[lane] = tles[src];
         }
-        sgp4Batches[bi] = try Sgp4Batch.initBatchElements(BatchSize, bt, grav);
+        sgp4Batches[bi] = try Sgp4Batch.initBatchElements(batchSize, bt, grav);
 
-        const epochs: [BatchSize]f64 = simdMath.readArray(BatchSize, &sgp4Batches[bi].epochJd);
-        for (0..BatchSize) |lane| {
+        const epochs: [batchSize]f64 = simdMath.readArray(batchSize, &sgp4Batches[bi].epochJd);
+        for (0..batchSize) |lane| {
             sgp4EpochOff[base + lane] = (refEpoch - epochs[lane]) * 1440.0;
             sgp4Orig[base + lane] = if (base + lane < nSgp4) sgp4Idx[base + lane] else sgp4Idx[nSgp4 - 1];
         }
     }
 
     // Batch SDP4
-    const nSdp4B = if (nSdp4 == 0) 0 else (nSdp4 + BatchSize - 1) / BatchSize;
-    const sdp4Pad = nSdp4B * BatchSize;
+    const nSdp4B = if (nSdp4 == 0) 0 else (nSdp4 + batchSize - 1) / batchSize;
+    const sdp4Pad = nSdp4B * batchSize;
 
     const sdp4Batches = allocator.alloc(Sdp4Bels, nSdp4B) catch return Error.OutOfMemory;
     errdefer allocator.free(sdp4Batches);
-    const sdp4Epochs = allocator.alloc([BatchSize]f64, nSdp4B) catch return Error.OutOfMemory;
+    const sdp4Epochs = allocator.alloc([batchSize]f64, nSdp4B) catch return Error.OutOfMemory;
     errdefer allocator.free(sdp4Epochs);
     const sdp4Orig = allocator.alloc(u32, sdp4Pad) catch return Error.OutOfMemory;
     errdefer allocator.free(sdp4Orig);
@@ -169,18 +169,18 @@ pub fn init(allocator: Allocator, tles: []const Tle, grav: constants.Sgp4Gravity
     errdefer allocator.free(sdp4Carries);
 
     for (0..nSdp4B) |bi| {
-        const base = bi * BatchSize;
-        var be: [BatchSize]Sdp4.Elements = undefined;
-        var ep: [BatchSize]f64 = undefined;
-        for (0..BatchSize) |lane| {
+        const base = bi * batchSize;
+        var be: [batchSize]Sdp4.Elements = undefined;
+        var ep: [batchSize]f64 = undefined;
+        for (0..batchSize) |lane| {
             const src = if (base + lane < nSdp4) base + lane else nSdp4 - 1;
             be[lane] = sdp4Els[src];
             ep[lane] = sdp4Els[src].sgp4.epochJd;
             sdp4Orig[base + lane] = if (base + lane < nSdp4) sdp4Idx[src] else sdp4Idx[nSdp4 - 1];
         }
-        sdp4Batches[bi] = Sdp4Batch.initFromElements(BatchSize, be, grav);
+        sdp4Batches[bi] = Sdp4Batch.initFromElements(batchSize, be, grav);
         sdp4Epochs[bi] = ep;
-        sdp4Carries[bi] = Sdp4Batch.initCarry(BatchSize, &sdp4Batches[bi]);
+        sdp4Carries[bi] = Sdp4Batch.initCarry(batchSize, &sdp4Batches[bi]);
     }
 
     return .{
@@ -213,7 +213,7 @@ pub fn deinit(self: *Constellation) void {
 /// Call when switching to a non-monotonic time sequence.
 pub fn resetCarry(self: *Constellation) void {
     for (self.sdp4Batches, self.sdp4Carries) |*batch, *carry| {
-        carry.* = Sdp4Batch.initCarry(BatchSize, batch);
+        carry.* = Sdp4Batch.initCarry(batchSize, batch);
     }
 }
 
@@ -225,7 +225,7 @@ const PropCtx = struct {
     numSgp4: usize,
 
     sdp4Batches: []const Sdp4Bels,
-    sdp4BatchEpochs: [][BatchSize]f64,
+    sdp4BatchEpochs: [][batchSize]f64,
     sdp4OrigIndices: []const u32,
     sdp4Carries: []Sdp4Carry,
     numSdp4: usize,
@@ -418,10 +418,10 @@ inline fn sgp4Core(
     batchIdx: usize,
     timeIdx: usize,
 ) void {
-    const base = batchIdx * BatchSize;
+    const base = batchIdx * batchSize;
 
-    var tsince: [BatchSize]f64 = undefined;
-    inline for (0..BatchSize) |lane| {
+    var tsince: [batchSize]f64 = undefined;
+    inline for (0..batchSize) |lane| {
         tsince[lane] = ctx.tsinceBase[timeIdx] + ctx.sgp4EpochOffsets[base + lane];
     }
 
@@ -436,8 +436,8 @@ inline fn sgp4Core(
 /// Check if any lane in a batch is active (not masked out)
 inline fn sgp4BatchActive(ctx: PropCtx, batchIdx: usize) bool {
     const mask = ctx.satelliteMask orelse return true;
-    const base = batchIdx * BatchSize;
-    inline for (0..BatchSize) |lane| {
+    const base = batchIdx * batchSize;
+    inline for (0..batchSize) |lane| {
         if (base + lane < ctx.numSgp4) {
             if (mask[ctx.sgp4OrigIndices[base + lane]] != 0) return true;
         }
@@ -457,11 +457,11 @@ fn unifiedSdp4Range(
         const jdT = ctx.jdFull[timeIdx];
 
         for (batchStart..batchEnd) |batchIdx| {
-            const base = batchIdx * BatchSize;
+            const base = batchIdx * batchSize;
 
-            const batchEpochs: [BatchSize]f64 = ctx.sdp4BatchEpochs[batchIdx];
-            var tArr: [BatchSize]f64 = undefined;
-            inline for (0..BatchSize) |lane| {
+            const batchEpochs: [batchSize]f64 = ctx.sdp4BatchEpochs[batchIdx];
+            var tArr: [batchSize]f64 = undefined;
+            inline for (0..batchSize) |lane| {
                 tArr[lane] = (jdT - batchEpochs[lane]) * 1440.0;
             }
 
@@ -489,7 +489,7 @@ inline fn writeOutput(
     const sinG = if (mode != .teme) ctx.gmstSin[timeIdx] else 0.0;
     const cosG = if (mode != .teme) ctx.gmstCos[timeIdx] else 0.0;
 
-    inline for (0..BatchSize) |lane| {
+    inline for (0..batchSize) |lane| {
         if (base + lane < numReal and laneActive(ctx.satelliteMask, origIndices[base + lane])) {
             const origIdx = origIndices[base + lane];
             const ob = outBase(layout, @as(usize, origIdx), timeIdx, ctx.numTimes, ctx.numSatellites);
@@ -517,7 +517,7 @@ inline fn writeZeros(
     numReal: usize,
     timeIdx: usize,
 ) void {
-    inline for (0..BatchSize) |lane| {
+    inline for (0..batchSize) |lane| {
         if (base + lane < numReal and laneActive(ctx.satelliteMask, origIndices[base + lane])) {
             const origIdx = origIndices[base + lane];
             const ob = outBase(layout, @as(usize, origIdx), timeIdx, ctx.numTimes, ctx.numSatellites);
@@ -559,7 +559,7 @@ pub fn propagateConstellation(
     const pa = std.heap.page_allocator;
 
     // Build identity origIndices: satellite i maps to output position i
-    const padded = batches.len * BatchSize;
+    const padded = batches.len * batchSize;
     const origIndices = pa.alloc(u32, padded) catch return Error.OutOfMemory;
     defer pa.free(origIndices);
     for (origIndices, 0..) |*v, i| v.* = @intCast(i);
@@ -610,7 +610,7 @@ pub fn propagateConstellation(
 /// `numSatellites` is the total output stride (columns in the output buffer)
 pub fn propagateSdp4Constellation(
     batches: []const Sdp4Bels,
-    batchEpochs: [][BatchSize]f64,
+    batchEpochs: [][batchSize]f64,
     numSdp4: usize,
     numSatellites: usize,
     origIndices: []const u32,
@@ -636,7 +636,7 @@ pub fn propagateSdp4Constellation(
     // Initialize carries
     const carries = pa.alloc(Sdp4Carry, batches.len) catch return Error.OutOfMemory;
     defer pa.free(carries);
-    for (batches, carries) |*b, *carry| carry.* = Sdp4Batch.initCarry(BatchSize, b);
+    for (batches, carries) |*b, *carry| carry.* = Sdp4Batch.initCarry(batchSize, b);
 
     // Precompute GMST sin/cos if coordinate transform needed
     var sinBuf: []f64 = &.{};
@@ -696,8 +696,8 @@ pub fn screenConstellation(
         return Error.SatelliteDecayed;
 
     const thresholdSq = threshold * threshold;
-    const targetBatchIdx = targetIdx / BatchSize;
-    const targetLane = targetIdx % BatchSize;
+    const targetBatchIdx = targetIdx / batchSize;
+    const targetLane = targetIdx % batchSize;
     const targetBatch = &batches[targetBatchIdx];
 
     for (0..numSatellites) |i| {
@@ -718,21 +718,21 @@ pub fn screenConstellation(
     }
 
     for (times, 0..) |time, timeIdx| {
-        var targetTimeArr: [BatchSize]f64 = undefined;
+        var targetTimeArr: [batchSize]f64 = undefined;
         @memset(&targetTimeArr, time + targetEpochOffset);
         const targetResults = dispatch.sgp4Batch8(targetBatch, targetTimeArr) catch continue;
         const targetPos = eciToEcef(targetResults[targetLane][0], sinBuf[timeIdx], cosBuf[timeIdx]);
 
         for (batches, 0..) |*batch, batchIdx| {
-            const satBase = batchIdx * BatchSize;
-            var batchTimes: [BatchSize]f64 = undefined;
-            inline for (0..BatchSize) |i| {
+            const satBase = batchIdx * batchSize;
+            var batchTimes: [batchSize]f64 = undefined;
+            inline for (0..batchSize) |i| {
                 batchTimes[i] = time + epochOffsets[satBase + i];
             }
 
             const batchResults = dispatch.sgp4Batch8(batch, batchTimes) catch continue;
 
-            for (0..BatchSize) |lane| {
+            for (0..batchSize) |lane| {
                 const satIdx = satBase + lane;
                 if (satIdx >= numSatellites or satIdx == targetIdx) continue;
 

@@ -12,7 +12,7 @@ const constants = astroz.constants;
 pub const allocator = std.heap.c_allocator;
 
 /// Batch size from core library (4 for AVX2, 8 for AVX512)
-pub const BatchSize = astroz.Constellation.BatchSize;
+pub const BatchSize = astroz.Constellation.batchSize;
 
 /// Batch elements type for current batch size
 pub const BatchElements = astroz.Constellation.Sgp4Batch.BatchElements(BatchSize);
