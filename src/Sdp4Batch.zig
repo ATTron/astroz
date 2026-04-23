@@ -11,7 +11,7 @@ const Tle = @import("Tle.zig");
 
 const Error = Sgp4.Error;
 
-pub const BatchSize: usize = simdMath.BatchSize;
+pub const batchSize: usize = simdMath.batchSize;
 
 pub fn Sdp4BatchElements(comptime N: usize) type {
     const Vec = simdMath.VecN(N);

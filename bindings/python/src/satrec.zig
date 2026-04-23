@@ -249,7 +249,7 @@ fn buildSuccessResult(pv: [2][3]f64) [*c]c.PyObject {
     return result;
 }
 
-const SgpSimdN = Sgp4Batch.BatchSize;
+const SgpSimdN = Sgp4Batch.batchSize;
 
 /// Generic SIMD batch propagation for a single satellite (SGP4 or SDP4).
 /// Processes times in chunks of SgpSimdN via oma dispatch, remainder with scalar propagate.
@@ -586,7 +586,7 @@ pub fn pySdp4BatchPropagateInto(_: [*c]c.PyObject, args: [*c]c.PyObject, kwds: [
     return py.none();
 }
 
-const SdpSimdN = Sdp4Batch.BatchSize;
+const SdpSimdN = Sdp4Batch.batchSize;
 
 fn sdp4BatchPropagate(
     sdp4_ptrs: []const *const Sdp4,

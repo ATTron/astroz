@@ -15,7 +15,7 @@ const ISS_TLE =
 const ScenarioType = enum {
     Scalar,
     SIMD,
-    Multithreaded
+    Multithreaded,
 };
 
 const Scenario = struct {
@@ -25,9 +25,9 @@ const Scenario = struct {
     sceneType: ScenarioType,
 };
 
-const BatchSize = Sgp4Batch.BatchSize;
+const batchSize = Sgp4Batch.batchSize;
 
-const scenarios = [_]Scenario {
+const scenarios = [_]Scenario{
     .{ .name = "1 day (minute)", .points = 1440, .stepMin = 1.0, .sceneType = .Scalar },
     .{ .name = "1 week (minute)", .points = 10080, .stepMin = 1.0, .sceneType = .Scalar },
     .{ .name = "2 weeks (minute)", .points = 20160, .stepMin = 1.0, .sceneType = .Scalar },
@@ -35,7 +35,7 @@ const scenarios = [_]Scenario {
     .{ .name = "1 month (minute)", .points = 43200, .stepMin = 1.0, .sceneType = .Scalar },
 };
 
-const scenariosSIMD = [_]Scenario {
+const scenariosSIMD = [_]Scenario{
     .{ .name = "1 day (minute)", .points = 1440, .stepMin = 1.0, .sceneType = .SIMD },
     .{ .name = "1 week (minute)", .points = 10080, .stepMin = 1.0, .sceneType = .SIMD },
     .{ .name = "2 weeks (minute)", .points = 20160, .stepMin = 1.0, .sceneType = .SIMD },
@@ -43,7 +43,7 @@ const scenariosSIMD = [_]Scenario {
     .{ .name = "1 month (minute)", .points = 43200, .stepMin = 1.0, .sceneType = .SIMD },
 };
 
-const scenariosMT = [_]Scenario {
+const scenariosMT = [_]Scenario{
     .{ .name = "2 weeks (minute)", .points = 20160, .stepMin = 1.0, .sceneType = .Multithreaded },
     .{ .name = "1 month (second)", .points = 2592000, .stepMin = 1.0 / 60.0, .sceneType = .Multithreaded },
     .{ .name = "3 months (second)", .points = 7776000, .stepMin = 1.0 / 60.0, .sceneType = .Multithreaded },
@@ -55,8 +55,8 @@ const iterations = 10;
 
 fn simdWorker(sgp4: *const Sgp4, times: []const f64) void {
     var i: usize = 0;
-    while (i + BatchSize <= times.len) : (i += BatchSize) {
-        const result = dispatch.sgp4Times8(sgp4, times[i..][0..BatchSize].*) catch continue;
+    while (i + batchSize <= times.len) : (i += batchSize) {
+        const result = dispatch.sgp4Times8(sgp4, times[i..][0..batchSize].*) catch continue;
         std.mem.doNotOptimizeAway(result);
     }
     while (i < times.len) : (i += 1) {
@@ -80,20 +80,19 @@ pub fn main(init: std.process.Init) !void {
 
     std.debug.print("\nastroz SGP4 Benchmark\n", .{});
     std.debug.print("==================================================\n", .{});
-    std.debug.print("SIMD Batch Size: {} (oma runtime dispatch)\n", .{BatchSize});
+    std.debug.print("SIMD Batch Size: {} (oma runtime dispatch)\n", .{batchSize});
     std.debug.print("\n--- Scalar Propagation ---\n", .{});
 
     const num_threads = std.Thread.getCpuCount() catch 1;
 
     try runScenarios(sgp4, &scenarios, num_threads, gpa, io);
 
-    std.debug.print("\n--- SIMD Batch{} Propagation ---\n", .{BatchSize});
+    std.debug.print("\n--- SIMD Batch{} Propagation ---\n", .{batchSize});
 
     try runScenarios(sgp4, &scenariosSIMD, num_threads, gpa, io);
 
-    std.debug.print("\n--- Multithreaded SIMD Batch{} Propagation ---\n", .{BatchSize});
+    std.debug.print("\n--- Multithreaded SIMD Batch{} Propagation ---\n", .{batchSize});
     std.debug.print("Threads: {}\n", .{num_threads});
-
 
     try runScenarios(sgp4, &scenariosMT, num_threads, gpa, io);
 
@@ -101,24 +100,23 @@ pub fn main(init: std.process.Init) !void {
 }
 
 fn getResults(name: []const u8, total_ns: usize, iters: usize, points: usize, totalPropsPerSec: *f64) void {
-        const avg_ms = @as(f64, @floatFromInt(total_ns / iters)) / 1_000_000.0;
-        const props_per_sec = @as(f64, @floatFromInt(points)) / (avg_ms / 1000.0);
-        totalPropsPerSec.* += props_per_sec;
+    const avg_ms = @as(f64, @floatFromInt(total_ns / iters)) / 1_000_000.0;
+    const props_per_sec = @as(f64, @floatFromInt(points)) / (avg_ms / 1000.0);
+    totalPropsPerSec.* += props_per_sec;
 
-        std.debug.print("{s:<25} {d:>10.3} ms  ({d:.2} prop/s)\n", .{
-            name,
-            avg_ms,
-            props_per_sec,
-        });
+    std.debug.print("{s:<25} {d:>10.3} ms  ({d:.2} prop/s)\n", .{
+        name,
+        avg_ms,
+        props_per_sec,
+    });
 }
 
 fn reportAvg(totalPropsPerSec: f64, scenarioSize: f64) void {
-        std.debug.print("{s:<25} {d:>17.2} prop/s\n", .{
-            "Average",
-            totalPropsPerSec / scenarioSize,
-        });
+    std.debug.print("{s:<25} {d:>17.2} prop/s\n", .{
+        "Average",
+        totalPropsPerSec / scenarioSize,
+    });
 }
-
 
 fn runScenarios(sgp4: Sgp4, scenarioArr: []const Scenario, num_threads: usize, gpa: std.mem.Allocator, io: std.Io) !void {
     var totalPropsPerSec: f64 = 0.0;
@@ -145,8 +143,8 @@ fn runScenarios(sgp4: Sgp4, scenarioArr: []const Scenario, num_threads: usize, g
                 },
                 .SIMD => {
                     var i: usize = 0;
-                    while (i + BatchSize <= scenario.points) : (i += BatchSize) {
-                        const result = dispatch.sgp4Times8(&sgp4, times[i..][0..BatchSize].*) catch continue;
+                    while (i + batchSize <= scenario.points) : (i += batchSize) {
+                        const result = dispatch.sgp4Times8(&sgp4, times[i..][0..batchSize].*) catch continue;
                         std.mem.doNotOptimizeAway(result);
                     }
                     // scalar remainder
