@@ -7,7 +7,7 @@ pub fn main() !void {
     var dbga = std.heap.DebugAllocator(.{}).init;
     defer _ = dbga.deinit();
     const allocator = dbga.allocator();
-    const io = std.Io.Threaded.global_single_threaded.ioBasic();
+    const io = std.Io.Threaded.global_single_threaded.io();
 
     const configFile = try std.Io.Dir.cwd().readFileAlloc(io, "examples/create_ccsds_packet_config.json", allocator, .limited(512));
     defer allocator.free(configFile);

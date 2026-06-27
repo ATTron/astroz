@@ -331,7 +331,7 @@ fn propagateImpl(
     ctx: PropCtx,
 ) void {
     const maxThreads = getMaxThreads();
-    var handles: [MaxThreads]?std.Thread = .{null} ** MaxThreads;
+    var handles: [MaxThreads]?std.Thread = @splat(null);
     var idx: usize = 0;
 
     // SGP4 phase: thread over time ranges (timeMajor) or batch ranges (satelliteMajor)

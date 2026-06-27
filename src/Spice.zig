@@ -13,9 +13,7 @@ const buildOptions = @import("build_options");
 pub const enabled = buildOptions.enable_cspice;
 
 /// Raw CSPICE C bindings (only available when enabled)
-pub const c = if (enabled) @cImport({
-    @cInclude("SpiceUsr.h");
-}) else struct {
+pub const c = if (enabled) @import("cspice_c") else struct {
     pub const SpiceInt = c_int;
     pub const SpiceBoolean = c_int;
 };

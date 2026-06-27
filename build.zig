@@ -28,22 +28,37 @@ pub fn build(b: *std.Build) void {
 
     // CSPICE setup
     if (enable_cspice) {
-        if (cspice_include) |inc| {
-            astroz_mod.addIncludePath(.{ .cwd_relative = inc });
-        } else {
-            astroz_mod.addIncludePath(.{ .cwd_relative = "/usr/include" });
-            astroz_mod.addIncludePath(.{ .cwd_relative = "/usr/local/include" });
-            astroz_mod.addIncludePath(.{ .cwd_relative = "/usr/local/include/cspice" });
-            astroz_mod.addIncludePath(.{ .cwd_relative = "/opt/cspice/include" });
+        // Collect include search paths
+        const inc_paths: []const []const u8 = if (cspice_include) |inc| &.{inc} else &.{
+            "/usr/include",
+            "/usr/local/include",
+            "/usr/local/include/cspice",
+            "/opt/cspice/include",
+        };
+
+        // C source compilation include paths (needed for @cImport replacement)
+        for (inc_paths) |p| {
+            astroz_mod.addIncludePath(.{ .cwd_relative = p });
         }
 
         if (cspice_lib) |lib_path| {
             astroz_mod.addObjectFile(.{ .cwd_relative = lib_path });
         } else {
-            // Try AUR location first, then fallback to standard locations
             astroz_mod.addObjectFile(.{ .cwd_relative = "/usr/lib/cspice.a" });
         }
         astroz_mod.link_libc = true;
+
+        // C → Zig bindings via translate-c
+        const cspice_c = b.addTranslateC(.{
+            .root_source_file = .{ .cwd_relative = std.fmt.allocPrint(b.allocator, "{s}/SpiceUsr.h", .{inc_paths[0]}) catch @panic("OOM") },
+            .target = target,
+            .optimize = optimize,
+        });
+        for (inc_paths) |p| {
+            cspice_c.addIncludePath(.{ .cwd_relative = p });
+        }
+
+        astroz_mod.addImport("cspice_c", cspice_c.createModule());
     }
 
     // Library
@@ -240,8 +255,8 @@ pub fn build(b: *std.Build) void {
 
     const fmt = b.addFmt(.{
         .paths = &.{
-            "src/",
-            "build.zig",
+            b.path("src/"),
+            b.path("build.zig"),
         },
         .check = true,
     });

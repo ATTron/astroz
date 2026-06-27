@@ -7,7 +7,7 @@ pub fn main() !void {
     var dbga = std.heap.DebugAllocator(.{}).init;
     defer _ = dbga.deinit();
     const allocator = dbga.allocator();
-    const io = std.Io.Threaded.global_single_threaded.ioBasic();
+    const io = std.Io.Threaded.global_single_threaded.io();
 
     const file_name = "./test/vita49.bin".*;
     const sync_pattern = .{ 0x3A, 0x02, 0x0a, 0x00, 0x34, 0x12, 0x00, 0x00, 0x00, 0x56 };

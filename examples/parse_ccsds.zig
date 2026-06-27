@@ -7,7 +7,7 @@ pub fn main() !void {
     var dbga = std.heap.DebugAllocator(.{}).init;
     defer _ = dbga.deinit();
     const allocator = dbga.allocator();
-    const io = std.Io.Threaded.global_single_threaded.ioBasic();
+    const io = std.Io.Threaded.global_single_threaded.io();
 
     const fileName = "./test/ccsds.bin".*;
 
