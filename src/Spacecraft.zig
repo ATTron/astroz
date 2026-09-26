@@ -168,13 +168,22 @@ pub fn propagateAttitude(self: *Spacecraft, dt: f64) void {
     self.angularVelocity = newState.angularVelocity;
 }
 
-/// propagate from the TLE state starting at time t0 (J2000 seconds) for the given days;
-/// impulse times are seconds after t0
+/// propagate from the TLE state starting at time t0 (J2000 seconds) for the given days,
+/// replacing any previous predictions. Impulse times are seconds after t0, in ascending order.
 pub fn propagate(self: *Spacecraft, t0: f64, days: f64, h: f64, impulseList: ?[]const Impulse) !void {
+    const impulses = impulseList orelse &.{};
+    const duration = days * constants.secondsPerDay;
+    var prevTime: f64 = 0;
+    for (impulses) |impulse| {
+        if (impulse.time < 0 or impulse.time > duration) return error.ImpulseOutOfRange;
+        if (impulse.time < prevTime) return error.ImpulsesNotSorted;
+        prevTime = impulse.time;
+    }
+
     const y0OE = calculations.tleToOrbitalElements(self.tle);
     var y = calculations.orbitalElementsToStateVector(y0OE, self.orbitingObject.mu);
     var t = t0;
-    const tf = t0 + days * constants.secondsPerDay;
+    const tf = t0 + duration;
 
     // setup force models and integrator
     var forces = self.createForceModels();
@@ -190,23 +199,21 @@ pub fn propagate(self: *Spacecraft, t0: f64, days: f64, h: f64, impulseList: ?[]
     const integrator = rk4.integrator();
     const force = propagators.ForceModel.wrap(propagators.Composite, &composite);
 
+    self.orbitPredictions.clearRetainingCapacity();
     try self.orbitPredictions.append(self.allocator, .{ .time = t, .state = y });
-    var impulseIndex: usize = 0;
+    var next: usize = 0;
 
     while (t < tf) {
-        // Handle impulse maneuvers
-        if (impulseList) |impulses| {
-            while (impulseIndex < impulses.len and t0 + impulses[impulseIndex].time <= t + h) {
-                const dt = (t0 + impulses[impulseIndex].time) - t;
-                if (dt > 0) {
-                    y = try integrator.step(y, t, dt, force);
-                    t += dt;
-                    try self.orbitPredictions.append(self.allocator, .{ .time = t, .state = y });
-                }
-                y = try self.applyImpulse(y, impulses[impulseIndex], &t, h, integrator, force);
+        // coast to any burn due within this step, then apply it
+        while (next < impulses.len and t0 + impulses[next].time <= t + h) : (next += 1) {
+            const dt = t0 + impulses[next].time - t;
+            if (dt > 0) {
+                y = try integrator.step(y, t, dt, force);
+                t += dt;
                 try self.orbitPredictions.append(self.allocator, .{ .time = t, .state = y });
-                impulseIndex += 1;
             }
+            y = try self.applyImpulse(y, impulses[next], &t, h, integrator, force);
+            try self.orbitPredictions.append(self.allocator, .{ .time = t, .state = y });
         }
 
         // regular propagation step
@@ -415,6 +422,18 @@ test "prop spacecraft w/ maneuvers" {
         try std.testing.expect(i > 1);
         try std.testing.expect(!std.meta.eql(base[base.len - 1].state, points[points.len - 1].state));
     }
+
+    // a new run replaces the previous predictions instead of appending to them
+    try baseline.propagate(epoch, 1.0 / 24.0, 1, null);
+    try std.testing.expect(baseline.orbitPredictions.items.len < base.len);
+
+    const burn = Impulse.Maneuver{ .prograde = 0.1 };
+    try std.testing.expectError(error.ImpulseOutOfRange, baseline.propagate(epoch, 1, 1, &.{.{ .time = -1, .maneuver = burn }}));
+    try std.testing.expectError(error.ImpulseOutOfRange, baseline.propagate(epoch, 1, 1, &.{.{ .time = 25 * hour, .maneuver = burn }}));
+    try std.testing.expectError(error.ImpulsesNotSorted, baseline.propagate(epoch, 1, 1, &.{
+        .{ .time = 2 * hour, .maneuver = burn },
+        .{ .time = hour, .maneuver = burn },
+    }));
 }
 
 test "orientation determination testing" {
