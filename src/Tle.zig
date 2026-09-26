@@ -2,6 +2,7 @@
 
 const std = @import("std");
 const DateTime = @import("Datetime.zig");
+const constants = @import("constants.zig");
 
 const Tle = @This();
 
@@ -72,7 +73,6 @@ pub fn parseLines(line1: []const u8, line2: []const u8, allocator: std.mem.Alloc
 
     const epochYear = try std.fmt.parseInt(u16, trimField(line1, 18, 20), 10);
     const epochDay = try std.fmt.parseFloat(f64, trimField(line1, 20, 32));
-    const epoch = tleEpochToJ2000(epochYear, epochDay);
     const epochJd = tleEpochToJd(epochYear, epochDay);
 
     const eccentricity = try std.fmt.parseFloat(f64, trimField(line2, 26, 33)) / 1e7;
@@ -83,7 +83,7 @@ pub fn parseLines(line1: []const u8, line2: []const u8, allocator: std.mem.Alloc
         .intlDesignator = intlDesignator,
         .epochYear = epochYear,
         .epochDay = epochDay,
-        .epoch = epoch,
+        .epoch = j2000Seconds(epochJd),
         .epochJd = epochJd,
         .firstDerMeanMotion = try std.fmt.parseFloat(f64, trimField(line1, 33, 43)),
         .bstarDrag = bstarDrag,
@@ -197,7 +197,7 @@ fn ommRecordToTle(rec: OmmRecord, allocator: std.mem.Allocator) !Tle {
         .intlDesignator = intlDesignator,
         .epochYear = ep.year,
         .epochDay = ep.doy,
-        .epoch = ep.j2000,
+        .epoch = j2000Seconds(ep.jd),
         .epochJd = ep.jd,
         .firstDerMeanMotion = rec.MEAN_MOTION_DOT orelse 0,
         .bstarDrag = rec.BSTAR,
@@ -214,7 +214,7 @@ fn ommRecordToTle(rec: OmmRecord, allocator: std.mem.Allocator) !Tle {
     };
 }
 
-const ParsedEpoch = struct { year: u16, doy: f64, jd: f64, j2000: f64 };
+const ParsedEpoch = struct { year: u16, doy: f64, jd: f64 };
 
 fn parseIso8601Epoch(epoch: []const u8) !ParsedEpoch {
     if (epoch.len < 19) return Error.BadTleLength;
@@ -228,24 +228,12 @@ fn parseIso8601Epoch(epoch: []const u8) !ParsedEpoch {
     const secEnd = if (epoch[epoch.len - 1] == 'Z') epoch.len - 1 else epoch.len;
     const sec = try std.fmt.parseFloat(f64, epoch[17..secEnd]);
 
-    const doy = dayOfYear(year, month, day) +
+    const wholeDoy: f64 = @floatFromInt(DateTime.initDate(year, month, day).doy.?);
+    const doy = wholeDoy +
         (@as(f64, @floatFromInt(hour)) +
             (@as(f64, @floatFromInt(min)) + sec / 60.0) / 60.0) / 24.0;
 
-    const epochYear: u16 = year % 100;
-    const jd = DateTime.yearDoyToJulianDate(year, doy);
-    const j2000 = tleEpochToJ2000(epochYear, doy);
-
-    return .{ .year = epochYear, .doy = doy, .jd = jd, .j2000 = j2000 };
-}
-
-fn dayOfYear(year: u16, month: u8, day: u8) f64 {
-    const cumDays = [_]u16{ 0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334 };
-    var doy: u16 = cumDays[month - 1] + day;
-    if (month > 2 and ((year % 4 == 0 and year % 100 != 0) or (year % 400 == 0))) {
-        doy += 1;
-    }
-    return @floatFromInt(doy);
+    return .{ .year = year % 100, .doy = doy, .jd = DateTime.yearDoyToJulianDate(year, doy) };
 }
 
 pub fn deinit(self: *Tle) void {
@@ -279,20 +267,21 @@ fn trimField(line: []const u8, start: usize, end: usize) []const u8 {
 }
 
 fn parseSatelliteNumber(field: []const u8) !u32 {
-    if (field.len == 0) return error.InvalidCharacter;
-    const first = field[0];
-    if (first >= 'A' and first <= 'Z') {
-        const prefix: u32 = @as(u32, first - 'A') + 10;
-        const rest = try std.fmt.parseInt(u32, field[1..], 10);
-        return prefix * 10000 + rest;
+    if (field.len == 5 and std.ascii.isUpper(field[0])) {
+        const letter = std.mem.indexOfScalar(u8, "ABCDEFGHJKLMNPQRSTUVWXYZ", field[0]) orelse
+            return error.InvalidCharacter;
+        var n: u32 = @intCast(letter + 10);
+        for (field[1..]) |c| {
+            if (!std.ascii.isDigit(c)) return error.InvalidCharacter;
+            n = n * 10 + (c - '0');
+        }
+        return n;
     }
     return std.fmt.parseInt(u32, field, 10);
 }
 
-fn tleEpochToJ2000(epochYear: u16, epochDay: f64) f64 {
-    const y = 2000 + epochYear;
-    const md = DateTime.doyToMonthDay(y, epochDay);
-    return DateTime.initDate(y, md.month, md.day).convertToJ2000();
+fn j2000Seconds(jd: f64) f64 {
+    return (jd - constants.j2000Jd) * constants.secondsPerDay;
 }
 
 fn tleEpochToJd(epochYear: u16, epochDay: f64) f64 {
@@ -355,6 +344,35 @@ test "parseLines and MultiIterator" {
     }
 }
 
+test "parseSatelliteNumber" {
+    const valid = [_]struct { []const u8, u32 }{
+        .{ "25544", 25544 },  .{ "A0000", 100000 }, .{ "H9999", 179999 }, .{ "J0001", 180001 },
+        .{ "N9999", 229999 }, .{ "P0000", 230000 }, .{ "T0449", 270449 }, .{ "Z9999", 339999 },
+    };
+    for (valid) |v| try std.testing.expectEqual(v[1], try parseSatelliteNumber(v[0]));
+
+    for ([_][]const u8{ "", "I0000", "O0000", "A000", "A+000" }) |bad| {
+        try std.testing.expectError(error.InvalidCharacter, parseSatelliteNumber(bad));
+    }
+}
+
+test "epoch" {
+    const line2 = "2 25544  51.6400 208.5000 0007417  35.0000 325.0000 15.49000000400000";
+    // line 1, expected JD, expected seconds past J2000
+    const cases = [_]struct { []const u8, f64, f64 }{
+        // 2026-09-20T12:42:37
+        .{ "1 25544U 98067A   26263.52959654  .00016717  00000+0  10270-3 0  9993", 2461304.02959654, 843180157.141 },
+        // 1998-11-01T12:00, two-digit year must pivot to 19xx
+        .{ "1 25544U 98067A   98305.50000000  .00016717  00000+0  10270-3 0  9993", 2451119.0, -36806400.0 },
+    };
+    for (cases) |c| {
+        var tle = try Tle.parseLines(c[0], line2, std.testing.allocator);
+        defer tle.deinit();
+        try std.testing.expectApproxEqAbs(c[1], tle.epochJd, 1e-8);
+        try std.testing.expectApproxEqAbs(c[2], tle.epoch, 1e-2);
+    }
+}
+
 test "parseOmm" {
     const json =
         \\{"OBJECT_NAME":"ISS (ZARYA)","OBJECT_ID":"1998-067A","EPOCH":"2026-04-15T13:17:52.692576","MEAN_MOTION":15.48924547,"ECCENTRICITY":0.00065833,"INCLINATION":51.6327,"RA_OF_ASC_NODE":250.0746,"ARG_OF_PERICENTER":315.773,"MEAN_ANOMALY":44.2732,"EPHEMERIS_TYPE":0,"CLASSIFICATION_TYPE":"U","NORAD_CAT_ID":25544,"ELEMENT_SET_NO":999,"REV_AT_EPOCH":56204,"BSTAR":0.00010353824,"MEAN_MOTION_DOT":0.00005244,"MEAN_MOTION_DDOT":0}
@@ -369,6 +387,7 @@ test "parseOmm" {
     try std.testing.expectApproxEqAbs(@as(f64, 15.48924547), tle.mMotion, 1e-8);
     try std.testing.expectApproxEqAbs(@as(f64, 0.00010353824), tle.bstarDrag, 1e-11);
     try std.testing.expect(std.mem.eql(u8, tle.intlDesignator, "1998-067A"));
+    try std.testing.expectApproxEqAbs(@as(f64, 2461146.05408209), tle.epochJd, 1e-8);
 }
 
 test "parseOmmArray" {

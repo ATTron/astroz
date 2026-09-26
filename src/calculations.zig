@@ -432,7 +432,7 @@ pub fn propagateAttitude(state: AttitudeState, inertiaTensor: [3][3]f64, dt: f64
     const k3 = attitudeDerivative(addScaledAttitudeState(state, k2, 0.5 * dt), inertiaTensor);
     const k4 = attitudeDerivative(addScaledAttitudeState(state, k3, dt), inertiaTensor);
 
-    return addScaledAttitudeState(
+    var next = addScaledAttitudeState(
         state,
         addAttitudeStates(
             addAttitudeStates(k1, scaleAttitudeState(k2, 2)),
@@ -440,6 +440,12 @@ pub fn propagateAttitude(state: AttitudeState, inertiaTensor: [3][3]f64, dt: f64
         ),
         dt / 6.0,
     );
+
+    // RK4 doesn't preserve the unit-length constraint, so project back onto it
+    const q = next.quaternion;
+    const norm = @sqrt(q[0] * q[0] + q[1] * q[1] + q[2] * q[2] + q[3] * q[3]);
+    for (&next.quaternion) |*c| c.* /= norm;
+    return next;
 }
 
 fn attitudeDerivative(state: AttitudeState, I: [3][3]f64) AttitudeState {
@@ -534,4 +540,21 @@ test "Vector3D integration tests" {
     const backToElements = stateVectorToOrbitalElements(position, velocity, constants.earth.mu);
     try testing.expectApproxEqAbs(testElements.i, backToElements.i, 1e-2);
     try testing.expectApproxEqAbs(testElements.e, backToElements.e, 1e-2);
+}
+
+test "propagateAttitude" {
+    const identity = [3][3]f64{ .{ 1, 0, 0 }, .{ 0, 1, 0 }, .{ 0, 0, 1 } };
+    const w = 0.1; // rad/s about z
+    const seconds = 600;
+
+    // spin about a principal axis: q(t) = (cos(wt/2), 0, 0, sin(wt/2))
+    var state = AttitudeState{ .quaternion = .{ 1, 0, 0, 0 }, .angularVelocity = .{ 0, 0, w } };
+    for (0..seconds) |_| state = propagateAttitude(state, identity, 1.0);
+    const expected = [4]f64{ @cos(w * seconds / 2), 0, 0, @sin(w * seconds / 2) };
+    for (expected, state.quaternion) |e, a| try std.testing.expectApproxEqAbs(e, a, 1e-5);
+
+    // a step far too large for RK4 still returns a unit quaternion
+    const big = propagateAttitude(.{ .quaternion = .{ 1, 0, 0, 0 }, .angularVelocity = .{ 0.1, 0.05, 0.02 } }, identity, 60.0);
+    const q = big.quaternion;
+    try std.testing.expectApproxEqAbs(1.0, @sqrt(q[0] * q[0] + q[1] * q[1] + q[2] * q[2] + q[3] * q[3]), 1e-9);
 }

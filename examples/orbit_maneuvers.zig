@@ -37,6 +37,7 @@ pub fn main() !void {
     defer sc2.deinit();
 
     const impulses = [_]Impulse{
+        // times are seconds after the start of propagation
         .{ .time = 3600.0, .maneuver = .{ .absolute = .{ 0.05, 0.03, 0.01 } } },
         .{ .time = 7200.0, .maneuver = .{ .absolute = .{ 1.1, -0.05, 0.02 } } },
         .{ .time = 10800.0, .maneuver = .{ .absolute = .{ -0.03, 0.08, -0.01 } } },
@@ -54,7 +55,7 @@ pub fn main() !void {
     defer sc3.deinit();
 
     const planeChangeManeuver = Impulse{
-        .time = 2500000.0,
+        .time = 11 * 3600.0, // 11 hours in
         .maneuver = .{
             .planeChange = .{
                 .deltaInclination = math.pi / 18.0, // 10-degree inclination change
@@ -65,10 +66,7 @@ pub fn main() !void {
 
     const planeImpulses = [_]Impulse{planeChangeManeuver};
     try sc3.propagate(sc3.tle.epoch, 3, 1, &planeImpulses);
-    std.debug.print("Applied plane change: Δi={d:.1}°, ΔRAAN={d:.1}°\n", .{
-        math.degreesToRadians(10.0),
-        math.degreesToRadians(5.0),
-    });
+    std.debug.print("Applied plane change: di=10 deg, dRAAN=5 deg\n", .{});
 
     // Example 4: Phase Change Maneuver
     std.debug.print("\n=== Example 4: Phase Change Maneuver ===\n", .{});
@@ -79,7 +77,7 @@ pub fn main() !void {
     defer sc4.deinit();
 
     const phaseManeuver = Impulse{
-        .time = 2500000.0,
+        .time = 11 * 3600.0, // 11 hours in
         .maneuver = .{
             .phase = .{
                 .angle = math.pi / 2.0, // 90-degree phase change
@@ -90,7 +88,7 @@ pub fn main() !void {
 
     const phaseImpulses = [_]Impulse{phaseManeuver};
     try sc4.propagate(sc4.tle.epoch, 3, 1, &phaseImpulses);
-    std.debug.print("Applied phase change: {d:.1}° (π/2 radians)\n", .{90.0});
+    std.debug.print("Applied phase change: 90 deg\n", .{});
 
     std.debug.print("\nAll maneuver examples completed successfully!\n", .{});
 }
