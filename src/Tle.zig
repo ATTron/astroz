@@ -278,13 +278,20 @@ fn trimField(line: []const u8, start: usize, end: usize) []const u8 {
     return std.mem.trim(u8, line[start..end], " ");
 }
 
+// Alpha-5 leading letters; I and O are skipped (A = 10 ... H = 17, J = 18 ... Z = 33)
+const alpha5Letters = "ABCDEFGHJKLMNPQRSTUVWXYZ";
+
 fn parseSatelliteNumber(field: []const u8) !u32 {
     if (field.len == 0) return error.InvalidCharacter;
     const first = field[0];
     if (first >= 'A' and first <= 'Z') {
-        const prefix: u32 = @as(u32, first - 'A') + 10;
+        if (field.len != 5) return error.InvalidCharacter;
+        const idx = std.mem.indexOfScalar(u8, alpha5Letters, first) orelse return error.InvalidCharacter;
+        for (field[1..]) |ch| {
+            if (!std.ascii.isDigit(ch)) return error.InvalidCharacter;
+        }
         const rest = try std.fmt.parseInt(u32, field[1..], 10);
-        return prefix * 10000 + rest;
+        return (@as(u32, @intCast(idx)) + 10) * 10000 + rest;
     }
     return std.fmt.parseInt(u32, field, 10);
 }
@@ -353,6 +360,22 @@ test "parseLines and MultiIterator" {
         var iter = MultiIterator.init("hello\ngarbage\n");
         try std.testing.expect(iter.next() == null);
     }
+}
+
+test "parseSatelliteNumber Alpha-5" {
+    try std.testing.expectEqual(@as(u32, 25544), try parseSatelliteNumber("25544"));
+    try std.testing.expectEqual(@as(u32, 100000), try parseSatelliteNumber("A0000"));
+    try std.testing.expectEqual(@as(u32, 179999), try parseSatelliteNumber("H9999"));
+    try std.testing.expectEqual(@as(u32, 180001), try parseSatelliteNumber("J0001"));
+    try std.testing.expectEqual(@as(u32, 229999), try parseSatelliteNumber("N9999"));
+    try std.testing.expectEqual(@as(u32, 230000), try parseSatelliteNumber("P0000"));
+    try std.testing.expectEqual(@as(u32, 270449), try parseSatelliteNumber("T0449"));
+    try std.testing.expectEqual(@as(u32, 339999), try parseSatelliteNumber("Z9999"));
+
+    try std.testing.expectError(error.InvalidCharacter, parseSatelliteNumber("I0000"));
+    try std.testing.expectError(error.InvalidCharacter, parseSatelliteNumber("O0000"));
+    try std.testing.expectError(error.InvalidCharacter, parseSatelliteNumber("A000"));
+    try std.testing.expectError(error.InvalidCharacter, parseSatelliteNumber("A+000"));
 }
 
 test "parseOmm" {
