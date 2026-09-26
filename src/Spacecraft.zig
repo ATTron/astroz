@@ -19,21 +19,31 @@ pub const SatelliteParameters = struct {
     depth: f64,
 };
 
-/// impulse maneuver types with clearer semantics
+/// A maneuver applied during `propagate`
 pub const Impulse = struct {
-    time: f64, // seconds after the start of propagation
+    /// Seconds after the start of propagation
+    time: f64,
     maneuver: Maneuver,
 
     pub const Maneuver = union(enum) {
+        /// Delta-v added to the inertial velocity, km/s
         absolute: [3]f64,
+        /// Delta-v along the velocity direction, km/s
         prograde: f64,
+        /// Move along the orbit by `angle` using a transfer orbit, then burn back
         phase: struct {
-            angle: f64, // radians
-            orbits: f64 = 1.0, // transfer orbits
+            /// Radians
+            angle: f64,
+            /// Number of transfer orbits to spread the shift over
+            orbits: f64 = 1.0,
         },
+        /// Fires at the first node (where the current and target planes meet) at or
+        /// after the scheduled time, so up to half an orbit later
         planeChange: struct {
-            deltaInclination: f64, // radians
-            deltaRaan: f64, // radians
+            /// Radians
+            deltaInclination: f64,
+            /// Radians
+            deltaRaan: f64,
         },
     };
 };
@@ -168,8 +178,10 @@ pub fn propagateAttitude(self: *Spacecraft, dt: f64) void {
     self.angularVelocity = newState.angularVelocity;
 }
 
-/// propagate from the TLE state starting at time t0 (J2000 seconds) for the given days,
+/// Propagate from the TLE state starting at time t0 (J2000 seconds) for the given days,
 /// replacing any previous predictions. Impulse times are seconds after t0, in ascending order.
+/// Phase transfers and plane changes must finish before the end of the run, otherwise
+/// `error.ImpulseOutOfRange` is returned.
 pub fn propagate(self: *Spacecraft, t0: f64, days: f64, h: f64, impulseList: ?[]const Impulse) !void {
     const impulses = impulseList orelse &.{};
     const duration = days * constants.secondsPerDay;
@@ -265,7 +277,7 @@ fn applyImpulse(self: *Spacecraft, state: [6]f64, impulse: Impulse, t: *f64, h: 
             y = calculations.impulse(y, .{ -dv[0], -dv[1], -dv[2] });
         },
         .planeChange => |pc| {
-            y = self.applyPlaneChange(y, pc.deltaInclination, pc.deltaRaan);
+            y = try self.applyPlaneChange(y, pc.deltaInclination, pc.deltaRaan, t, h, tf, integrator, force);
         },
     }
     return y;
@@ -282,42 +294,69 @@ fn calculateEnergy(self: Spacecraft, state: calculations.StateV) f64 {
     return 0.5 * v * v - self.orbitingObject.mu / r;
 }
 
-/// apply plane change maneuver using actual delta-V
-fn applyPlaneChange(_: *Spacecraft, y: [6]f64, deltaInclination: f64, deltaRaan: f64) [6]f64 {
-    const vMag = calculations.velMag(y);
+/// A single burn can only move the orbit into a plane that contains the current position,
+/// so coast to the node line where the current and target planes meet, then rotate the
+/// velocity about the position vector onto the target plane (speed is unchanged).
+fn applyPlaneChange(self: *Spacecraft, state: [6]f64, deltaInclination: f64, deltaRaan: f64, t: *f64, h: f64, tf: f64, integrator: propagators.Integrator, force: propagators.ForceModel) ![6]f64 {
+    var y = state;
+    const current = orbitPlane(y);
+    const target = orbitNormal(std.math.acos(current[2]) + deltaInclination, std.math.atan2(current[0], -current[1]) + deltaRaan);
+    // already in the target plane; there is no well-defined node to wait for
+    if (calculations.dot(current, target) > 1 - 1e-12) return y;
 
-    // combined plane change angle (assumes optimal geo)
-    const totalAngle = @sqrt(deltaInclination * deltaInclination + deltaRaan * deltaRaan);
-    if (totalAngle < 1e-10) return y;
+    var f = calculations.dot(y[0..3].*, target);
+    while (f != 0) {
+        if (t.* >= tf) return error.ImpulseOutOfRange;
+        const step = @min(h, tf - t.*);
+        const yNext = try integrator.step(y, t.*, step, force);
+        const fNext = calculations.dot(yNext[0..3].*, target);
+        if (f * fNext <= 0) {
+            // crossed the node inside this step; interpolate to land on it
+            const dt = step * f / (f - fNext);
+            y = try integrator.step(y, t.*, dt, force);
+            t.* += dt;
+            try self.orbitPredictions.append(self.allocator, .{ .time = t.*, .state = y });
+            break;
+        }
+        y = yNext;
+        t.* += step;
+        f = fNext;
+        try self.orbitPredictions.append(self.allocator, .{ .time = t.*, .state = y });
+    }
 
-    // delta-v magnitude for plane change: dv = 2 * v * sin(angle/2)
-    const dvMag = 2.0 * vMag * @sin(totalAngle / 2.0);
-
-    // compute normal to orbital plane (r x v)
-    const r = [3]f64{ y[0], y[1], y[2] };
-    const v = [3]f64{ y[3], y[4], y[5] };
-    const h = [3]f64{
-        r[1] * v[2] - r[2] * v[1],
-        r[2] * v[0] - r[0] * v[2],
-        r[0] * v[1] - r[1] * v[0],
-    };
-    const hMag = @sqrt(h[0] * h[0] + h[1] * h[1] + h[2] * h[2]);
-
-    // apply delta-V in direction of angular momentum change (simplified)
-    const dv = [3]f64{
-        h[0] / hMag * dvMag * @sin(deltaInclination),
-        h[1] / hMag * dvMag * @sin(deltaInclination),
-        h[2] / hMag * dvMag * @cos(deltaInclination),
-    };
-
-    // log the delta-V cost for user awareness
-    log.debug("Plane change: di={d:.2}°, dΩ={d:.2}°, Δv={d:.4} km/s", .{
-        deltaInclination * 180.0 / std.math.pi,
-        deltaRaan * 180.0 / std.math.pi,
-        dvMag,
+    const rHat = calculations.normalize(y[0..3].*);
+    const n = orbitPlane(y);
+    const angle = std.math.atan2(calculations.dot(rHat, calculations.cross(n, target)), calculations.dot(n, target));
+    const v = rotateAbout(y[3..6].*, rHat, angle);
+    log.debug("Plane change at t={d:.1}: {d:.3} deg, dv={d:.4} km/s", .{
+        t.*,
+        angle * constants.rad2deg,
+        2 * calculations.velMag(y) * @abs(@sin(angle / 2)),
     });
+    return .{ y[0], y[1], y[2], v[0], v[1], v[2] };
+}
 
-    return calculations.impulse(y, dv);
+/// unit normal of the orbit plane of a state vector (direction of r x v)
+fn orbitPlane(y: [6]f64) [3]f64 {
+    return calculations.normalize(calculations.cross(y[0..3].*, y[3..6].*));
+}
+
+/// unit normal of an orbital plane with the given inclination and RAAN (radians)
+fn orbitNormal(inclination: f64, raan: f64) [3]f64 {
+    return .{ @sin(inclination) * @sin(raan), -@sin(inclination) * @cos(raan), @cos(inclination) };
+}
+
+/// Rodrigues rotation of v about a unit axis
+fn rotateAbout(v: [3]f64, axis: [3]f64, angle: f64) [3]f64 {
+    const c = @cos(angle);
+    const s = @sin(angle);
+    const kxv = calculations.cross(axis, v);
+    const kv = calculations.dot(axis, v) * (1 - c);
+    return .{
+        v[0] * c + kxv[0] * s + axis[0] * kv,
+        v[1] * c + kxv[1] * s + axis[1] * kv,
+        v[2] * c + kxv[2] * s + axis[2] * kv,
+    };
 }
 
 /// calculate delta-V for a phasing maneuver
@@ -401,6 +440,7 @@ test "propagate" {
     // rejected schedules
     const burn = Impulse.Maneuver{ .prograde = 0.1 };
     const quarterTurn = Impulse.Maneuver{ .phase = .{ .angle = std.math.pi / 2.0 } };
+    const tilt = Impulse.Maneuver{ .planeChange = .{ .deltaInclination = 10 * constants.deg2rad, .deltaRaan = 0 } };
     const cases = [_]struct { anyerror, []const Impulse }{
         .{ error.ImpulseOutOfRange, &.{.{ .time = -1, .maneuver = burn }} },
         .{ error.ImpulseOutOfRange, &.{.{ .time = std.math.nan(f64), .maneuver = burn }} },
@@ -410,10 +450,50 @@ test "propagate" {
         .{ error.ImpulseOutOfRange, &.{.{ .time = 5.5 * hour, .maneuver = quarterTurn }} },
         // second burn lands inside the first burn's transfer orbit
         .{ error.ImpulseDuringTransfer, &.{ .{ .time = hour, .maneuver = quarterTurn }, .{ .time = 1.5 * hour, .maneuver = burn } } },
+        // plane change needs a node, and none comes before the end of the run
+        .{ error.ImpulseOutOfRange, &.{.{ .time = 6 * hour - 10, .maneuver = tilt }} },
     };
     for (cases) |c| {
         try std.testing.expectError(c[0], baseline.propagate(epoch, 0.25, 1, c[1]));
     }
+}
+
+test "plane change lands on the target plane at the node" {
+    var tle = try Tle.parse(testTle, std.testing.allocator);
+    defer tle.deinit();
+    var sc = testSpacecraft(tle);
+    defer sc.deinit();
+
+    const scheduled = 3600.0;
+    const di = 10.0 * constants.deg2rad;
+    const dRaan = 5.0 * constants.deg2rad;
+    try sc.propagate(tle.epoch, 0.5, 1, &.{.{ .time = scheduled, .maneuver = .{ .planeChange = .{ .deltaInclination = di, .deltaRaan = dRaan } } }});
+    const points = sc.orbitPredictions.items;
+
+    // plane at the scheduled time (1 s steps, so point N is N seconds in)
+    const n1 = orbitPlane(points[@intFromFloat(scheduled)].state);
+    const target = orbitNormal(std.math.acos(n1[2]) + di, std.math.atan2(n1[0], -n1[1]) + dRaan);
+
+    // the burn is the second point recorded at the same time
+    var i: usize = 1;
+    while (points[i].time != points[i - 1].time) i += 1;
+    const pre = points[i - 1].state;
+    const post = points[i].state;
+
+    for (target, orbitPlane(post)) |e, a| try std.testing.expectApproxEqAbs(e, a, 1e-6);
+    try std.testing.expectApproxEqAbs(calculations.velMag(pre), calculations.velMag(post), 1e-9);
+
+    // fired at the next node: after the scheduled time, within half an orbit
+    const halfOrbit = std.math.pi * @sqrt(std.math.pow(f64, calculations.posMag(pre), 3) / constants.earth.mu);
+    try std.testing.expect(points[i].time >= tle.epoch + scheduled);
+    try std.testing.expect(points[i].time <= tle.epoch + scheduled + halfOrbit);
+
+    // a zero plane change is a no-op rather than a wait for a node that doesn't exist
+    var still = testSpacecraft(tle);
+    defer still.deinit();
+    try sc.propagate(tle.epoch, 0.1, 1, &.{.{ .time = scheduled, .maneuver = .{ .planeChange = .{ .deltaInclination = 0, .deltaRaan = 0 } } }});
+    try still.propagate(tle.epoch, 0.1, 1, null);
+    try std.testing.expectEqual(still.orbitPredictions.getLast().state, sc.orbitPredictions.getLast().state);
 }
 
 test "attitude update and propagation" {

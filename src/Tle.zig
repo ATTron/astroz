@@ -10,23 +10,32 @@ satelliteNumber: u32,
 classification: u8,
 intlDesignator: []u8,
 
+/// Two-digit year as written in the element set
 epochYear: u16,
+/// Fractional day of year (1.0 = Jan 1 00:00)
 epochDay: f64,
-epoch: f64, // J2000 seconds
-epochJd: f64, // Julian Date (precomputed)
+/// Seconds since J2000.0 (JD 2451545.0)
+epoch: f64,
+/// Julian date of the epoch
+epochJd: f64,
 
 firstDerMeanMotion: f64,
 bstarDrag: f64,
 ephemType: u8,
 elemNumber: u32,
 
-// Orbital elements (degrees for angles, rev/day for mean motion)
+/// Degrees
 inclination: f64,
+/// Right ascension of the ascending node, degrees
 rightAscension: f64,
 eccentricity: f64,
+/// Argument of perigee, degrees
 perigee: f64,
+/// Mean anomaly, degrees
 mAnomaly: f64,
+/// Mean motion, revolutions per day
 mMotion: f64,
+/// Revolution number at epoch
 revNum: u32,
 
 allocator: std.mem.Allocator,
