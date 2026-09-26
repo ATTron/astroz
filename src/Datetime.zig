@@ -149,7 +149,8 @@ pub fn doyToMonthDay(year: u16, doy: f64) struct { month: u8, day: u8 } {
 
     for (daysInMonth) |days| {
         const daysF64: f64 = @floatFromInt(if (month == 2 and isLeapYear(year)) days + 1 else days);
-        if (day > daysF64) {
+        // fractional doy: day N covers [N, N+1), so only advance past the month's last day
+        if (day >= daysF64 + 1.0) {
             day -= daysF64;
             month += 1;
         } else {
@@ -164,20 +165,20 @@ pub fn doyToMonthDay(year: u16, doy: f64) struct { month: u8, day: u8 } {
 }
 
 /// Converts your datetime to the J2000 format used in astronomy
-pub fn convertToJ2000(self: Datetime) f32 {
-    const step1 = 367.0 * @as(f32, @floatFromInt(self.year.?));
-    const step2 = @as(f32, @floatFromInt(self.year.?)) + @floor((@as(f32, @floatFromInt(self.month.?)) + 9.0) / 12.0);
-    const step3 = @as(f32, @floatFromInt(self.month.?)) * step2;
+pub fn convertToJ2000(self: Datetime) f64 {
+    const step1 = 367.0 * @as(f64, @floatFromInt(self.year.?));
+    const step2 = @as(f64, @floatFromInt(self.year.?)) + @floor((@as(f64, @floatFromInt(self.month.?)) + 9.0) / 12.0);
+    const step3 = 7.0 * step2;
     const step4 = @floor(step3 / 4.0);
-    const step5 = 275.0 * @as(f32, @floatFromInt(self.month.?));
+    const step5 = 275.0 * @as(f64, @floatFromInt(self.month.?));
     const step7 = @floor(step5 / 9.0);
-    const step8 = step1 - step4 + step7 + @as(f32, @floatFromInt(self.day.?)) + 1721013.5;
+    const step8 = step1 - step4 + step7 + @as(f64, @floatFromInt(self.day.?)) + 1721013.5;
 
     return step8;
 }
 
 /// Converts your datetime to the Modified J2000 format used in astronomy
-pub fn convertToModifiedJd(self: Datetime) f32 {
+pub fn convertToModifiedJd(self: Datetime) f64 {
     return self.convertToJ2000() - 2400000.5;
 }
 
@@ -302,6 +303,11 @@ test "Test J2000" {
 
     try std.testing.expectEqual(2453581.5, j2000.convertToJ2000());
     try std.testing.expectEqual(53581.0, j2000.convertToModifiedJd());
+
+    // non-July months (formula previously used month instead of 7)
+    try std.testing.expectEqual(2461303.5, Datetime.initDate(2026, 9, 20).convertToJ2000());
+    try std.testing.expectEqual(2451118.5, Datetime.initDate(1998, 11, 1).convertToJ2000());
+    try std.testing.expectEqual(2451544.5, Datetime.initDate(2000, 1, 1).convertToJ2000());
 }
 
 test "Test jday" {
@@ -321,4 +327,19 @@ test "Test days2mdhms" {
     try std.testing.expectEqual(4, result.hour);
     try std.testing.expectEqual(28, result.minute);
     try std.testing.expectApproxEqAbs(31.5, result.second, 0.01);
+
+    // last day of month must not roll to day 0 of the next month
+    const cases = [_]struct { year: u16, doy: f64, month: u8, day: u8 }{
+        .{ .year = 2026, .doy = 31.5, .month = 1, .day = 31 },
+        .{ .year = 2026, .doy = 32.0, .month = 2, .day = 1 },
+        .{ .year = 2026, .doy = 243.5, .month = 8, .day = 31 },
+        .{ .year = 2024, .doy = 60.5, .month = 2, .day = 29 },
+        .{ .year = 2026, .doy = 365.5, .month = 12, .day = 31 },
+    };
+    for (cases) |c| {
+        const r = Datetime.days2mdhms(c.year, c.doy);
+        try std.testing.expectEqual(c.month, r.month);
+        try std.testing.expectEqual(c.day, r.day);
+    }
+    try std.testing.expectEqual(12, Datetime.days2mdhms(2026, 243.5).hour);
 }

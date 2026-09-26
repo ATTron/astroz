@@ -72,8 +72,8 @@ pub fn parseLines(line1: []const u8, line2: []const u8, allocator: std.mem.Alloc
 
     const epochYear = try std.fmt.parseInt(u16, trimField(line1, 18, 20), 10);
     const epochDay = try std.fmt.parseFloat(f64, trimField(line1, 20, 32));
-    const epoch = tleEpochToJ2000(epochYear, epochDay);
     const epochJd = tleEpochToJd(epochYear, epochDay);
+    const epoch = jdToJ2000Seconds(epochJd);
 
     const eccentricity = try std.fmt.parseFloat(f64, trimField(line2, 26, 33)) / 1e7;
 
@@ -234,7 +234,7 @@ fn parseIso8601Epoch(epoch: []const u8) !ParsedEpoch {
 
     const epochYear: u16 = year % 100;
     const jd = DateTime.yearDoyToJulianDate(year, doy);
-    const j2000 = tleEpochToJ2000(epochYear, doy);
+    const j2000 = jdToJ2000Seconds(jd);
 
     return .{ .year = epochYear, .doy = doy, .jd = jd, .j2000 = j2000 };
 }
@@ -296,10 +296,9 @@ fn parseSatelliteNumber(field: []const u8) !u32 {
     return std.fmt.parseInt(u32, field, 10);
 }
 
-fn tleEpochToJ2000(epochYear: u16, epochDay: f64) f64 {
-    const y = 2000 + epochYear;
-    const md = DateTime.doyToMonthDay(y, epochDay);
-    return DateTime.initDate(y, md.month, md.day).convertToJ2000();
+/// Seconds since J2000.0 (JD 2451545.0)
+fn jdToJ2000Seconds(jd: f64) f64 {
+    return (jd - 2451545.0) * 86400.0;
 }
 
 fn tleEpochToJd(epochYear: u16, epochDay: f64) f64 {
@@ -376,6 +375,23 @@ test "parseSatelliteNumber Alpha-5" {
     try std.testing.expectError(error.InvalidCharacter, parseSatelliteNumber("O0000"));
     try std.testing.expectError(error.InvalidCharacter, parseSatelliteNumber("A000"));
     try std.testing.expectError(error.InvalidCharacter, parseSatelliteNumber("A+000"));
+}
+
+test "epoch fields" {
+    // ISS, epoch 2026-09-20T12:42:37 -> JD 2461304.02959654
+    const l1 = "1 25544U 98067A   26263.52959654  .00016717  00000+0  10270-3 0  9993";
+    const l2 = "2 25544  51.6400 208.5000 0007417  35.0000 325.0000 15.49000000400000";
+    var tle = try Tle.parseLines(l1, l2, std.testing.allocator);
+    defer tle.deinit();
+    try std.testing.expectApproxEqAbs(@as(f64, 2461304.02959654), tle.epochJd, 1e-8);
+    try std.testing.expectApproxEqAbs((tle.epochJd - 2451545.0) * 86400.0, tle.epoch, 1e-3);
+
+    // 1998 epoch must pivot to 19xx
+    const o1 = "1 25544U 98067A   98305.50000000  .00016717  00000+0  10270-3 0  9993";
+    var old = try Tle.parseLines(o1, l2, std.testing.allocator);
+    defer old.deinit();
+    try std.testing.expectApproxEqAbs(@as(f64, 2451119.0), old.epochJd, 1e-8);
+    try std.testing.expect(old.epoch < 0);
 }
 
 test "parseOmm" {
