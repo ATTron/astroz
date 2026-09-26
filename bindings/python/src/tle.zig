@@ -43,8 +43,8 @@ fn tle_init(self_obj: [*c]c.PyObject, args: [*c]c.PyObject, _: [*c]c.PyObject) c
         allocator.destroy(old);
     }
 
-    const tle = Tle.parse(std.mem.span(tle_str), allocator) catch {
-        py.raiseValue("Failed to parse TLE");
+    const tle = Tle.parse(std.mem.span(tle_str), allocator) catch |err| {
+        py.raiseValue(if (err == error.CatalogNumberMismatch) "TLE lines 1 and 2 have different catalog numbers" else "Failed to parse TLE");
         return -1;
     };
     const ptr = allocator.create(Tle) catch {
