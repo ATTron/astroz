@@ -1,22 +1,16 @@
 const std = @import("std");
 const astroz = @import("astroz");
-const Ccsds = astroz.Ccsds;
-const Parser = astroz.Parser;
+
+const sync = [_]u8{ 0x78, 0x97, 0xC0, 0x00, 0x00, 0x0A, 0x01, 0x02 };
 
 pub fn main(init: std.process.Init) !void {
-    const allocator = init.gpa;
-    const io = init.io;
-
-    const fileName = "./test/ccsds.bin".*;
-    const syncPattern = .{ 0x78, 0x97, 0xC0, 0x00, 0x00, 0x0A, 0x01, 0x02 };
-
-    const P = Parser(Ccsds);
-    var parser = try P.init(null, null, 1024, io, allocator);
+    var parser = try astroz.Parser(astroz.Ccsds).init(null, null, 1024, init.io, init.gpa);
     defer parser.deinit();
 
-    _ = try parser.parseFromFile(&fileName, &syncPattern, null);
+    try parser.parseFromFile("test/ccsds.bin", &sync, null);
 
-    for (parser.packets.items) |packet| {
-        std.log.info("Packets from files: 0x{x}", .{packet.packets});
+    for (parser.packets.items, 0..) |pkt, n| {
+        const len = 5 + @as(usize, pkt.header.packetSize);
+        std.log.info("packet {d}: {x}", .{ n, pkt.rawData[0..len] });
     }
 }

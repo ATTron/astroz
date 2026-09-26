@@ -1,284 +1,7 @@
 const std = @import("std");
 const oma = @import("oma");
 
-pub fn build(b: *std.Build) void {
-    const target = b.standardTargetOptions(.{});
-    const optimize = b.standardOptimizeOption(.{});
-    const root_source_file = b.path("src/lib.zig");
-    const use_llvm = b.option(bool, "use-llvm", "Use Zig's llvm backend");
-
-    // CSPICE configuration
-    // Override with: -Dcspice-include=/path/to/cspice/include -Dcspice-lib=/path/to/cspice/lib
-    const cspice_include = b.option([]const u8, "cspice-include", "CSPICE include path (containing SpiceUsr.h)");
-    const cspice_lib = b.option([]const u8, "cspice-lib", "CSPICE library path (containing libcspice.a)");
-    const enable_cspice = b.option(bool, "enable-cspice", "Enable CSPICE support (requires CSPICE to be installed)") orelse false;
-
-    // Build options for conditional compilation
-    const build_options = b.addOptions();
-    build_options.addOption(bool, "enable_cspice", enable_cspice);
-
-    // Module
-    const astroz_mod = b.addModule("astroz", .{
-        .target = target,
-        .optimize = optimize,
-        .root_source_file = root_source_file,
-    });
-
-    astroz_mod.addOptions("build_options", build_options);
-
-    // CSPICE setup
-    if (enable_cspice) {
-        if (cspice_include) |inc| {
-            astroz_mod.addIncludePath(.{ .cwd_relative = inc });
-        } else {
-            astroz_mod.addIncludePath(.{ .cwd_relative = "/usr/include" });
-            astroz_mod.addIncludePath(.{ .cwd_relative = "/usr/local/include" });
-            astroz_mod.addIncludePath(.{ .cwd_relative = "/usr/local/include/cspice" });
-            astroz_mod.addIncludePath(.{ .cwd_relative = "/opt/cspice/include" });
-        }
-
-        if (cspice_lib) |lib_path| {
-            astroz_mod.addObjectFile(.{ .cwd_relative = lib_path });
-        } else {
-            // Try AUR location first, then fallback to standard locations
-            astroz_mod.addObjectFile(.{ .cwd_relative = "/usr/lib/cspice.a" });
-        }
-        astroz_mod.link_libc = true;
-    }
-
-    // Library
-    const lib_step = b.step("lib", "Install library");
-
-    const lib = b.addLibrary(.{
-        .name = "astroz",
-        .root_module = astroz_mod,
-        .use_llvm = use_llvm,
-    });
-
-    const zignal_dependency = b.dependency("zignal", .{
-        .target = target,
-        .optimize = optimize,
-    });
-
-    lib.root_module.addImport("zignal", zignal_dependency.module("zignal"));
-    astroz_mod.addImport("zignal", zignal_dependency.module("zignal"));
-
-    const cfitsio_dep = b.dependency("cfitsio", .{
-        .target = target,
-        .optimize = optimize,
-    });
-
-    lib.root_module.addImport("cfitsio", cfitsio_dep.module("cfitsio"));
-    astroz_mod.addImport("cfitsio", cfitsio_dep.module("cfitsio"));
-
-    const oma_dep = b.dependency("oma", .{});
-    astroz_mod.addImport("oma", oma_dep.module("oma"));
-
-    oma.addMultiVersion(oma_dep, lib, .{
-        .source = b.path("src/simdKernels.zig"),
-    });
-
-    const lib_install = b.addInstallArtifact(lib, .{});
-    lib_step.dependOn(&lib_install.step);
-    b.default_step.dependOn(lib_step);
-
-    // Documentation
-    const doc_step = b.step("doc", "Emit documentation");
-
-    const doc_install = b.addInstallDirectory(.{
-        .install_dir = .prefix,
-        .install_subdir = "doc",
-        .source_dir = lib.getEmittedDocs(),
-    });
-    doc_step.dependOn(&doc_install.step);
-    b.default_step.dependOn(doc_step);
-
-    // Example suite
-    const examples_step = b.step("example", "Run example suite");
-    const examples_build_step = b.step("build-examples", "Compile examples without running them");
-
-    inline for (EXAMPLE_NAMES) |EXAMPLE_NAME| {
-        const example = b.addExecutable(.{
-            .name = EXAMPLE_NAME,
-            .root_module = b.createModule(.{
-                .target = target,
-                .root_source_file = b.path("examples/" ++ EXAMPLE_NAME ++ ".zig"),
-                .optimize = optimize,
-            }),
-        });
-        example.root_module.addImport("astroz", astroz_mod);
-
-        const example_run = b.addRunArtifact(example);
-        examples_step.dependOn(&example_run.step);
-        examples_build_step.dependOn(&example.step);
-    }
-
-    // Test suite
-    const tests_step = b.step("test", "Run test suite");
-
-    const tests = b.addTest(.{
-        .root_module = astroz_mod,
-    });
-
-    tests.root_module.addImport("zignal", zignal_dependency.module("zignal"));
-    tests.root_module.addImport("cfitsio", cfitsio_dep.module("cfitsio"));
-
-    const tests_run = b.addRunArtifact(tests);
-    tests_step.dependOn(&tests_run.step);
-    // b.default_step.dependOn(tests_step);
-
-    // C API shared library (for Python/FFI bindings)
-    const c_api_step = b.step("c-api", "Build C API shared library");
-
-    const c_api_mod = b.createModule(.{
-        .target = target,
-        .optimize = optimize,
-        .root_source_file = b.path("src/c_api/root.zig"),
-    });
-    c_api_mod.addImport("astroz", astroz_mod);
-
-    const c_api_lib = b.addLibrary(.{
-        .linkage = .dynamic,
-        .name = "astroz_c",
-        .root_module = c_api_mod,
-        .use_llvm = use_llvm,
-    });
-
-    const c_api_install = b.addInstallArtifact(c_api_lib, .{});
-    c_api_step.dependOn(&c_api_install.step);
-
-    // Python bindings
-    const python_step = b.step("python-bindings", "Build Python native bindings");
-
-    // Create a minimal astroz module for Python bindings (no cfitsio dependency)
-    const astroz_python_mod = b.addModule("astroz_python", .{
-        .target = target,
-        .optimize = optimize,
-        .root_source_file = b.path("src/lib.zig"),
-    });
-    astroz_python_mod.addImport("zignal", zignal_dependency.module("zignal"));
-    astroz_python_mod.addImport("oma", oma_dep.module("oma"));
-    astroz_python_mod.addOptions("build_options", build_options);
-
-    const python_mod = b.createModule(.{
-        .target = target,
-        .optimize = optimize,
-        .root_source_file = b.path("bindings/python/src/main.zig"),
-    });
-    python_mod.addImport("astroz", astroz_python_mod);
-
-    // Python configuration for bindings
-    // Override with: -Dpython-include=/path -Dpython-lib=python3.X -Dpython-lib-path=/path
-    // Example for uv-managed Python 3.12:
-    //   zig build python-bindings \
-    //     -Dpython-include=$(python3.12 -c "import sysconfig; print(sysconfig.get_path('include'))") \
-    //     -Dpython-lib=python3.12 \
-    //     -Dpython-lib-path=$(python3.12 -c "import sysconfig; print(sysconfig.get_config_var('LIBDIR'))")
-    const python_include = b.option([]const u8, "python-include", "Python include path (run: python -c \"import sysconfig; print(sysconfig.get_path('include'))\")");
-    const python_lib_name = b.option([]const u8, "python-lib", "Python library name (e.g., python3.12)");
-    const python_lib_path = b.option([]const u8, "python-lib-path", "Python library search path");
-
-    if (python_include) |inc| {
-        python_mod.addIncludePath(.{ .cwd_relative = inc });
-    } else {
-        // Try common system locations
-        python_mod.addIncludePath(.{ .cwd_relative = "/usr/include/python3.12" });
-        python_mod.addIncludePath(.{ .cwd_relative = "/usr/include/python3" });
-    }
-
-    const is_macos = target.result.os.tag == .macos;
-
-    // On macOS, don't link against Python library - symbols resolve at load time
-    // when the extension is loaded by the Python interpreter. This is the standard
-    // approach used by all major Python extension build systems.
-    if (!is_macos) {
-        if (python_lib_path) |path| {
-            python_mod.addLibraryPath(.{ .cwd_relative = path });
-        }
-        python_mod.linkSystemLibrary(python_lib_name orelse "python3.12", .{});
-    }
-
-    python_mod.link_libc = true;
-
-    const python_lib = b.addLibrary(.{
-        .linkage = .dynamic,
-        .name = "_astroz",
-        .root_module = python_mod,
-        .use_llvm = use_llvm,
-    });
-
-    oma.addMultiVersion(oma_dep, python_lib, .{
-        .source = b.path("src/simdKernels.zig"),
-    });
-
-    // On macOS, allow undefined symbols - they resolve when loaded by Python
-    if (is_macos) {
-        python_lib.linker_allow_shlib_undefined = true;
-    }
-
-    const python_install = b.addInstallArtifact(python_lib, .{
-        .dest_dir = .{ .override = .{ .custom = "bindings/python/astroz" } },
-    });
-    python_step.dependOn(&python_install.step);
-
-    // Benchmark
-    const bench_step = b.step("bench", "Run SGP4 benchmark");
-
-    const bench = b.addExecutable(.{
-        .name = "sgp4_bench",
-        .root_module = b.createModule(.{
-            .target = target,
-            .root_source_file = b.path("benchmarks/zig_sgp4_bench.zig"),
-            .optimize = .ReleaseFast,
-        }),
-    });
-    bench.root_module.addImport("astroz", astroz_mod);
-
-    const bench_run = b.addRunArtifact(bench);
-    bench_step.dependOn(&bench_run.step);
-
-    // Formatting checks
-    const fmt_step = b.step("fmt", "Run formatting checks");
-
-    const fmt = b.addFmt(.{
-        .paths = &.{
-            "src/",
-            "examples/",
-            "build.zig",
-        },
-        .check = true,
-    });
-    fmt_step.dependOn(&fmt.step);
-    b.default_step.dependOn(fmt_step);
-
-    // Fetch standard NAIF SPICE kernels
-    const fetch_step = b.step("fetch-kernels", "Download standard NAIF SPICE kernels to data/kernels/");
-
-    const curl_check = b.addSystemCommand(&.{
-        "sh", "-c", "command -v curl >/dev/null 2>&1 || { echo 'error: curl is required to download SPICE kernels.' >&2; echo '  Install it with your package manager (e.g. apt install curl, pacman -S curl, brew install curl).' >&2; exit 1; }",
-    });
-
-    const mkdir = b.addSystemCommand(&.{ "mkdir", "-p", "data/kernels" });
-    mkdir.step.dependOn(&curl_check.step);
-
-    const naif_base = "https://naif.jpl.nasa.gov/pub/naif/generic_kernels/";
-    const kernels = .{
-        .{ "lsk/naif0012.tls", "naif0012.tls" },
-        .{ "spk/planets/de440s.bsp", "de440s.bsp" },
-        .{ "pck/pck00011.tpc", "pck00011.tpc" },
-        .{ "pck/gm_de440.tpc", "gm_de440.tpc" },
-    };
-
-    inline for (kernels) |kernel| {
-        const fetch = b.addSystemCommand(&.{
-            "curl", "-f", "-s", "-S", "-z", "data/kernels/" ++ kernel[1], "-o", "data/kernels/" ++ kernel[1], naif_base ++ kernel[0],
-        });
-        fetch.step.dependOn(&mkdir.step);
-        fetch_step.dependOn(&fetch.step);
-    }
-}
-
-const EXAMPLE_NAMES = &.{
+const examples = [_][]const u8{
     "maneuver_planning",
     "constellation_phasing",
     "create_ccsds_packet_config",
@@ -297,3 +20,229 @@ const EXAMPLE_NAMES = &.{
     "transfer_propagation",
     "wcs",
 };
+
+const Kernel = struct { remote: []const u8, local: []const u8 };
+
+const naif_base_url = "https://naif.jpl.nasa.gov/pub/naif/generic_kernels/";
+const kernel_dir = "data/kernels";
+const kernels = [_]Kernel{
+    .{ .remote = "lsk/naif0012.tls", .local = "naif0012.tls" },
+    .{ .remote = "spk/planets/de440s.bsp", .local = "de440s.bsp" },
+    .{ .remote = "pck/pck00011.tpc", .local = "pck00011.tpc" },
+    .{ .remote = "pck/gm_de440.tpc", .local = "gm_de440.tpc" },
+};
+
+const cspice_include_fallbacks = [_][]const u8{
+    "/usr/include",
+    "/usr/local/include",
+    "/usr/local/include/cspice",
+    "/opt/cspice/include",
+};
+
+pub fn build(b: *std.Build) void {
+    const target = b.standardTargetOptions(.{});
+    const optimize = b.standardOptimizeOption(.{});
+
+    const use_llvm = b.option(bool, "use-llvm", "Compile with the LLVM backend");
+    const enable_cspice = b.option(bool, "enable-cspice", "Link against NAIF CSPICE") orelse false;
+    const cspice_include = b.option([]const u8, "cspice-include", "Directory containing the CSPICE headers");
+    const cspice_lib = b.option([]const u8, "cspice-lib", "Path to the CSPICE static archive (cspice.a)");
+    const python_include = b.option([]const u8, "python-include", "Directory containing Python.h");
+    const python_lib = b.option([]const u8, "python-lib", "Python library to link (default: python3.12)") orelse "python3.12";
+    const python_lib_path = b.option([]const u8, "python-lib-path", "Directory containing the Python library");
+
+    const build_options = b.addOptions();
+    build_options.addOption(bool, "enable_cspice", enable_cspice);
+    const build_options_mod = build_options.createModule();
+
+    const zignal_mod = b.dependency("zignal", .{ .target = target, .optimize = optimize }).module("zignal");
+    const cfitsio_mod = b.dependency("cfitsio", .{ .target = target, .optimize = optimize }).module("cfitsio");
+    const oma_dep = b.dependency("oma", .{});
+    const oma_mod = oma_dep.module("oma");
+    const kernels_src = b.path("src/simdKernels.zig");
+
+    // Core library module
+    const astroz = b.addModule("astroz", .{
+        .root_source_file = b.path("src/lib.zig"),
+        .target = target,
+        .optimize = optimize,
+        .imports = &.{
+            .{ .name = "zignal", .module = zignal_mod },
+            .{ .name = "cfitsio", .module = cfitsio_mod },
+            .{ .name = "oma", .module = oma_mod },
+            .{ .name = "build_options", .module = build_options_mod },
+        },
+    });
+
+    if (enable_cspice) {
+        if (cspice_include) |dir| {
+            astroz.addIncludePath(.{ .cwd_relative = dir });
+        } else for (cspice_include_fallbacks) |dir| {
+            astroz.addIncludePath(.{ .cwd_relative = dir });
+        }
+        astroz.addObjectFile(.{ .cwd_relative = cspice_lib orelse "/usr/lib/cspice.a" });
+        astroz.link_libc = true;
+    }
+
+    // Static library
+    const lib = b.addLibrary(.{
+        .name = "astroz",
+        .root_module = astroz,
+        .use_llvm = use_llvm,
+    });
+    oma.addMultiVersion(oma_dep, lib, .{ .source = kernels_src });
+    const lib_step = b.step("lib", "Build the astroz static library");
+    lib_step.dependOn(&b.addInstallArtifact(lib, .{}).step);
+
+    // Documentation
+    const docs = b.addInstallDirectory(.{
+        .source_dir = lib.getEmittedDocs(),
+        .install_dir = .prefix,
+        .install_subdir = "doc",
+    });
+    const doc_step = b.step("doc", "Generate API documentation into zig-out/doc");
+    doc_step.dependOn(&docs.step);
+
+    // Examples
+    const example_step = b.step("example", "Build and run every example");
+    const build_examples_step = b.step("build-examples", "Compile every example without running it");
+    for (examples) |name| {
+        const exe = b.addExecutable(.{
+            .name = name,
+            .root_module = b.createModule(.{
+                .root_source_file = b.path(b.fmt("examples/{s}.zig", .{name})),
+                .target = target,
+                .optimize = optimize,
+                .imports = &.{.{ .name = "astroz", .module = astroz }},
+            }),
+        });
+        build_examples_step.dependOn(&exe.step);
+        example_step.dependOn(&b.addRunArtifact(exe).step);
+    }
+
+    // Tests
+    const tests = b.addTest(.{ .root_module = astroz });
+    const test_step = b.step("test", "Run the unit tests");
+    test_step.dependOn(&b.addRunArtifact(tests).step);
+
+    // C API
+    const c_api = b.addLibrary(.{
+        .linkage = .dynamic,
+        .name = "astroz_c",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/c_api/root.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{.{ .name = "astroz", .module = astroz }},
+        }),
+        .use_llvm = use_llvm,
+    });
+    const c_api_step = b.step("c-api", "Build the astroz C shared library");
+    c_api_step.dependOn(&b.addInstallArtifact(c_api, .{}).step);
+
+    // Python extension. The module used here leaves out cfitsio.
+    //
+    // Example with a uv-managed interpreter:
+    //   zig build python-bindings -Doptimize=ReleaseFast \
+    //     -Dpython-include=$(uv run python -c "import sysconfig; print(sysconfig.get_path('include'))") \
+    //     -Dpython-lib-path=$(uv run python -c "import sysconfig; print(sysconfig.get_config_var('LIBDIR'))") \
+    //     -Dpython-lib=python3.12
+    const astroz_python = b.addModule("astroz_python", .{
+        .root_source_file = b.path("src/lib.zig"),
+        .target = target,
+        .optimize = optimize,
+        .imports = &.{
+            .{ .name = "zignal", .module = zignal_mod },
+            .{ .name = "oma", .module = oma_mod },
+            .{ .name = "build_options", .module = build_options_mod },
+        },
+    });
+    const py_mod = b.createModule(.{
+        .root_source_file = b.path("bindings/python/src/main.zig"),
+        .target = target,
+        .optimize = optimize,
+        .link_libc = true,
+        .imports = &.{.{ .name = "astroz", .module = astroz_python }},
+    });
+    if (python_include) |dir| {
+        py_mod.addIncludePath(.{ .cwd_relative = dir });
+    } else {
+        py_mod.addIncludePath(.{ .cwd_relative = "/usr/include/python3.12" });
+        py_mod.addIncludePath(.{ .cwd_relative = "/usr/include/python3" });
+    }
+    const is_macos = target.result.os.tag == .macos;
+    if (!is_macos) {
+        if (python_lib_path) |dir| py_mod.addLibraryPath(.{ .cwd_relative = dir });
+        py_mod.linkSystemLibrary(python_lib, .{});
+    }
+    const py_lib = b.addLibrary(.{
+        .linkage = .dynamic,
+        .name = "_astroz",
+        .root_module = py_mod,
+        .use_llvm = use_llvm,
+    });
+    // On macOS the interpreter provides the Python symbols at load time.
+    if (is_macos) py_lib.linker_allow_shlib_undefined = true;
+    oma.addMultiVersion(oma_dep, py_lib, .{ .source = kernels_src, .pic = true });
+    const py_step = b.step("python-bindings", "Build the Python extension module");
+    py_step.dependOn(&b.addInstallArtifact(py_lib, .{
+        .dest_dir = .{ .override = .{ .custom = "bindings/python/astroz" } },
+    }).step);
+
+    // Benchmark
+    const bench = b.addExecutable(.{
+        .name = "sgp4_bench",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("benchmarks/zig_sgp4_bench.zig"),
+            .target = target,
+            .optimize = .ReleaseFast,
+            .imports = &.{.{ .name = "astroz", .module = astroz }},
+        }),
+    });
+    const bench_step = b.step("bench", "Run the SGP4 benchmark (ReleaseFast)");
+    bench_step.dependOn(&b.addRunArtifact(bench).step);
+
+    // Formatting check
+    const fmt = b.addFmt(.{ .paths = &.{ "src", "examples", "build.zig" }, .check = true });
+    const fmt_step = b.step("fmt", "Check source formatting");
+    fmt_step.dependOn(&fmt.step);
+
+    // NAIF kernel download
+    const fetch_step = b.step("fetch-kernels", "Download NAIF generic kernels into " ++ kernel_dir);
+    const fetch = b.addSystemCommand(&.{ "sh", "-c", fetchKernelsScript() });
+    fetch.setCwd(b.path("."));
+    fetch_step.dependOn(&fetch.step);
+
+    b.getInstallStep().dependOn(lib_step);
+    b.getInstallStep().dependOn(doc_step);
+    b.getInstallStep().dependOn(fmt_step);
+}
+
+fn fetchKernelsScript() []const u8 {
+    comptime var script: []const u8 =
+        \\set -e
+        \\if ! command -v curl >/dev/null 2>&1; then
+        \\  echo "fetch-kernels: 'curl' was not found in PATH." >&2
+        \\  echo "Install it first, for example:" >&2
+        \\  echo "  Debian/Ubuntu: sudo apt install curl" >&2
+        \\  echo "  Fedora:        sudo dnf install curl" >&2
+        \\  echo "  Arch:          sudo pacman -S curl" >&2
+        \\  echo "  macOS:         brew install curl" >&2
+        \\  exit 1
+        \\fi
+        \\
+        \\get() {
+        \\  echo "fetching $2"
+        \\  if [ -f "$2" ]; then
+        \\    curl --fail --location --silent --show-error -z "$2" -o "$2" "$1"
+        \\  else
+        \\    curl --fail --location --silent --show-error -o "$2" "$1"
+        \\  fi
+        \\}
+        \\
+    ++ "mkdir -p " ++ kernel_dir ++ "\n";
+    inline for (kernels) |k| {
+        script = script ++ "get " ++ naif_base_url ++ k.remote ++ " " ++ kernel_dir ++ "/" ++ k.local ++ "\n";
+    }
+    return script;
+}
