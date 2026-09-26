@@ -640,6 +640,9 @@ class Satrec:
     ----------
     satnum : int
         NORAD catalog number.
+    satnum_str : str
+        Catalog number as written in a TLE: five digits, Alpha-5 (e.g. ``"T0449"``)
+        for 100000-339999, plain digits above that.
     epochyr : int
         Epoch year (2-digit).
     epochdays : float
@@ -664,6 +667,18 @@ class Satrec:
         B* drag term.
     ndot : float
         First derivative of mean motion (rad/min^2).
+    nddot : float
+        Second derivative of mean motion (rad/min^3).
+    intldesg : str
+        International designator as written in a TLE (e.g. ``"98067A"``).
+    classification : str
+        Classification (``"U"``, ``"C"`` or ``"S"``).
+    elnum : int
+        Element set number.
+    revnum : int
+        Revolution number at epoch.
+    ephtype : int
+        Ephemeris type.
     a : float
         Semi-major axis (Earth radii).
     alta : float
@@ -819,6 +834,10 @@ class Satrec:
         """NORAD catalog number."""
 
     @property
+    def satnum_str(self) -> str:
+        """Catalog number as written in a TLE (Alpha-5 above 99999)."""
+
+    @property
     def epochyr(self) -> int:
         """Epoch year (2-digit)."""
 
@@ -865,6 +884,30 @@ class Satrec:
     @property
     def ndot(self) -> float:
         """First derivative of mean motion (rad/min^2)."""
+
+    @property
+    def nddot(self) -> float:
+        """Second derivative of mean motion (rad/min^3)."""
+
+    @property
+    def intldesg(self) -> str:
+        """International designator as written in a TLE (e.g. ``"98067A"``)."""
+
+    @property
+    def classification(self) -> str:
+        """Classification (``"U"``, ``"C"`` or ``"S"``)."""
+
+    @property
+    def elnum(self) -> int:
+        """Element set number."""
+
+    @property
+    def revnum(self) -> int:
+        """Revolution number at epoch."""
+
+    @property
+    def ephtype(self) -> int:
+        """Ephemeris type."""
 
     @property
     def a(self) -> float:

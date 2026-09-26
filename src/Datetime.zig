@@ -158,6 +158,8 @@ pub fn doyToMonthDay(year: u16, doy: f64) struct { month: u8, day: u8 } {
         }
     }
 
+    // past Dec 31, keep counting December days (Dec 32, ...), as python-sgp4 does
+    if (month == 13) return .{ .month = 12, .day = @as(u8, @trunc(day)) + 31 };
     return .{
         .month = month,
         .day = @as(u8, @trunc(day)),
@@ -358,8 +360,9 @@ test "Test days2mdhms" {
 
     // last day of a month must not roll over to day 0 of the next
     const monthEnds = [_]struct { u16, f64, u8, u8 }{
-        .{ 2026, 31.5, 1, 31 },  .{ 2026, 32.0, 2, 1 },    .{ 2024, 60.5, 2, 29 },
-        .{ 2026, 243.5, 8, 31 }, .{ 2026, 365.5, 12, 31 },
+        .{ 2026, 31.5, 1, 31 },   .{ 2026, 32.0, 2, 1 },    .{ 2024, 60.5, 2, 29 },
+        .{ 2026, 243.5, 8, 31 },  .{ 2026, 365.5, 12, 31 }, .{ 2026, 366.5, 12, 32 },
+        .{ 2024, 367.5, 12, 32 },
     };
     for (monthEnds) |c| {
         const r = Datetime.days2mdhms(c[0], c[1]);

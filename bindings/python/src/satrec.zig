@@ -110,8 +110,8 @@ fn satrec_twoline2rv(cls: [*c]c.PyObject, args: [*c]c.PyObject, kwds: [*c]c.PyOb
     self.t = 0.0;
 
     // Parse TLE
-    const tle = Tle.parseLines(line1, line2, allocator) catch {
-        py.raiseValue("Failed to parse TLE lines");
+    const tle = Tle.parseLines(line1, line2, allocator) catch |err| {
+        py.raiseValue(if (err == error.CatalogNumberMismatch) "TLE lines 1 and 2 have different catalog numbers" else "Failed to parse TLE lines");
         py.decref(@as(*c.PyObject, @ptrCast(self)));
         return null;
     };
@@ -390,6 +390,39 @@ fn makeTleGetter(comptime getter: fn (*const Tle) [*c]c.PyObject) fn ([*c]c.PyOb
 fn getSatnum(tle: *const Tle) [*c]c.PyObject {
     return py.int(@intCast(tle.satelliteNumber));
 }
+fn getSatnumStr(tle: *const Tle) [*c]c.PyObject {
+    var buf: [10]u8 = undefined;
+    const text = Tle.satelliteNumberString(tle.satelliteNumber, &buf);
+    return c.PyUnicode_FromStringAndSize(text.ptr, @intCast(text.len));
+}
+fn getIntldesg(tle: *const Tle) [*c]c.PyObject {
+    // python-sgp4 writes it as in the TLE ("98067A"); Tle holds "98-067A" (TLE) or "1998-067A" (OMM),
+    // so keep the two year digits before the dash and everything after it
+    const d = tle.intlDesignator;
+    var buf: [16]u8 = undefined;
+    const dash = std.mem.indexOfScalar(u8, d, '-') orelse d.len;
+    const text = if (dash >= 2 and dash < d.len)
+        std.fmt.bufPrint(&buf, "{s}{s}", .{ d[dash - 2 .. dash], d[dash + 1 ..] }) catch d
+    else
+        d;
+    return c.PyUnicode_FromStringAndSize(text.ptr, @intCast(text.len));
+}
+fn getClassification(tle: *const Tle) [*c]c.PyObject {
+    return c.PyUnicode_FromStringAndSize(&tle.classification, 1);
+}
+fn getElnum(tle: *const Tle) [*c]c.PyObject {
+    return py.int(@intCast(tle.elemNumber));
+}
+fn getRevnum(tle: *const Tle) [*c]c.PyObject {
+    return py.int(@intCast(tle.revNum));
+}
+fn getEphtype(tle: *const Tle) [*c]c.PyObject {
+    return py.int(@intCast(tle.ephemType));
+}
+fn getNddot(tle: *const Tle) [*c]c.PyObject {
+    // rev/day^3 -> rad/min^3, keeping the TLE's divide-by-6
+    return py.float(tle.secondDerMeanMotion * constants.twoPi / (constants.minutesPerDay * constants.minutesPerDay * constants.minutesPerDay));
+}
 fn getEpochyr(tle: *const Tle) [*c]c.PyObject {
     return py.int(@intCast(tle.epochYear));
 }
@@ -471,6 +504,13 @@ fn getIsDeepSpace(self: *const SatrecObject) [*c]c.PyObject {
 const satrec_getset = [_]c.PyGetSetDef{
     // TLE-derived attributes
     .{ .name = "satnum", .get = @ptrCast(&makeTleGetter(getSatnum)), .set = null, .doc = "NORAD catalog number", .closure = null },
+    .{ .name = "satnum_str", .get = @ptrCast(&makeTleGetter(getSatnumStr)), .set = null, .doc = "Catalog number as written in a TLE (Alpha-5 above 99999)", .closure = null },
+    .{ .name = "intldesg", .get = @ptrCast(&makeTleGetter(getIntldesg)), .set = null, .doc = "International designator as written in a TLE (e.g. 98067A)", .closure = null },
+    .{ .name = "classification", .get = @ptrCast(&makeTleGetter(getClassification)), .set = null, .doc = "Classification (U, C or S)", .closure = null },
+    .{ .name = "elnum", .get = @ptrCast(&makeTleGetter(getElnum)), .set = null, .doc = "Element set number", .closure = null },
+    .{ .name = "revnum", .get = @ptrCast(&makeTleGetter(getRevnum)), .set = null, .doc = "Revolution number at epoch", .closure = null },
+    .{ .name = "ephtype", .get = @ptrCast(&makeTleGetter(getEphtype)), .set = null, .doc = "Ephemeris type", .closure = null },
+    .{ .name = "nddot", .get = @ptrCast(&makeTleGetter(getNddot)), .set = null, .doc = "Second derivative of mean motion (rad/min^3)", .closure = null },
     .{ .name = "epochyr", .get = @ptrCast(&makeTleGetter(getEpochyr)), .set = null, .doc = "Epoch year (2-digit)", .closure = null },
     .{ .name = "epochdays", .get = @ptrCast(&makeTleGetter(getEpochdays)), .set = null, .doc = "Epoch day of year (fractional)", .closure = null },
     .{ .name = "ecco", .get = @ptrCast(&makeTleGetter(getEcco)), .set = null, .doc = "Eccentricity", .closure = null },

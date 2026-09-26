@@ -20,6 +20,8 @@ epoch: f64,
 epochJd: f64,
 
 firstDerMeanMotion: f64,
+/// Second derivative of mean motion divided by 6, rev/day^3, as in the TLE
+secondDerMeanMotion: f64,
 bstarDrag: f64,
 ephemType: u8,
 elemNumber: u32,
@@ -76,9 +78,8 @@ pub fn parseLines(line1: []const u8, line2: []const u8, allocator: std.mem.Alloc
     };
     errdefer allocator.free(intlDesignator);
 
-    const mantissa = try std.fmt.parseFloat(f64, trimField(line1, 53, 59));
-    const exponent = try std.fmt.parseInt(i32, trimField(line1, 59, 61), 10);
-    const bstarDrag = (mantissa * 1e-5) * std.math.pow(f64, 10.0, @as(f64, @floatFromInt(exponent)));
+    const satelliteNumber = try parseSatelliteNumber(trimField(line1, 2, 7));
+    if (try parseSatelliteNumber(trimField(line2, 2, 7)) != satelliteNumber) return Error.CatalogNumberMismatch;
 
     const epochYear = try std.fmt.parseInt(u16, trimField(line1, 18, 20), 10);
     const epochDay = try std.fmt.parseFloat(f64, trimField(line1, 20, 32));
@@ -87,7 +88,7 @@ pub fn parseLines(line1: []const u8, line2: []const u8, allocator: std.mem.Alloc
     const eccentricity = try std.fmt.parseFloat(f64, trimField(line2, 26, 33)) / 1e7;
 
     return .{
-        .satelliteNumber = try parseSatelliteNumber(trimField(line1, 2, 7)),
+        .satelliteNumber = satelliteNumber,
         .classification = line1[7],
         .intlDesignator = intlDesignator,
         .epochYear = epochYear,
@@ -95,8 +96,9 @@ pub fn parseLines(line1: []const u8, line2: []const u8, allocator: std.mem.Alloc
         .epoch = j2000Seconds(epochJd),
         .epochJd = epochJd,
         .firstDerMeanMotion = try std.fmt.parseFloat(f64, trimField(line1, 33, 43)),
-        .bstarDrag = bstarDrag,
-        .ephemType = line1[62],
+        .secondDerMeanMotion = try parseImpliedExponent(line1, 44),
+        .bstarDrag = try parseImpliedExponent(line1, 53),
+        .ephemType = if (std.ascii.isDigit(line1[62])) line1[62] - '0' else 0,
         .elemNumber = try std.fmt.parseInt(u32, trimField(line1, 64, 68), 10),
         .inclination = try std.fmt.parseFloat(f64, trimField(line2, 8, 16)),
         .rightAscension = try std.fmt.parseFloat(f64, trimField(line2, 17, 25)),
@@ -209,6 +211,7 @@ fn ommRecordToTle(rec: OmmRecord, allocator: std.mem.Allocator) !Tle {
         .epoch = j2000Seconds(ep.jd),
         .epochJd = ep.jd,
         .firstDerMeanMotion = rec.MEAN_MOTION_DOT orelse 0,
+        .secondDerMeanMotion = rec.MEAN_MOTION_DDOT orelse 0,
         .bstarDrag = rec.BSTAR,
         .ephemType = rec.EPHEMERIS_TYPE orelse 0,
         .elemNumber = rec.ELEMENT_SET_NO orelse 0,
@@ -225,19 +228,38 @@ fn ommRecordToTle(rec: OmmRecord, allocator: std.mem.Allocator) !Tle {
 
 const ParsedEpoch = struct { year: u16, doy: f64, jd: f64 };
 
+/// Parses a UTC epoch as CCSDS OMM writes it: a calendar date ("2026-09-20") or a
+/// day-of-year date ("2026-263"), then 'T' (or a space) and hh:mm:ss with optional
+/// fractional seconds, optionally ending in "Z" or a zero UTC offset such as "+00:00".
 fn parseIso8601Epoch(epoch: []const u8) !ParsedEpoch {
-    if (epoch.len < 19) return Error.BadTleLength;
+    const split = std.mem.indexOfAny(u8, epoch, "T ") orelse return Error.BadEpoch;
+    const date = epoch[0..split];
+    var time = epoch[split + 1 ..];
+    if (std.mem.endsWith(u8, time, "Z")) {
+        time = time[0 .. time.len - 1];
+    } else if (std.mem.lastIndexOfAny(u8, time, "+-")) |sign| {
+        const offset = time[sign + 1 ..];
+        if (offset.len == 0 or std.mem.trim(u8, offset, "0:").len != 0) return Error.UnsupportedUtcOffset;
+        time = time[0..sign];
+    }
+    if (date.len < 8 or date[4] != '-' or time.len < 8 or time[2] != ':' or time[5] != ':') return Error.BadEpoch;
 
-    const year = try std.fmt.parseInt(u16, epoch[0..4], 10);
-    const month = try std.fmt.parseInt(u8, epoch[5..7], 10);
-    const day = try std.fmt.parseInt(u8, epoch[8..10], 10);
-    const hour = try std.fmt.parseInt(u8, epoch[11..13], 10);
-    const min = try std.fmt.parseInt(u8, epoch[14..16], 10);
+    const year = try std.fmt.parseInt(u16, date[0..4], 10);
+    const dayOfYear: u16 = switch (date.len) {
+        8 => try std.fmt.parseInt(u16, date[5..8], 10),
+        10 => blk: {
+            if (date[7] != '-') return Error.BadEpoch;
+            const month = try std.fmt.parseInt(u8, date[5..7], 10);
+            const day = try std.fmt.parseInt(u8, date[8..10], 10);
+            break :blk DateTime.initDate(year, month, day).doy.?;
+        },
+        else => return Error.BadEpoch,
+    };
+    const hour = try std.fmt.parseInt(u8, time[0..2], 10);
+    const min = try std.fmt.parseInt(u8, time[3..5], 10);
+    const sec = try std.fmt.parseFloat(f64, time[6..]);
 
-    const secEnd = if (epoch[epoch.len - 1] == 'Z') epoch.len - 1 else epoch.len;
-    const sec = try std.fmt.parseFloat(f64, epoch[17..secEnd]);
-
-    const wholeDoy: f64 = @floatFromInt(DateTime.initDate(year, month, day).doy.?);
+    const wholeDoy: f64 = @floatFromInt(dayOfYear);
     const doy = wholeDoy +
         (@as(f64, @floatFromInt(hour)) +
             (@as(f64, @floatFromInt(min)) + sec / 60.0) / 60.0) / 24.0;
@@ -269,15 +291,26 @@ pub fn output(self: Tle) void {
     std.debug.print("rev_num: {d}\n", .{self.revNum});
 }
 
-pub const Error = error{BadTleLength};
+pub const Error = error{ BadTleLength, BadEpoch, UnsupportedUtcOffset, CatalogNumberMismatch };
 
 fn trimField(line: []const u8, start: usize, end: usize) []const u8 {
     return std.mem.trim(u8, line[start..end], " ");
 }
 
+/// TLE fields like " 12345-6" (B* and the mean motion second derivative): a signed
+/// mantissa with an implied leading decimal point, then a signed power of ten.
+fn parseImpliedExponent(line: []const u8, start: usize) !f64 {
+    const mantissa = try std.fmt.parseFloat(f64, trimField(line, start, start + 6));
+    const exponent = try std.fmt.parseInt(i32, trimField(line, start + 6, start + 8), 10);
+    return mantissa * 1e-5 * std.math.pow(f64, 10.0, @floatFromInt(exponent));
+}
+
+// Alpha-5: the letter stands for the leading two digits, skipping I and O (A = 10, J = 18, Z = 33)
+const alpha5Letters = "ABCDEFGHJKLMNPQRSTUVWXYZ";
+
 fn parseSatelliteNumber(field: []const u8) !u32 {
     if (field.len == 5 and std.ascii.isUpper(field[0])) {
-        const letter = std.mem.indexOfScalar(u8, "ABCDEFGHJKLMNPQRSTUVWXYZ", field[0]) orelse
+        const letter = std.mem.indexOfScalar(u8, alpha5Letters, field[0]) orelse
             return error.InvalidCharacter;
         var n: u32 = @intCast(letter + 10);
         for (field[1..]) |c| {
@@ -287,6 +320,14 @@ fn parseSatelliteNumber(field: []const u8) !u32 {
         return n;
     }
     return std.fmt.parseInt(u32, field, 10);
+}
+
+/// The catalog number as a TLE writes it: five digits below 100000, Alpha-5 up to
+/// 339999 ("T0449"), and plain digits above that, which only OMM can carry.
+pub fn satelliteNumberString(number: u32, buf: *[10]u8) []const u8 {
+    if (number < 100_000) return std.fmt.bufPrint(buf, "{d:0>5}", .{number}) catch unreachable;
+    if (number <= 339_999) return std.fmt.bufPrint(buf, "{c}{d:0>4}", .{ alpha5Letters[number / 10_000 - 10], number % 10_000 }) catch unreachable;
+    return std.fmt.bufPrint(buf, "{d}", .{number}) catch unreachable;
 }
 
 fn j2000Seconds(jd: f64) f64 {
@@ -363,6 +404,16 @@ test "parseSatelliteNumber" {
     for ([_][]const u8{ "", "I0000", "O0000", "A000", "A+000" }) |bad| {
         try std.testing.expectError(error.InvalidCharacter, parseSatelliteNumber(bad));
     }
+
+    var buf: [10]u8 = undefined;
+    const written = [_]struct { u32, []const u8 }{
+        .{ 5, "00005" },      .{ 25544, "25544" },  .{ 100000, "A0000" },        .{ 180001, "J0001" },
+        .{ 270449, "T0449" }, .{ 339999, "Z9999" }, .{ 270000123, "270000123" },
+    };
+    for (written) |w| try std.testing.expectEqualStrings(w[1], satelliteNumberString(w[0], &buf));
+    // round-trip every Alpha-5 number
+    var n: u32 = 100_000;
+    while (n <= 339_999) : (n += 1) try std.testing.expectEqual(n, try parseSatelliteNumber(satelliteNumberString(n, &buf)));
 }
 
 test "epoch" {
@@ -379,6 +430,49 @@ test "epoch" {
         defer tle.deinit();
         try std.testing.expectApproxEqAbs(c[1], tle.epochJd, 1e-8);
         try std.testing.expectApproxEqAbs(c[2], tle.epoch, 1e-2);
+    }
+
+    // line 2 must describe the same object as line 1
+    const other = "2 99999  51.6400 208.5000 0007417  35.0000 325.0000 15.49000000400000";
+    try std.testing.expectError(Error.CatalogNumberMismatch, Tle.parseLines(cases[0][0], other, std.testing.allocator));
+}
+
+test "element set identity fields" {
+    const line1 = "1 25544U 98067A   24187.50000000  .00016717  12345-6  10270-3 0  9993";
+    const line2 = "2 25544  51.6400 208.5000 0007417  35.0000 325.0000 15.49000000400000";
+    var tle = try Tle.parseLines(line1, line2, std.testing.allocator);
+    defer tle.deinit();
+    try std.testing.expectEqual('U', tle.classification);
+    try std.testing.expectEqualStrings("98-067A", tle.intlDesignator);
+    try std.testing.expectEqual(999, tle.elemNumber);
+    try std.testing.expectEqual(40000, tle.revNum);
+    try std.testing.expectApproxEqAbs(1.2345e-7, tle.secondDerMeanMotion, 1e-20);
+    try std.testing.expectApproxEqAbs(1.027e-4, tle.bstarDrag, 1e-15);
+
+    // the same ephemeris type whether it came from a TLE or OMM
+    var omm = try Tle.parseOmm(
+        \\{"EPOCH":"2024-07-05T12:00:00","MEAN_MOTION":15.49,"ECCENTRICITY":0.0007417,"INCLINATION":51.64,"RA_OF_ASC_NODE":208.5,"ARG_OF_PERICENTER":35.0,"MEAN_ANOMALY":325.0,"NORAD_CAT_ID":25544,"BSTAR":0.0001027,"EPHEMERIS_TYPE":0,"MEAN_MOTION_DDOT":1.2345e-7}
+    , std.testing.allocator);
+    defer omm.deinit();
+    try std.testing.expectEqual(tle.ephemType, omm.ephemType);
+    try std.testing.expectEqual(0, tle.ephemType);
+    try std.testing.expectEqual(tle.secondDerMeanMotion, omm.secondDerMeanMotion);
+}
+
+test "OMM epoch formats" {
+    const expected = (try parseIso8601Epoch("2026-09-20T12:42:37.5")).jd;
+    const same = [_][]const u8{
+        "2026-263T12:42:37.5", // CCSDS day-of-year form
+        "2026-09-20 12:42:37.5",
+        "2026-09-20T12:42:37.5Z",
+        "2026-09-20T12:42:37.5+00:00",
+        "2026-263T12:42:37.500-0000",
+    };
+    for (same) |e| try std.testing.expectEqual(expected, (try parseIso8601Epoch(e)).jd);
+
+    try std.testing.expectError(Error.UnsupportedUtcOffset, parseIso8601Epoch("2026-09-20T12:42:37+02:00"));
+    for ([_][]const u8{ "2026-09-20", "2026/09/20T12:42:37", "26-263T12:42:37", "2026-9-20T12:42:37" }) |e| {
+        try std.testing.expectError(Error.BadEpoch, parseIso8601Epoch(e));
     }
 }
 
