@@ -95,6 +95,7 @@ pub fn build(b: *std.Build) void {
 
     // Example suite
     const examples_step = b.step("example", "Run example suite");
+    const examples_build_step = b.step("build-examples", "Compile examples without running them");
 
     inline for (EXAMPLE_NAMES) |EXAMPLE_NAME| {
         const example = b.addExecutable(.{
@@ -109,6 +110,7 @@ pub fn build(b: *std.Build) void {
 
         const example_run = b.addRunArtifact(example);
         examples_step.dependOn(&example_run.step);
+        examples_build_step.dependOn(&example.step);
     }
 
     // Test suite
@@ -241,6 +243,7 @@ pub fn build(b: *std.Build) void {
     const fmt = b.addFmt(.{
         .paths = &.{
             "src/",
+            "examples/",
             "build.zig",
         },
         .check = true,

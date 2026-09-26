@@ -10,10 +10,8 @@ const astroz = @import("astroz");
 const constants = astroz.constants;
 const propagators = astroz.propagators;
 
-pub fn main() !void {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    defer _ = gpa.deinit();
-    const allocator = gpa.allocator();
+pub fn main(init: std.process.Init) !void {
+    const allocator = init.gpa;
 
     const mu = constants.earth.mu;
     const rEarth = constants.wgs84.radiusEarthKm;

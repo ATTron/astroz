@@ -3,11 +3,9 @@ const astroz = @import("astroz");
 const Ccsds = astroz.Ccsds;
 const Parser = astroz.Parser;
 
-pub fn main() !void {
-    var dbga = std.heap.DebugAllocator(.{}).init;
-    defer _ = dbga.deinit();
-    const allocator = dbga.allocator();
-    const io = std.Io.Threaded.global_single_threaded.ioBasic();
+pub fn main(init: std.process.Init) !void {
+    const allocator = init.gpa;
+    const io = init.io;
 
     const fileName = "./test/ccsds.bin".*;
 

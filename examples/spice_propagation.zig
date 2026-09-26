@@ -4,10 +4,8 @@ const Spice = astroz.Spice;
 const constants = astroz.constants;
 const propagators = astroz.propagators;
 
-pub fn main() !void {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    defer _ = gpa.deinit();
-    const allocator = gpa.allocator();
+pub fn main(init: std.process.Init) !void {
+    const allocator = init.gpa;
 
     // Load SPICE kernels (graceful fallback to fixed positions)
     const spice_enabled = if (Spice.loadDefaultKernels()) true else |err| blk: {
