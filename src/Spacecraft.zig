@@ -175,7 +175,7 @@ pub fn propagate(self: *Spacecraft, t0: f64, days: f64, h: f64, impulseList: ?[]
     const duration = days * constants.secondsPerDay;
     var prevTime: f64 = 0;
     for (impulses) |impulse| {
-        if (impulse.time < 0 or impulse.time > duration) return error.ImpulseOutOfRange;
+        if (std.math.isNan(impulse.time) or impulse.time < 0 or impulse.time > duration) return error.ImpulseOutOfRange;
         if (impulse.time < prevTime) return error.ImpulsesNotSorted;
         prevTime = impulse.time;
     }
@@ -403,6 +403,7 @@ test "propagate" {
     const quarterTurn = Impulse.Maneuver{ .phase = .{ .angle = std.math.pi / 2.0 } };
     const cases = [_]struct { anyerror, []const Impulse }{
         .{ error.ImpulseOutOfRange, &.{.{ .time = -1, .maneuver = burn }} },
+        .{ error.ImpulseOutOfRange, &.{.{ .time = std.math.nan(f64), .maneuver = burn }} },
         .{ error.ImpulseOutOfRange, &.{.{ .time = 7 * hour, .maneuver = burn }} },
         .{ error.ImpulsesNotSorted, &.{ .{ .time = 2 * hour, .maneuver = burn }, .{ .time = hour, .maneuver = burn } } },
         // transfer orbit (~1.5 h) would run past the end of the 6 h run
