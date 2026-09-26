@@ -415,7 +415,7 @@ test "propagate" {
     }
 }
 
-test "attitude propagation stays finite" {
+test "attitude propagation stays a unit quaternion" {
     var tle = try Tle.parse(testTle, std.testing.allocator);
     defer tle.deinit();
     const orbitalPeriod = 90 * 60.0;
@@ -434,7 +434,7 @@ test "attitude propagation stays finite" {
             sc.bodyVectors[1] = .{ 0, 1, 0 };
             sc.updateAttitude();
             sc.propagateAttitude(dt);
-            try expectFiniteQuaternion(sc.quaternion);
+            try expectUnitQuaternion(sc.quaternion);
         }
     }
 
@@ -451,11 +451,12 @@ test "attitude propagation stays finite" {
             sc.angularVelocity[2] += 0.0002 * @sin(2 * std.math.pi * t / orbitalPeriod) * dt;
             sc.updateAttitude();
             sc.propagateAttitude(dt);
-            try expectFiniteQuaternion(sc.quaternion);
+            try expectUnitQuaternion(sc.quaternion);
         }
     }
 }
 
-fn expectFiniteQuaternion(q: [4]f64) !void {
-    for (q) |c| try std.testing.expect(std.math.isFinite(c));
+fn expectUnitQuaternion(q: [4]f64) !void {
+    const norm = @sqrt(q[0] * q[0] + q[1] * q[1] + q[2] * q[2] + q[3] * q[3]);
+    try std.testing.expectApproxEqAbs(1.0, norm, 1e-9);
 }
