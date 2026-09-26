@@ -206,15 +206,18 @@ pub fn propagate(self: *Spacecraft, t0: f64, days: f64, h: f64, impulseList: ?[]
     while (t < tf) {
         // coast to any burn due within this step, then apply it
         while (next < impulses.len and t0 + impulses[next].time <= t + h) : (next += 1) {
-            const dt = t0 + impulses[next].time - t;
-            if (dt > 0) {
-                y = try integrator.step(y, t, dt, force);
-                t += dt;
+            const burnAt = t0 + impulses[next].time;
+            // only happens when a phase transfer carried us past this burn
+            if (burnAt < t) return error.ImpulseDuringTransfer;
+            if (burnAt > t) {
+                y = try integrator.step(y, t, burnAt - t, force);
+                t = burnAt;
                 try self.orbitPredictions.append(self.allocator, .{ .time = t, .state = y });
             }
-            y = try self.applyImpulse(y, impulses[next], &t, h, integrator, force);
+            y = try self.applyImpulse(y, impulses[next], &t, h, tf, integrator, force);
             try self.orbitPredictions.append(self.allocator, .{ .time = t, .state = y });
         }
+        if (t >= tf) break;
 
         // regular propagation step
         const stepSize = @min(h, tf - t);
@@ -232,7 +235,7 @@ pub fn propagate(self: *Spacecraft, t0: f64, days: f64, h: f64, impulseList: ?[]
     }
 }
 
-fn applyImpulse(self: *Spacecraft, state: [6]f64, impulse: Impulse, t: *f64, h: f64, integrator: propagators.Integrator, force: propagators.ForceModel) ![6]f64 {
+fn applyImpulse(self: *Spacecraft, state: [6]f64, impulse: Impulse, t: *f64, h: f64, tf: f64, integrator: propagators.Integrator, force: propagators.ForceModel) ![6]f64 {
     var y = state;
     switch (impulse.maneuver) {
         .absolute => |dv| {
@@ -251,9 +254,12 @@ fn applyImpulse(self: *Spacecraft, state: [6]f64, impulse: Impulse, t: *f64, h: 
             // Propagate through transfer orbit(s)
             const period = 2 * std.math.pi * @sqrt(std.math.pow(f64, r, 3) / self.orbitingObject.mu);
             const tEnd = t.* + period * phase.orbits;
-            while (t.* < tEnd) : (t.* += h) {
-                y = try integrator.step(y, t.*, h, force);
-                try self.orbitPredictions.append(self.allocator, .{ .time = t.* + h, .state = y });
+            if (tEnd > tf) return error.ImpulseOutOfRange;
+            while (t.* < tEnd) {
+                const step = @min(h, tEnd - t.*);
+                y = try integrator.step(y, t.*, step, force);
+                t.* += step;
+                try self.orbitPredictions.append(self.allocator, .{ .time = t.*, .state = y });
             }
             // Return burn to circularize
             y = calculations.impulse(y, .{ -dv[0], -dv[1], -dv[2] });
@@ -330,61 +336,27 @@ fn calculatePhaseChange(self: Spacecraft, radius: f64, phaseAngle: f64, transfer
     return vTransfer - vCircular;
 }
 
-test "init spacecraft" {
-    const raw_tle =
-        \\1 55909U 23035B   24187.51050877  .00023579  00000+0  16099-2 0  9998
-        \\2 55909  43.9978 311.8012 0011446 278.6226  81.3336 15.05761711 71371
-    ;
-    var test_tle = try Tle.parse(raw_tle, std.testing.allocator);
-    defer test_tle.deinit();
+const testTle =
+    \\1 55909U 23035B   24187.51050877  .00023579  00000+0  16099-2 0  9998
+    \\2 55909  43.9978 311.8012 0011446 278.6226  81.3336 15.05761711 71371
+;
 
-    var test_sc = Spacecraft.init(
-        "dummy_sc",
-        test_tle,
-        300.000,
-        SatelliteSize.Cube,
-        constants.earth,
-        std.testing.allocator,
-    );
-    defer test_sc.deinit();
-
-    try test_sc.propagate(
-        test_sc.tle.epoch,
-        3, // days to predict
-        1, // steps, i.e. predict every simulated second
-        null,
-    );
-
-    for (test_sc.orbitPredictions.items) |iter| {
-        const r = calculations.posMag(iter.state);
-
-        try std.testing.expect(r > test_sc.orbitingObject.eqRadius.?);
-    }
-
-    // write out to file for creating test mapping data
-    // const file = try std.fs.cwd().createFile("./test/orbit_data.csv", .{});
-    // defer file.close();
-    // const writer = file.writer();
-    //
-    // try writer.writeAll("time,x,y,z\n");
-    //
-    // for (test_sc.orbit_predictions.items) |item| {
-    //     try writer.print("{d},{d},{d},{d}\n", .{ item.time, item.state[0], item.state[1], item.state[2] });
-    // }
-    //
-    // std.debug.print("Orbit data written to orbit_data.csv\n", .{});
+fn testSpacecraft(tle: Tle) Spacecraft {
+    return Spacecraft.init("test_sc", tle, 300.0, SatelliteSize.Cube, constants.earth, std.testing.allocator);
 }
 
-test "prop spacecraft w/ maneuvers" {
-    const raw_tle =
-        \\1 55909U 23035B   24187.51050877  .00023579  00000+0  16099-2 0  9998
-        \\2 55909  43.9978 311.8012 0011446 278.6226  81.3336 15.05761711 71371
-    ;
-    var test_tle = try Tle.parse(raw_tle, std.testing.allocator);
-    defer test_tle.deinit();
-
-    const epoch = test_tle.epoch;
+test "propagate" {
+    var tle = try Tle.parse(testTle, std.testing.allocator);
+    defer tle.deinit();
+    const epoch = tle.epoch;
     const hour = 3600.0;
+    const days = 3;
+
+    var baseline = testSpacecraft(tle);
+    defer baseline.deinit();
+    try baseline.propagate(epoch, days, 1, null);
+    const base = baseline.orbitPredictions.items;
+
     const prograde = [_]Impulse{
         .{ .time = 48 * hour, .maneuver = .{ .prograde = 0.2 } },
         .{ .time = 49 * hour, .maneuver = .{ .prograde = 0.2 } },
@@ -398,21 +370,20 @@ test "prop spacecraft w/ maneuvers" {
         .{ .time = 11 * hour, .maneuver = .{ .planeChange = .{ .deltaInclination = std.math.pi / 18.0, .deltaRaan = std.math.pi / 36.0 } } },
     };
 
-    var baseline = Spacecraft.init("baseline_sc", test_tle, 300.000, SatelliteSize.Cube, constants.earth, std.testing.allocator);
-    defer baseline.deinit();
-    try baseline.propagate(epoch, 3, 1, null);
-    const base = baseline.orbitPredictions.items;
+    for ([_][]const Impulse{ &.{}, &prograde, &phase, &planeChange }) |impulses| {
+        var sc = testSpacecraft(tle);
+        defer sc.deinit();
+        try sc.propagate(epoch, days, 1, impulses);
+        const points = sc.orbitPredictions.items;
 
-    for ([_][]const Impulse{ &prograde, &phase, &planeChange }) |impulses| {
-        var test_sc = Spacecraft.init("dummy_sc", test_tle, 300.000, SatelliteSize.Cube, constants.earth, std.testing.allocator);
-        defer test_sc.deinit();
-
-        try test_sc.propagate(epoch, 3, 1, impulses);
-
-        const points = test_sc.orbitPredictions.items;
-        for (points) |p| {
-            try std.testing.expect(calculations.posMag(p.state) > test_sc.orbitingObject.eqRadius.?);
+        // stays above the surface, time never runs backwards, ends exactly at the end of the run
+        for (points[1..], points[0 .. points.len - 1]) |p, prev| {
+            try std.testing.expect(calculations.posMag(p.state) > sc.orbitingObject.eqRadius.?);
+            try std.testing.expect(p.time >= prev.time);
         }
+        try std.testing.expectEqual(epoch + days * constants.secondsPerDay, points[points.len - 1].time);
+
+        if (impulses.len == 0) continue;
 
         // matches the unperturbed orbit up to the first burn, then diverges
         var i: usize = 1;
@@ -427,142 +398,64 @@ test "prop spacecraft w/ maneuvers" {
     try baseline.propagate(epoch, 1.0 / 24.0, 1, null);
     try std.testing.expect(baseline.orbitPredictions.items.len < base.len);
 
+    // rejected schedules
     const burn = Impulse.Maneuver{ .prograde = 0.1 };
-    try std.testing.expectError(error.ImpulseOutOfRange, baseline.propagate(epoch, 1, 1, &.{.{ .time = -1, .maneuver = burn }}));
-    try std.testing.expectError(error.ImpulseOutOfRange, baseline.propagate(epoch, 1, 1, &.{.{ .time = 25 * hour, .maneuver = burn }}));
-    try std.testing.expectError(error.ImpulsesNotSorted, baseline.propagate(epoch, 1, 1, &.{
-        .{ .time = 2 * hour, .maneuver = burn },
-        .{ .time = hour, .maneuver = burn },
-    }));
-}
-
-test "orientation determination testing" {
-    const raw_tle =
-        \\1 55909U 23035B   24187.51050877  .00023579  00000+0  16099-2 0  9998
-        \\2 55909  43.9978 311.8012 0011446 278.6226  81.3336 15.05761711 71371
-    ;
-    var test_tle = try Tle.parse(raw_tle, std.testing.allocator);
-    defer test_tle.deinit();
-    var spacecraft = Spacecraft.init(
-        "dummy_sc",
-        test_tle,
-        300.000,
-        SatelliteSize.Cube,
-        constants.earth,
-        std.testing.allocator,
-    );
-
-    spacecraft.angularVelocity = .{ 0.1, 0.05, 0.02 };
-
-    // const file = try std.fs.cwd().createFile("test/attitude_data.csv", .{});
-    // defer file.close();
-    // const writer = file.writer();
-    //
-    // try writer.writeAll("Time,qw,qx,qy,qz,wx,wy,wz\n");
-
-    const dt = 60.0; // 1 minute time step
-    const simulation_time = 3 * 24 * 60 * 60.0; // 3 days in seconds
-    const orbital_period = 90 * 60.0; // 90 minutes orbital period
-    var t: f64 = 0;
-    while (t < simulation_time) : (t += dt) {
-        const angle = 0.5 * @sin(2 * std.math.pi * t / orbital_period);
-
-        spacecraft.bodyVectors[0] = .{ @cos(angle), 0, @sin(angle) };
-        spacecraft.bodyVectors[1] = .{ 0, 1, 0 };
-
-        spacecraft.updateAttitude();
-        spacecraft.propagateAttitude(dt);
-
-        // Simulate simple circular orbit
-        const orbit_radius = 7000.0;
-        // const x = orbit_radius * @cos(2 * std.math.pi * t / orbital_period);
-        // const y = orbit_radius * @sin(2 * std.math.pi * t / orbital_period);
-        // const z = 0.0;
-
-        try std.testing.expect(orbit_radius > spacecraft.orbitingObject.mRadius.?);
-
-        // try writer.print("{d},{d},{d},{d},{d},{d},{d},{d},{d},{d},{d}\n", .{
-        //     t,
-        //     spacecraft.quaternion[0],
-        //     spacecraft.quaternion[1],
-        //     spacecraft.quaternion[2],
-        //     spacecraft.quaternion[3],
-        //     spacecraft.angular_velocity[0],
-        //     spacecraft.angular_velocity[1],
-        //     spacecraft.angular_velocity[2],
-        //     x,
-        //     y,
-        //     z,
-        // });
+    const quarterTurn = Impulse.Maneuver{ .phase = .{ .angle = std.math.pi / 2.0 } };
+    const cases = [_]struct { anyerror, []const Impulse }{
+        .{ error.ImpulseOutOfRange, &.{.{ .time = -1, .maneuver = burn }} },
+        .{ error.ImpulseOutOfRange, &.{.{ .time = 7 * hour, .maneuver = burn }} },
+        .{ error.ImpulsesNotSorted, &.{ .{ .time = 2 * hour, .maneuver = burn }, .{ .time = hour, .maneuver = burn } } },
+        // transfer orbit (~1.5 h) would run past the end of the 6 h run
+        .{ error.ImpulseOutOfRange, &.{.{ .time = 5.5 * hour, .maneuver = quarterTurn }} },
+        // second burn lands inside the first burn's transfer orbit
+        .{ error.ImpulseDuringTransfer, &.{ .{ .time = hour, .maneuver = quarterTurn }, .{ .time = 1.5 * hour, .maneuver = burn } } },
+    };
+    for (cases) |c| {
+        try std.testing.expectError(c[0], baseline.propagate(epoch, 0.25, 1, c[1]));
     }
 }
 
-test "orientation determination with dramatic changes" {
-    const raw_tle =
-        \\1 55909U 23035B   24187.51050877  .00023579  00000+0  16099-2 0  9998
-        \\2 55909  43.9978 311.8012 0011446 278.6226  81.3336 15.05761711 71371
-    ;
-    var test_tle = try Tle.parse(raw_tle, std.testing.allocator);
-    defer test_tle.deinit();
-    var spacecraft = Spacecraft.init(
-        "dummy_sc",
-        test_tle,
-        300.000,
-        SatelliteSize.Cube,
-        constants.earth,
-        std.testing.allocator,
-    );
-    defer spacecraft.deinit();
+test "attitude propagation stays finite" {
+    var tle = try Tle.parse(testTle, std.testing.allocator);
+    defer tle.deinit();
+    const orbitalPeriod = 90 * 60.0;
+    const threeDays = 3 * constants.secondsPerDay;
 
-    // Initial angular velocity
-    spacecraft.angularVelocity = .{ 0.0, 0.0, 0.0 };
-
-    // const file = try std.fs.cwd().createFile("test/dramatic_attitude_data.csv", .{});
-    // defer file.close();
-    // const writer = file.writer();
-
-    // try writer.writeAll("Time,qw,qx,qy,qz,wx,wy,wz,x,y,z\n");
-
-    const dt = 120.0; // 2 mins time step
-    const simulation_time = 3 * 24 * 60 * 60.0; // 3 days in seconds
-    const orbital_period = 90 * 60.0; // 90 minutes orbital period
-    var t: f64 = 0;
-
-    while (t < simulation_time) : (t += dt) {
-        // Simulate a dramatic torque effect
-        const torque_x = 0.001 * @sin(2 * std.math.pi * t / (orbital_period * 2));
-        const torque_y = 0.0005 * @cos(2 * std.math.pi * t / (orbital_period * 3));
-        const torque_z = 0.0002 * @sin(2 * std.math.pi * t / orbital_period);
-
-        // Update angular velocity based on torque (simplified)
-        spacecraft.angularVelocity[0] += torque_x * dt;
-        spacecraft.angularVelocity[1] += torque_y * dt;
-        spacecraft.angularVelocity[2] += torque_z * dt;
-
-        // Update attitude
-        spacecraft.updateAttitude();
-        spacecraft.propagateAttitude(dt);
-
-        // Simulate simple circular orbit
-        const orbit_radius = 7000.0;
-        // const x = orbit_radius * @cos(2 * std.math.pi * t / orbital_period);
-        // const y = orbit_radius * @sin(2 * std.math.pi * t / orbital_period);
-        // const z = 0.0;
-
-        try std.testing.expect(orbit_radius > spacecraft.orbitingObject.mRadius.?);
-
-        // try writer.print("{d},{d},{d},{d},{d},{d},{d},{d},{d},{d},{d}\n", .{
-        //     t,
-        //     spacecraft.quaternion[0],
-        //     spacecraft.quaternion[1],
-        //     spacecraft.quaternion[2],
-        //     spacecraft.quaternion[3],
-        //     spacecraft.angular_velocity[0],
-        //     spacecraft.angular_velocity[1],
-        //     spacecraft.angular_velocity[2],
-        //     x,
-        //     y,
-        //     z,
-        // });
+    // steady spin with a wobbling measured body vector
+    {
+        var sc = testSpacecraft(tle);
+        defer sc.deinit();
+        sc.angularVelocity = .{ 0.1, 0.05, 0.02 };
+        const dt = 60.0;
+        var t: f64 = 0;
+        while (t < threeDays) : (t += dt) {
+            const angle = 0.5 * @sin(2 * std.math.pi * t / orbitalPeriod);
+            sc.bodyVectors[0] = .{ @cos(angle), 0, @sin(angle) };
+            sc.bodyVectors[1] = .{ 0, 1, 0 };
+            sc.updateAttitude();
+            sc.propagateAttitude(dt);
+            try expectFiniteQuaternion(sc.quaternion);
+        }
     }
+
+    // spin-up under a varying torque
+    {
+        var sc = testSpacecraft(tle);
+        defer sc.deinit();
+        sc.angularVelocity = .{ 0, 0, 0 };
+        const dt = 120.0;
+        var t: f64 = 0;
+        while (t < threeDays) : (t += dt) {
+            sc.angularVelocity[0] += 0.001 * @sin(2 * std.math.pi * t / (orbitalPeriod * 2)) * dt;
+            sc.angularVelocity[1] += 0.0005 * @cos(2 * std.math.pi * t / (orbitalPeriod * 3)) * dt;
+            sc.angularVelocity[2] += 0.0002 * @sin(2 * std.math.pi * t / orbitalPeriod) * dt;
+            sc.updateAttitude();
+            sc.propagateAttitude(dt);
+            try expectFiniteQuaternion(sc.quaternion);
+        }
+    }
+}
+
+fn expectFiniteQuaternion(q: [4]f64) !void {
+    for (q) |c| try std.testing.expect(std.math.isFinite(c));
 }
