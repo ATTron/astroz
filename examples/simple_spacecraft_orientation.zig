@@ -4,10 +4,8 @@ const Tle = astroz.Tle;
 const constants = astroz.constants;
 const Spacecraft = astroz.Spacecraft;
 
-pub fn main() !void {
-    var dbga = std.heap.DebugAllocator(.{}).init;
-    defer _ = dbga.deinit();
-    const allocator = dbga.allocator();
+pub fn main(init: std.process.Init) !void {
+    const allocator = init.gpa;
 
     const rawTle =
         \\1 55909U 23035B   24187.51050877  .00023579  00000+0  16099-2 0  9998

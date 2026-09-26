@@ -251,15 +251,16 @@ geo = astroz.<span class="function">propagate</span>(
                 <pre><code><span class="keyword">const</span> astroz = <span class="function">@import</span>(<span class="string">"astroz"</span>);
 
 <span class="comment">// Parse TLE and create propagator</span>
-<span class="keyword">const</span> tle = <span class="keyword">try</span> astroz.Tle.<span class="function">parse</span>(tle_line1, tle_line2);
-<span class="keyword">var</span> sgp4 = <span class="keyword">try</span> astroz.Sgp4.<span class="function">init</span>(tle);
+<span class="keyword">var</span> tle = <span class="keyword">try</span> astroz.Tle.<span class="function">parse</span>(tle_text, allocator);
+<span class="keyword">defer</span> tle.<span class="function">deinit</span>();
+<span class="keyword">const</span> sgp4 = <span class="keyword">try</span> astroz.Sgp4.<span class="function">init</span>(tle, astroz.constants.wgs84);
 
 <span class="comment">// Propagate to 60 minutes after epoch</span>
-<span class="keyword">const</span> state = sgp4.<span class="function">propagate</span>(<span class="number">60.0</span>);
+<span class="keyword">const</span> state = <span class="keyword">try</span> sgp4.<span class="function">propagate</span>(<span class="number">60.0</span>);
 
 <span class="comment">// SIMD batch propagation</span>
-<span class="keyword">var</span> times: [<span class="number">8</span>]<span class="type">f64</span> = .{ <span class="number">0</span>, <span class="number">15</span>, <span class="number">30</span>, <span class="number">45</span>, <span class="number">60</span>, <span class="number">75</span>, <span class="number">90</span>, <span class="number">105</span> };
-<span class="keyword">const</span> results = sgp4.<span class="function">propagateN</span>(&times);</code></pre>
+<span class="keyword">const</span> times = [<span class="number">8</span>]<span class="type">f64</span>{ <span class="number">0</span>, <span class="number">15</span>, <span class="number">30</span>, <span class="number">45</span>, <span class="number">60</span>, <span class="number">75</span>, <span class="number">90</span>, <span class="number">105</span> };
+<span class="keyword">const</span> results = <span class="keyword">try</span> sgp4.<span class="function">propagateN</span>(<span class="number">8</span>, times);</code></pre>
             </div>
         </section>
 

@@ -7,10 +7,8 @@ const constants = astroz.constants;
 const Spacecraft = astroz.Spacecraft;
 const Impulse = Spacecraft.Impulse;
 
-pub fn main() !void {
-    var dbga = std.heap.DebugAllocator(.{}).init;
-    defer _ = dbga.deinit();
-    const allocator = dbga.allocator();
+pub fn main(init: std.process.Init) !void {
+    const allocator = init.gpa;
 
     const testTle =
         \\1 55909U 23035B   24187.51050877  .00023579  00000+0  16099-2 0  9998
@@ -39,7 +37,7 @@ pub fn main() !void {
     const impulses = [_]Impulse{
         // times are seconds after the start of propagation
         .{ .time = 3600.0, .maneuver = .{ .absolute = .{ 0.05, 0.03, 0.01 } } },
-        .{ .time = 7200.0, .maneuver = .{ .absolute = .{ 1.1, -0.05, 0.02 } } },
+        .{ .time = 7200.0, .maneuver = .{ .absolute = .{ 0.011, -0.05, 0.02 } } },
         .{ .time = 10800.0, .maneuver = .{ .absolute = .{ -0.03, 0.08, -0.01 } } },
     };
 

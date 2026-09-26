@@ -3,18 +3,16 @@ const astroz = @import("astroz");
 const MonteCarlo = astroz.MonteCarlo;
 const constants = astroz.constants;
 
-pub fn main() !void {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    defer _ = gpa.deinit();
-    const allocator = gpa.allocator();
+pub fn main(init: std.process.Init) !void {
+    const allocator = init.gpa;
 
     std.debug.print("=== Simple Monte Carlo Test ===\n", .{});
 
     // Basic uncertainty configuration
     const uncertainty = MonteCarlo.UncertaintyParams{
         .departureRadiusUncertainty = 0.01, // 1%
-        .arrivalRadiusUncertainty = 0.01,   // 1%
-        .muUncertainty = 0.001,              // 0.1%
+        .arrivalRadiusUncertainty = 0.01, // 1%
+        .muUncertainty = 0.001, // 0.1%
         .launchWindowDays = 1.0,
         .measurementNoise = 0.001,
     };

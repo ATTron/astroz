@@ -32,6 +32,10 @@ jobs:
         run: zig build test --summary all
         working-directory: ${{ github.workspace }}
 
+      - name: Build examples
+        run: zig build build-examples --summary all
+        working-directory: ${{ github.workspace }}
+
   fmt:
     runs-on: ubuntu-latest
 

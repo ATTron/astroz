@@ -6,10 +6,8 @@ const Satellite = astroz.Satellite;
 const constants = astroz.constants;
 const propagators = astroz.propagators;
 
-pub fn main() !void {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    defer _ = gpa.deinit();
-    const allocator = gpa.allocator();
+pub fn main(init: std.process.Init) !void {
+    const allocator = init.gpa;
 
     const tleStr =
         \\1 25544U 98067A   24001.50000000  .00016717  00000-0  10270-3 0  9025
