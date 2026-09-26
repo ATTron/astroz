@@ -16,7 +16,7 @@ month: ?u8,
 day: ?u8,
 hours: ?u8,
 minutes: ?u8,
-seconds: ?f16,
+seconds: ?f64,
 
 /// for dates only
 pub fn initDate(year: u16, month: u8, day: u8) Datetime {
@@ -36,7 +36,7 @@ pub fn initDate(year: u16, month: u8, day: u8) Datetime {
 }
 
 /// for times only
-pub fn initTime(hours: u8, minutes: u8, seconds: f16) Datetime {
+pub fn initTime(hours: u8, minutes: u8, seconds: f64) Datetime {
     return .{
         .instant = null,
         .doy = null,
@@ -51,7 +51,7 @@ pub fn initTime(hours: u8, minutes: u8, seconds: f16) Datetime {
 }
 
 /// if you have a full timestamp
-pub fn initDatetime(year: u16, month: u8, day: u8, hours: u8, minutes: u8, seconds: f16) Datetime {
+pub fn initDatetime(year: u16, month: u8, day: u8, hours: u8, minutes: u8, seconds: f64) Datetime {
     var dt = Datetime{
         .instant = null,
         .doy = null,
@@ -135,7 +135,7 @@ fn epochToDatetime(timestamp: i64) Datetime {
     const minutes = @as(u8, @intCast(@divFloor(remainingSeconds, std.time.s_per_min)));
     const seconds = @mod(remainingSeconds, std.time.s_per_min);
 
-    return Datetime.initDatetime(year, month, day, hours, minutes, @as(f16, @floatFromInt(seconds)));
+    return Datetime.initDatetime(year, month, day, hours, minutes, @floatFromInt(seconds));
 }
 
 fn isLeapYear(year: u16) bool {
@@ -196,23 +196,43 @@ pub fn toJulianDate(self: Datetime) f64 {
     if (self.hours != null) {
         const h: f64 = @floatFromInt(self.hours.?);
         const min: f64 = if (self.minutes) |mins| @floatFromInt(mins) else 0.0;
-        const sec: f64 = if (self.seconds) |secs| @floatCast(secs) else 0.0;
+        const sec: f64 = self.seconds orelse 0.0;
         jd += (h - 12.0) / constants.hoursPerDay + min / constants.minutesPerDay + sec / constants.secondsPerDay;
     }
 
     return jd;
 }
 
-/// initialize from year and fractional day-of-year (TLE epoch format)
+/// initialize from year and fractional day-of-year (TLE epoch format).
+/// Seconds are rounded to the microsecond, the same way python-sgp4's days2mdhms does.
 pub fn fromYearDoy(year: u16, doy: f64) Datetime {
-    const md = doyToMonthDay(year, doy);
-    const fractionalDay = doy - @floor(doy);
-    const totalSeconds = fractionalDay * constants.secondsPerDay;
-    const hours: u8 = @floor(totalSeconds / constants.secondsPerHour);
-    const minutes: u8 = @floor(@mod(totalSeconds, constants.secondsPerHour) / constants.secondsPerMinute);
-    const seconds: f16 = @floatCast(@mod(totalSeconds, constants.secondsPerMinute));
+    const totalSeconds = roundToMicrosecond(doy * constants.secondsPerDay);
+    const totalMinutes = @floor(totalSeconds / constants.secondsPerMinute);
+    const seconds = roundToMicrosecond(@mod(totalSeconds, constants.secondsPerMinute));
+    const minuteOfDay = @mod(totalMinutes, constants.minutesPerDay);
 
+    const md = doyToMonthDay(year, @floor(totalMinutes / constants.minutesPerDay));
+    const hours: u8 = @intFromFloat(@floor(minuteOfDay / 60.0));
+    const minutes: u8 = @intFromFloat(@mod(minuteOfDay, 60.0));
     return Datetime.initDatetime(year, md.month, md.day, hours, minutes, seconds);
+}
+
+/// Matches Python's round(x, 6): rounds the exact value of `seconds` (not the already
+/// rounded product seconds * 1e6) and breaks exact ties to even.
+fn roundToMicrosecond(seconds: f64) f64 {
+    const scaled = seconds * 1e6;
+    const productError = @mulAdd(f64, seconds, 1e6, -scaled);
+    var whole = @floor(scaled);
+    var frac = (scaled - whole) + productError;
+    if (frac < 0) {
+        whole -= 1;
+        frac += 1;
+    } else if (frac >= 1) {
+        whole += 1;
+        frac -= 1;
+    }
+    if (frac > 0.5 or (frac == 0.5 and @mod(whole, 2) == 1)) whole += 1;
+    return whole / 1e6;
 }
 
 /// Convert year and fractional day-of-year directly to Julian Date
@@ -228,13 +248,16 @@ pub fn yearDoyToJulianDate(year: u16, doy: f64) f64 {
     return jdJan1 + doy - 1.5; // -1.5 = -1 for DOY offset, -0.5 for noon→midnight
 }
 
-/// python-sgp4 compatible: calendar to (jd_int, fr) tuple
-/// Returns Julian date split into integer day (at noon) and fractional part
+/// python-sgp4 compatible: calendar date and time to a (jd, fr) pair.
+/// `jd` is the Julian date at midnight starting the day; `fr` is the fraction of the
+/// day, kept separate so it stays precise to well under a microsecond.
 pub fn jday(year: u16, month: u8, day: u8, hour: u8, minute: u8, second: f64) struct { jd: f64, fr: f64 } {
-    const dt = Datetime.initDatetime(year, month, day, hour, minute, @floatCast(second));
-    const full_jd = dt.toJulianDate();
-    const jd_int = @floor(full_jd - 0.5) + 0.5; // JD at noon
-    return .{ .jd = jd_int, .fr = full_jd - jd_int };
+    const h: f64 = @floatFromInt(hour);
+    const m: f64 = @floatFromInt(minute);
+    return .{
+        .jd = Datetime.initDate(year, month, day).convertToJ2000(),
+        .fr = (second + m * constants.secondsPerMinute + h * constants.secondsPerHour) / constants.secondsPerDay,
+    };
 }
 
 /// python-sgp4 compatible: fractional doy to (month, day, hour, minute, second)
@@ -246,7 +269,7 @@ pub fn days2mdhms(year: u16, days: f64) struct { month: u8, day: u8, hour: u8, m
         .day = dt.day.?,
         .hour = dt.hours.?,
         .minute = dt.minutes.?,
-        .second = @floatCast(dt.seconds.?),
+        .second = dt.seconds.?,
     };
 }
 
@@ -312,6 +335,18 @@ test "Test jday" {
     try std.testing.expectEqual(2458488.5, result.jd);
     // Fractional part should be about 0.186... (4:28:31.5 from noon)
     try std.testing.expectApproxEqAbs(0.18647569444444444, result.fr, 1e-9);
+
+    // values from python-sgp4 2.27's sgp4.api.jday
+    const cases = [_]struct { [6]f64, f64, f64 }{
+        .{ .{ 2026, 9, 1, 0, 3, 59.328 }, 2461284.5, 0.00277 },
+        .{ .{ 2020, 2, 11, 13, 57, 0 }, 2458890.5, 0.58125 },
+    };
+    for (cases) |c| {
+        const i = c[0];
+        const r = Datetime.jday(@intFromFloat(i[0]), @intFromFloat(i[1]), @intFromFloat(i[2]), @intFromFloat(i[3]), @intFromFloat(i[4]), i[5]);
+        try std.testing.expectEqual(c[1], r.jd);
+        try std.testing.expectApproxEqAbs(c[2], r.fr, 1e-15);
+    }
 }
 
 test "Test days2mdhms" {
@@ -333,5 +368,35 @@ test "Test days2mdhms" {
         const r = Datetime.days2mdhms(c[0], c[1]);
         try std.testing.expectEqual(c[2], r.month);
         try std.testing.expectEqual(c[3], r.day);
+    }
+
+    // values from python-sgp4 2.27's sgp4.api.days2mdhms
+    const exact = [_]struct { f64, u8, u8, f64 }{
+        .{ 244.00277, 0, 3, 59.328 },
+        .{ 244.999, 23, 58, 33.6 },
+        .{ 244.0 + (3 * 60 + 59.99) / 86400.0, 0, 3, 59.99 },
+    };
+    for (exact) |c| {
+        const r = Datetime.days2mdhms(2026, c[0]);
+        try std.testing.expectEqual(c[1], r.hour);
+        try std.testing.expectEqual(c[2], r.minute);
+        try std.testing.expectApproxEqAbs(c[3], r.second, 1e-9);
+    }
+
+    // cases where rounding seconds * 1e6 instead of the exact seconds lands a microsecond off
+    const halfMicro = [_]struct { f64, f64 }{
+        .{ 352.2400996782234, 44.612198 },
+        .{ 302.1565716923206, 27.794216 },
+        .{ 106.11012104495948, 34.458284 },
+    };
+    for (halfMicro) |c| try std.testing.expectEqual(c[1], Datetime.days2mdhms(2026, c[0]).second);
+
+    // every instant of a day comes back within a microsecond, with seconds below 60
+    for (0..100_000) |i| {
+        const secondOfDay = @as(f64, @floatFromInt(i)) * 0.864;
+        const r = Datetime.days2mdhms(2026, 244.0 + secondOfDay / 86400.0);
+        const got = @as(f64, @floatFromInt(r.hour)) * 3600 + @as(f64, @floatFromInt(r.minute)) * 60 + r.second;
+        try std.testing.expect(r.second < 60);
+        try std.testing.expectApproxEqAbs(secondOfDay, got, 1e-6);
     }
 }
