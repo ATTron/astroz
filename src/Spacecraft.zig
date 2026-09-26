@@ -21,7 +21,7 @@ pub const SatelliteParameters = struct {
 
 /// impulse maneuver types with clearer semantics
 pub const Impulse = struct {
-    time: f64,
+    time: f64, // seconds after the start of propagation
     maneuver: Maneuver,
 
     pub const Maneuver = union(enum) {
@@ -168,12 +168,13 @@ pub fn propagateAttitude(self: *Spacecraft, dt: f64) void {
     self.angularVelocity = newState.angularVelocity;
 }
 
-/// propagate orbit from TLE epoch for specified days with optional impulse maneuvers
+/// propagate from the TLE state starting at time t0 (J2000 seconds) for the given days;
+/// impulse times are seconds after t0
 pub fn propagate(self: *Spacecraft, t0: f64, days: f64, h: f64, impulseList: ?[]const Impulse) !void {
     const y0OE = calculations.tleToOrbitalElements(self.tle);
     var y = calculations.orbitalElementsToStateVector(y0OE, self.orbitingObject.mu);
     var t = t0;
-    const tf = self.tle.epoch + days * constants.secondsPerDay;
+    const tf = t0 + days * constants.secondsPerDay;
 
     // setup force models and integrator
     var forces = self.createForceModels();
@@ -195,8 +196,8 @@ pub fn propagate(self: *Spacecraft, t0: f64, days: f64, h: f64, impulseList: ?[]
     while (t < tf) {
         // Handle impulse maneuvers
         if (impulseList) |impulses| {
-            while (impulseIndex < impulses.len and impulses[impulseIndex].time <= t + h) {
-                const dt = impulses[impulseIndex].time - t;
+            while (impulseIndex < impulses.len and t0 + impulses[impulseIndex].time <= t + h) {
+                const dt = (t0 + impulses[impulseIndex].time) - t;
                 if (dt > 0) {
                     y = try integrator.step(y, t, dt, force);
                     t += dt;
@@ -367,7 +368,7 @@ test "init spacecraft" {
     // std.debug.print("Orbit data written to orbit_data.csv\n", .{});
 }
 
-test "prop spacecraft w/ impulse" {
+test "prop spacecraft w/ maneuvers" {
     const raw_tle =
         \\1 55909U 23035B   24187.51050877  .00023579  00000+0  16099-2 0  9998
         \\2 55909  43.9978 311.8012 0011446 278.6226  81.3336 15.05761711 71371
@@ -375,141 +376,45 @@ test "prop spacecraft w/ impulse" {
     var test_tle = try Tle.parse(raw_tle, std.testing.allocator);
     defer test_tle.deinit();
 
-    var test_sc = Spacecraft.init(
-        "dummy_sc",
-        test_tle,
-        300.000,
-        SatelliteSize.Cube,
-        constants.earth,
-        std.testing.allocator,
-    );
-    defer test_sc.deinit();
-
-    const impulses = [_]Impulse{
-        .{ .time = 2635014.50, .maneuver = .{ .prograde = 0.2 } },
-        .{ .time = 2638026.50, .maneuver = .{ .prograde = 0.2 } },
-        .{ .time = 2638103.50, .maneuver = .{ .prograde = 0.2 } },
+    const epoch = test_tle.epoch;
+    const hour = 3600.0;
+    const prograde = [_]Impulse{
+        .{ .time = 48 * hour, .maneuver = .{ .prograde = 0.2 } },
+        .{ .time = 49 * hour, .maneuver = .{ .prograde = 0.2 } },
+        .{ .time = 50 * hour, .maneuver = .{ .prograde = 0.2 } },
+    };
+    const phase = [_]Impulse{
+        .{ .time = 11 * hour, .maneuver = .{ .phase = .{ .angle = std.math.pi / 2.0, .orbits = 1.0 } } },
+    };
+    const planeChange = [_]Impulse{
+        // 10 deg inclination, 5 deg RAAN
+        .{ .time = 11 * hour, .maneuver = .{ .planeChange = .{ .deltaInclination = std.math.pi / 18.0, .deltaRaan = std.math.pi / 36.0 } } },
     };
 
-    try test_sc.propagate(
-        test_sc.tle.epoch,
-        3, // days to predict
-        1, // steps, i.e. predict every simulated second
-        &impulses,
-    );
+    var baseline = Spacecraft.init("baseline_sc", test_tle, 300.000, SatelliteSize.Cube, constants.earth, std.testing.allocator);
+    defer baseline.deinit();
+    try baseline.propagate(epoch, 3, 1, null);
+    const base = baseline.orbitPredictions.items;
 
-    for (test_sc.orbitPredictions.items) |iter| {
-        const r = calculations.posMag(iter.state);
+    for ([_][]const Impulse{ &prograde, &phase, &planeChange }) |impulses| {
+        var test_sc = Spacecraft.init("dummy_sc", test_tle, 300.000, SatelliteSize.Cube, constants.earth, std.testing.allocator);
+        defer test_sc.deinit();
 
-        try std.testing.expect(r > test_sc.orbitingObject.eqRadius.?);
+        try test_sc.propagate(epoch, 3, 1, impulses);
+
+        const points = test_sc.orbitPredictions.items;
+        for (points) |p| {
+            try std.testing.expect(calculations.posMag(p.state) > test_sc.orbitingObject.eqRadius.?);
+        }
+
+        // matches the unperturbed orbit up to the first burn, then diverges
+        var i: usize = 1;
+        while (points[i].time < epoch + impulses[0].time) : (i += 1) {
+            try std.testing.expectEqual(base[i].state, points[i].state);
+        }
+        try std.testing.expect(i > 1);
+        try std.testing.expect(!std.meta.eql(base[base.len - 1].state, points[points.len - 1].state));
     }
-}
-
-test "prop spacecraft w/ phase" {
-    const raw_tle =
-        \\1 55909U 23035B   24187.51050877  .00023579  00000+0  16099-2 0  9998
-        \\2 55909  43.9978 311.8012 0011446 278.6226  81.3336 15.05761711 71371
-    ;
-    var test_tle = try Tle.parse(raw_tle, std.testing.allocator);
-    defer test_tle.deinit();
-
-    var test_sc = Spacecraft.init(
-        "dummy_sc",
-        test_tle,
-        300.000,
-        SatelliteSize.Cube,
-        constants.earth,
-        std.testing.allocator,
-    );
-    defer test_sc.deinit();
-
-    const phase_maneuver = Impulse{
-        .time = 2500000.0,
-        .maneuver = .{ .phase = .{ .angle = std.math.pi / 2.0, .orbits = 1.0 } },
-    };
-
-    const impulses = [_]Impulse{phase_maneuver};
-
-    try test_sc.propagate(
-        test_sc.tle.epoch,
-        3, // days to predict
-        1, // steps, i.e. predict every simulated second
-        &impulses,
-    );
-
-    for (test_sc.orbitPredictions.items) |iter| {
-        const r = calculations.posMag(iter.state);
-
-        try std.testing.expect(r > test_sc.orbitingObject.eqRadius.?);
-    }
-
-    // const file = try std.fs.cwd().createFile("./test/orbit_data_with_phase.csv", .{});
-    // defer file.close();
-    // const writer = file.writer();
-    //
-    // try writer.writeAll("time,x,y,z\n");
-    //
-    // for (test_sc.orbit_predictions.items) |item| {
-    //     try writer.print("{d},{d},{d},{d}\n", .{ item.time, item.state[0], item.state[1], item.state[2] });
-    // }
-    //
-    // std.debug.print("Orbit data written to orbit_data.csv\n", .{});
-}
-
-test "prop spacecraft w/ plane change" {
-    const raw_tle =
-        \\1 55909U 23035B   24187.51050877  .00023579  00000+0  16099-2 0  9998
-        \\2 55909  43.9978 311.8012 0011446 278.6226  81.3336 15.05761711 71371
-    ;
-    var test_tle = try Tle.parse(raw_tle, std.testing.allocator);
-    defer test_tle.deinit();
-
-    var test_sc = Spacecraft.init(
-        "dummy_sc",
-        test_tle,
-        300.000,
-        SatelliteSize.Cube,
-        constants.earth,
-        std.testing.allocator,
-    );
-    defer test_sc.deinit();
-
-    const plane_change_maneuver = Impulse{
-        .time = 2500000.0,
-        .maneuver = .{
-            .planeChange = .{
-                .deltaInclination = std.math.pi / 18.0, // 10-degree inclination change
-                .deltaRaan = std.math.pi / 36.0, // 5-degree RAAN change
-            },
-        },
-    };
-
-    const impulses = [_]Impulse{plane_change_maneuver};
-
-    try test_sc.propagate(
-        test_sc.tle.epoch,
-        3, // days to predict
-        1, // steps, i.e. predict every simulated second
-        &impulses,
-    );
-
-    for (test_sc.orbitPredictions.items) |iter| {
-        const r = calculations.posMag(iter.state);
-
-        try std.testing.expect(r > test_sc.orbitingObject.eqRadius.?);
-    }
-
-    // const file = try std.fs.cwd().createFile("./test/orbit_data_with_plane_change.csv", .{});
-    // defer file.close();
-    // const writer = file.writer();
-    //
-    // try writer.writeAll("time,x,y,z\n");
-    //
-    // for (test_sc.orbit_predictions.items) |item| {
-    //     try writer.print("{d},{d},{d},{d}\n", .{ item.time, item.state[0], item.state[1], item.state[2] });
-    // }
-    //
-    // std.debug.print("Orbit data written to orbit_data.csv\n", .{});
 }
 
 test "orientation determination testing" {
