@@ -545,11 +545,12 @@ test "Vector3D integration tests" {
 test "propagateAttitude" {
     const identity = [3][3]f64{ .{ 1, 0, 0 }, .{ 0, 1, 0 }, .{ 0, 0, 1 } };
     const w = 0.1; // rad/s about z
+    const seconds = 600;
 
     // spin about a principal axis: q(t) = (cos(wt/2), 0, 0, sin(wt/2))
     var state = AttitudeState{ .quaternion = .{ 1, 0, 0, 0 }, .angularVelocity = .{ 0, 0, w } };
-    for (0..600) |_| state = propagateAttitude(state, identity, 1.0);
-    const expected = [4]f64{ @cos(w * 600 / 2), 0, 0, @sin(w * 600 / 2) };
+    for (0..seconds) |_| state = propagateAttitude(state, identity, 1.0);
+    const expected = [4]f64{ @cos(w * seconds / 2), 0, 0, @sin(w * seconds / 2) };
     for (expected, state.quaternion) |e, a| try std.testing.expectApproxEqAbs(e, a, 1e-5);
 
     // a step far too large for RK4 still returns a unit quaternion

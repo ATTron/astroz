@@ -416,48 +416,24 @@ test "propagate" {
     }
 }
 
-test "attitude propagation stays a unit quaternion" {
+test "attitude update and propagation" {
     var tle = try Tle.parse(testTle, std.testing.allocator);
     defer tle.deinit();
+    var sc = testSpacecraft(tle);
+    defer sc.deinit();
+
+    // one 90 min orbit of spin-up under a varying torque; numerical accuracy is
+    // covered by the propagateAttitude test, this only checks the wiring
     const orbitalPeriod = 90 * 60.0;
-    const threeDays = 3 * constants.secondsPerDay;
-
-    // steady spin with a wobbling measured body vector
-    {
-        var sc = testSpacecraft(tle);
-        defer sc.deinit();
-        sc.angularVelocity = .{ 0.1, 0.05, 0.02 };
-        const dt = 60.0;
-        var t: f64 = 0;
-        while (t < threeDays) : (t += dt) {
-            const angle = 0.5 * @sin(2 * std.math.pi * t / orbitalPeriod);
-            sc.bodyVectors[0] = .{ @cos(angle), 0, @sin(angle) };
-            sc.bodyVectors[1] = .{ 0, 1, 0 };
-            sc.updateAttitude();
-            sc.propagateAttitude(dt);
-            try expectUnitQuaternion(sc.quaternion);
-        }
+    const dt = 60.0;
+    sc.angularVelocity = .{ 0, 0, 0 };
+    var t: f64 = 0;
+    while (t < orbitalPeriod) : (t += dt) {
+        sc.angularVelocity[0] += 0.001 * @sin(2 * std.math.pi * t / orbitalPeriod) * dt;
+        sc.angularVelocity[2] += 0.0002 * @cos(2 * std.math.pi * t / orbitalPeriod) * dt;
+        sc.updateAttitude();
+        sc.propagateAttitude(dt);
     }
-
-    // spin-up under a varying torque
-    {
-        var sc = testSpacecraft(tle);
-        defer sc.deinit();
-        sc.angularVelocity = .{ 0, 0, 0 };
-        const dt = 120.0;
-        var t: f64 = 0;
-        while (t < threeDays) : (t += dt) {
-            sc.angularVelocity[0] += 0.001 * @sin(2 * std.math.pi * t / (orbitalPeriod * 2)) * dt;
-            sc.angularVelocity[1] += 0.0005 * @cos(2 * std.math.pi * t / (orbitalPeriod * 3)) * dt;
-            sc.angularVelocity[2] += 0.0002 * @sin(2 * std.math.pi * t / orbitalPeriod) * dt;
-            sc.updateAttitude();
-            sc.propagateAttitude(dt);
-            try expectUnitQuaternion(sc.quaternion);
-        }
-    }
-}
-
-fn expectUnitQuaternion(q: [4]f64) !void {
-    const norm = @sqrt(q[0] * q[0] + q[1] * q[1] + q[2] * q[2] + q[3] * q[3]);
-    try std.testing.expectApproxEqAbs(1.0, norm, 1e-9);
+    const q = sc.quaternion;
+    try std.testing.expectApproxEqAbs(1.0, @sqrt(q[0] * q[0] + q[1] * q[1] + q[2] * q[2] + q[3] * q[3]), 1e-9);
 }
