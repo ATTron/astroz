@@ -2,9 +2,9 @@
   <img src="https://repository-images.githubusercontent.com/819657891/7fdb22c8-7171-4b75-9f33-88a62ea67259" width="900" height="600" />
 </h1>
 
-[![CI][ci-shd]][ci-url]
-[![CD][cd-shd]][cd-url]
-[![DC][dc-shd]][dc-url]
+[![Continuous Integration][badge-ci]][workflow-ci]
+[![Continuous Delivery][badge-cd]][workflow-cd]
+[![API Docs][badge-docs]][site-docs]
 
 ## Astronomical and Spacecraft Toolkit Written in Zig
 
@@ -166,23 +166,21 @@ Also available: `bi_elliptic_transfer`, `lambert`, `orbital_velocity`, `orbital_
 
 ### Usage
 
-- Add `astroz` as a dependency in your `build.zig.zon`.
+- Fetch the package so it gets recorded in your `build.zig.zon`. Pin a release tag or commit for reproducible builds, or follow the latest `main`:
 
 ```sh
-zig fetch --save https://github.com/ATTron/astroz/archive/<git_tag_or_commit_hash>.tar.gz
-#or
-zig fetch --save git+https://github.com/ATTron/astroz/#HEAD
+# pinned to a tag or commit
+zig fetch --save https://github.com/ATTron/astroz/archive/<tag-or-commit>.tar.gz
+
+# latest main
+zig fetch --save git+https://github.com/ATTron/astroz
 ```
 
-- Use `astroz` as a module in your `build.zig`.
+- Wire the `astroz` module into your compile step in `build.zig`:
 
 ```zig
-const astroz_dep = b.dependency("astroz", .{
-    .target = target,
-    .optimize = optimize,
-});
-const astroz_mod = astroz_dep.module("astroz");
-exe.root_module.addImport("astroz", astroz_mod);
+const astroz = b.dependency("astroz", .{ .target = target, .optimize = optimize });
+exe.root_module.addImport("astroz", astroz.module("astroz"));
 ```
 
 - Propagate any satellite — the `Satellite` type auto-selects SGP4 or SDP4:
@@ -259,9 +257,9 @@ const vel = result[1]; // [vx, vy, vz] km/s
 
 <!-- MARKDOWN LINKS -->
 
-[ci-shd]: https://img.shields.io/github/actions/workflow/status/ATTron/astroz/ci.yaml?branch=main&logo=github&label=CI&labelColor=black
-[ci-url]: https://github.com/ATTron/astroz/blob/main/.github/workflows/ci.yaml
-[cd-shd]: https://img.shields.io/github/actions/workflow/status/ATTron/astroz/cd.yaml?branch=main&logo=github&label=CD&labelColor=black
-[cd-url]: https://github.com/ATTron/astroz/blob/main/.github/workflows/cd.yaml
-[dc-shd]: https://img.shields.io/badge/click-F6A516?logo=zig&logoColor=F6A516&label=doc&labelColor=black
-[dc-url]: https://attron.github.io/astroz
+[badge-ci]: https://img.shields.io/github/actions/workflow/status/ATTron/astroz/ci.yaml?branch=main&label=tests&logo=githubactions&logoColor=white&labelColor=black
+[workflow-ci]: https://github.com/ATTron/astroz/actions/workflows/ci.yaml
+[badge-cd]: https://img.shields.io/github/actions/workflow/status/ATTron/astroz/cd.yaml?branch=main&label=docs%20deploy&logo=githubactions&logoColor=white&labelColor=black
+[workflow-cd]: https://github.com/ATTron/astroz/actions/workflows/cd.yaml
+[badge-docs]: https://img.shields.io/badge/docs-online-F7A41D?logo=zig&logoColor=F7A41D&labelColor=black
+[site-docs]: https://attron.github.io/astroz

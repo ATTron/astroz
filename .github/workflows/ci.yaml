@@ -3,94 +3,78 @@ name: Continuous Integration
 on:
   push:
     branches: [main]
-
   pull_request:
     branches: [main]
-
   workflow_dispatch:
 
 jobs:
   test:
+    name: Unit tests and examples
     runs-on: ubuntu-latest
-
     steps:
-      - name: Check out repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Set up Zig
+      - name: Install Zig
         uses: mlugg/setup-zig@v2
         with:
           version: 0.16.0
           use-cache: false
 
-      - name: Download FITS file
-        run: |
-          curl -o ${{ github.workspace }}/test/table.fits http://data.astropy.org/tutorials/FITS-tables/chandra_events.fits
-        working-directory: ${{ github.workspace }}
+      - name: Fetch FITS fixture
+        run: curl -o test/table.fits http://data.astropy.org/tutorials/FITS-tables/chandra_events.fits
 
-      - name: Run `test`
+      - name: Run tests
         run: zig build test --summary all
-        working-directory: ${{ github.workspace }}
 
-      - name: Build examples
+      - name: Compile examples
         run: zig build build-examples --summary all
-        working-directory: ${{ github.workspace }}
 
   fmt:
+    name: Formatting
     runs-on: ubuntu-latest
-
     steps:
-      - name: Check out repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Set up Zig
+      - name: Install Zig
         uses: mlugg/setup-zig@v2
         with:
           version: 0.16.0
           use-cache: false
 
-      - name: Run `fmt`
+      - name: Check formatting
         run: zig build fmt
 
   python:
-    name: Python ${{ matrix.python }} bindings
+    name: Python ${{ matrix.python-version }} bindings
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        python: ['3.10', '3.11', '3.12', '3.13', '3.14']
-
+        python-version: ['3.10', '3.11', '3.12', '3.13', '3.14']
     steps:
-      - name: Check out repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: ${{ matrix.python }}
-
-      - name: Set up Zig
+      - name: Install Zig
         uses: mlugg/setup-zig@v2
         with:
           version: 0.16.0
           use-cache: false
 
-      - name: Build Python bindings
-        run: |
-          PYTHON_INCLUDE=$(python -c "import sysconfig; print(sysconfig.get_path('include'))")
-          PYTHON_LIBDIR=$(python -c "import sysconfig; print(sysconfig.get_config_var('LIBDIR'))")
-          PYTHON_LIB=$(python -c "import sys; print(f'python{sys.version_info.major}.{sys.version_info.minor}')")
-          echo "Python include: $PYTHON_INCLUDE"
-          echo "Python libdir: $PYTHON_LIBDIR"
-          zig build python-bindings \
-            -Dpython-include="$PYTHON_INCLUDE" \
-            -Dpython-lib="$PYTHON_LIB" \
-            -Dpython-lib-path="$PYTHON_LIBDIR" \
-            -Doptimize=ReleaseFast
+      - name: Install Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
 
-      - name: Copy built library
+      - name: Build extension
         run: |
-          # Zig builds lib_astroz.so, but Python expects _astroz.so
+          py_inc=$(python -c "import sysconfig; print(sysconfig.get_path('include'))")
+          py_libdir=$(python -c "import sysconfig; print(sysconfig.get_config_var('LIBDIR'))")
+          py_lib=$(python -c "import sys; print('python%d.%d' % sys.version_info[:2])")
+          zig build python-bindings \
+            -Dpython-include="$py_inc" \
+            -Dpython-lib="$py_lib" \
+            -Dpython-lib-path="$py_libdir" \
+            -Doptimize=ReleaseFast
           cp zig-out/bindings/python/astroz/lib_astroz.so bindings/python/astroz/_astroz.so
 
       - name: Install package
@@ -98,67 +82,61 @@ jobs:
           pip install numpy
           pip install -e bindings/python
 
-      - name: Test import and basic functionality
+      - name: Smoke test - import
         run: |
-          python -c "from astroz import Tle, Constellation, propagate, __version__; print(f'astroz {__version__}')"
           python -c "
-          from astroz import Tle, propagate
-          import numpy as np
-
-          tle_text = '1 25544U 98067A   24127.82853009  .00015698  00000+0  27310-3 0  9995\n2 25544  51.6393 160.4574 0003580 140.6673 205.7250 15.50957674452123'
-
-          # Test TLE parsing
-          tle = Tle(tle_text)
-          print(f'Satellite: {tle.satellite_number}')
-
-          # Test propagation
-          times = np.arange(100, dtype=np.float64)
-          positions = propagate(tle_text, times)
-          print(f'Batch: {positions.shape}')
+          from astroz import Tle, Constellation, propagate, __version__
+          print('astroz', __version__)
           "
 
-      - name: Test python-sgp4 compatible API
+      - name: Smoke test - TLE parsing and propagation
+        run: |
+          python -c "
+          import numpy as np
+          import astroz
+
+          tle_text = '\n'.join([
+              '1 25544U 98067A   24127.82853009  .00015698  00000+0  27310-3 0  9995',
+              '2 25544  51.6393 160.4574 0003580 140.6673 205.7250 15.50957674452123',
+          ])
+          tle = astroz.Tle(tle_text)
+          print('satellite number:', tle.satellite_number)
+
+          minutes = np.arange(100, dtype=np.float64)
+          out = astroz.propagate(tle_text, minutes)
+          print('propagate shape:', out.shape)
+          "
+
+      - name: Smoke test - python-sgp4 compatibility
         run: |
           pip install sgp4
           python -c "
-          from astroz.api import Satrec, SatrecArray, jday, WGS72
-          from sgp4.api import Satrec as Sgp4Satrec, jday as sgp4_jday, WGS72 as SGP4_WGS72
           import numpy as np
+          from astroz.api import Satrec, SatrecArray, jday, WGS72
+          from sgp4.api import Satrec as RefSatrec, WGS72 as REF_WGS72
 
-          line1 = '1 25544U 98067A   24127.82853009  .00015698  00000+0  27310-3 0  9995'
-          line2 = '2 25544  51.6393 160.4574 0003580 140.6673 205.7250 15.50957674452123'
+          l1 = '1 25544U 98067A   24127.82853009  .00015698  00000+0  27310-3 0  9995'
+          l2 = '2 25544  51.6393 160.4574 0003580 140.6673 205.7250 15.50957674452123'
 
-          # Test Satrec
-          sat = Satrec.twoline2rv(line1, line2, WGS72)
-          print(f'Satrec: satnum={sat.satnum}, error={sat.error}')
-
-          # Test jday
+          sat = Satrec.twoline2rv(l1, l2, WGS72)
           jd, fr = jday(2024, 5, 6, 12, 0, 0.0)
-          print(f'jday: {jd} + {fr}')
 
-          # Test sgp4
-          e, r, v = sat.sgp4(jd, fr)
-          print(f'sgp4: error={e}, pos=({r[0]:.1f}, {r[1]:.1f}, {r[2]:.1f})')
+          err, r, v = sat.sgp4(jd, fr)
+          assert err == 0, err
 
-          # Test sgp4_array
-          jd_arr = np.full(100, jd)
-          fr_arr = fr + np.arange(100) / 1440.0
-          e, r, v = sat.sgp4_array(jd_arr, fr_arr)
-          print(f'sgp4_array: shape={r.shape}')
+          jds = np.full(100, jd)
+          frs = fr + np.arange(100) / 1440.0
+          sat.sgp4_array(jds, frs)
+          SatrecArray([sat]).sgp4(jds, frs)
 
-          # Test SatrecArray
-          arr = SatrecArray([sat])
-          e, r, v = arr.sgp4(jd_arr, fr_arr)
-          print(f'SatrecArray: shape={r.shape}')
+          ref = RefSatrec.twoline2rv(l1, l2, REF_WGS72)
+          ref_err, ref_r, ref_v = ref.sgp4(jd, fr)
+          assert ref_err == 0, ref_err
 
-          # Accuracy test vs python-sgp4
-          sgp4_sat = Sgp4Satrec.twoline2rv(line1, line2, SGP4_WGS72)
-          az_e, az_r, az_v = sat.sgp4(jd, fr)
-          sg_e, sg_r, sg_v = sgp4_sat.sgp4(jd, fr)
-          pos_diff = np.linalg.norm(np.array(az_r) - np.array(sg_r))
-          assert pos_diff < 0.001, f'Position error {pos_diff*1000:.1f}m exceeds 1mm'
-          print(f'Accuracy: {pos_diff*1000:.3f}mm (< 1mm OK)')
+          diff_km = float(np.linalg.norm(np.array(r) - np.array(ref_r)))
+          print('position difference vs python-sgp4: %.3e km' % diff_km)
+          assert diff_km < 1e-3, diff_km  # 1 m
           "
 
-      - name: Run Python example
+      - name: Run python_sgp4 example
         run: python examples/python_sgp4.py

@@ -3,70 +3,61 @@ name: Continuous Delivery
 on:
   push:
     branches: [main]
-
   workflow_dispatch:
 
 jobs:
   emit:
+    name: Build documentation
     runs-on: ubuntu-latest
-
     steps:
-      - name: Check out repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Set up Zig
+      - name: Install Zig
         uses: mlugg/setup-zig@v2
         with:
           version: 0.16.0
           use-cache: false
 
-      - name: Set up Python
+      - name: Install Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.12'
 
-      - name: Install pdoc
-        run: pip install pdoc
-
-      - name: Build Python extension
+      - name: Install pdoc and the Python package
         run: |
-          cd bindings/python
-          pip install -e .
+          pip install pdoc
+          cd bindings/python && pip install -e .
 
-      - name: Create docs directory structure
-        run: mkdir -p zig-out/doc/zig zig-out/doc/python
-
-      - name: Generate Zig documentation
+      - name: Generate Zig docs
         run: |
+          mkdir -p zig-out/doc/zig zig-out/doc/python
           zig build doc
-          mv zig-out/doc/*.* zig-out/doc/zig/ 2>/dev/null || true
-          mv zig-out/doc/src zig-out/doc/zig/ 2>/dev/null || true
+          # Relocate the Zig docs so Python docs can live alongside them.
+          find zig-out/doc -maxdepth 1 -type f -exec mv -t zig-out/doc/zig {} + || true
+          if [ -d zig-out/doc/src ]; then mv zig-out/doc/src zig-out/doc/zig/ || true; fi
 
-      - name: Generate Python documentation
+      - name: Generate Python docs
         run: pdoc bindings/python/astroz -o zig-out/doc/python
 
-      - name: Create landing page
+      - name: Add landing page
         run: cp .github/landing_page.html zig-out/doc/index.html
 
-      - name: Upload artifact for GitHub Pages
+      - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
         with:
           path: zig-out/doc/
 
   deploy:
+    name: Deploy to GitHub Pages
     needs: emit
-
     runs-on: ubuntu-latest
-
     permissions:
       pages: write
       id-token: write
-
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
-
     steps:
-      - name: Deploy artifact to GitHub Pages
+      - name: Deploy
         id: deployment
         uses: actions/deploy-pages@v4

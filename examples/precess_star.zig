@@ -1,12 +1,11 @@
 const std = @import("std");
 const astroz = @import("astroz");
-const Datetime = astroz.Datetime;
-const EquatorialCoordinateSystem = astroz.EquatorialCoordinateSystem;
+const Ecs = astroz.EquatorialCoordinateSystem;
 
-pub fn main() !void {
-    const declination = EquatorialCoordinateSystem.Declination.init(40, 10, 10);
-    const ra = EquatorialCoordinateSystem.RightAscension.init(19, 52, 2);
-    const j2000 = EquatorialCoordinateSystem.init(declination, ra);
+pub fn main() void {
+    const star = Ecs.init(.init(40, 10, 10), .init(19, 52, 2));
+    const moved = star.precess(astroz.Datetime.initDate(2005, 7, 30));
 
-    std.debug.print("Precessed to July 30, 2005:\n{any}", .{j2000.precess(Datetime.initDate(2005, 7, 30))});
+    std.log.info("J2000:      {any}", .{star});
+    std.log.info("2005-07-30: {any}", .{moved});
 }
