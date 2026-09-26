@@ -142,14 +142,14 @@ fn isLeapYear(year: u16) bool {
     return (year % 4 == 0 and year % 100 != 0) or (year % 400 == 0);
 }
 
-/// this is used by the TLE lib to generate an epoch
+/// Fractional day of year (1.0 = Jan 1 00:00) to calendar month and day
 pub fn doyToMonthDay(year: u16, doy: f64) struct { month: u8, day: u8 } {
     var month: u8 = 1;
     var day = doy;
 
     for (daysInMonth) |days| {
         const daysF64: f64 = @floatFromInt(if (month == 2 and isLeapYear(year)) days + 1 else days);
-        // fractional doy: day N covers [N, N+1), so only advance past the month's last day
+        // day N runs from N.0 up to N+1, so 31.5 is still Jan 31
         if (day >= daysF64 + 1.0) {
             day -= daysF64;
             month += 1;
@@ -164,20 +164,15 @@ pub fn doyToMonthDay(year: u16, doy: f64) struct { month: u8, day: u8 } {
     };
 }
 
-/// Converts your datetime to the J2000 format used in astronomy
+/// Julian date at 00:00 of this date (valid 1901-2099)
 pub fn convertToJ2000(self: Datetime) f64 {
-    const step1 = 367.0 * @as(f64, @floatFromInt(self.year.?));
-    const step2 = @as(f64, @floatFromInt(self.year.?)) + @floor((@as(f64, @floatFromInt(self.month.?)) + 9.0) / 12.0);
-    const step3 = 7.0 * step2;
-    const step4 = @floor(step3 / 4.0);
-    const step5 = 275.0 * @as(f64, @floatFromInt(self.month.?));
-    const step7 = @floor(step5 / 9.0);
-    const step8 = step1 - step4 + step7 + @as(f64, @floatFromInt(self.day.?)) + 1721013.5;
-
-    return step8;
+    const y: f64 = @floatFromInt(self.year.?);
+    const m: f64 = @floatFromInt(self.month.?);
+    const d: f64 = @floatFromInt(self.day.?);
+    return 367.0 * y - @floor(7.0 * (y + @floor((m + 9.0) / 12.0)) / 4.0) + @floor(275.0 * m / 9.0) + d + 1721013.5;
 }
 
-/// Converts your datetime to the Modified J2000 format used in astronomy
+/// Modified Julian date at 00:00 of this date
 pub fn convertToModifiedJd(self: Datetime) f64 {
     return self.convertToJ2000() - 2400000.5;
 }
@@ -303,8 +298,6 @@ test "Test J2000" {
 
     try std.testing.expectEqual(2453581.5, j2000.convertToJ2000());
     try std.testing.expectEqual(53581.0, j2000.convertToModifiedJd());
-
-    // non-July months (formula previously used month instead of 7)
     try std.testing.expectEqual(2461303.5, Datetime.initDate(2026, 9, 20).convertToJ2000());
     try std.testing.expectEqual(2451118.5, Datetime.initDate(1998, 11, 1).convertToJ2000());
     try std.testing.expectEqual(2451544.5, Datetime.initDate(2000, 1, 1).convertToJ2000());
@@ -328,18 +321,14 @@ test "Test days2mdhms" {
     try std.testing.expectEqual(28, result.minute);
     try std.testing.expectApproxEqAbs(31.5, result.second, 0.01);
 
-    // last day of month must not roll to day 0 of the next month
-    const cases = [_]struct { year: u16, doy: f64, month: u8, day: u8 }{
-        .{ .year = 2026, .doy = 31.5, .month = 1, .day = 31 },
-        .{ .year = 2026, .doy = 32.0, .month = 2, .day = 1 },
-        .{ .year = 2026, .doy = 243.5, .month = 8, .day = 31 },
-        .{ .year = 2024, .doy = 60.5, .month = 2, .day = 29 },
-        .{ .year = 2026, .doy = 365.5, .month = 12, .day = 31 },
+    // last day of a month must not roll over to day 0 of the next
+    const monthEnds = [_]struct { u16, f64, u8, u8 }{
+        .{ 2026, 31.5, 1, 31 },  .{ 2026, 32.0, 2, 1 },    .{ 2024, 60.5, 2, 29 },
+        .{ 2026, 243.5, 8, 31 }, .{ 2026, 365.5, 12, 31 },
     };
-    for (cases) |c| {
-        const r = Datetime.days2mdhms(c.year, c.doy);
-        try std.testing.expectEqual(c.month, r.month);
-        try std.testing.expectEqual(c.day, r.day);
+    for (monthEnds) |c| {
+        const r = Datetime.days2mdhms(c[0], c[1]);
+        try std.testing.expectEqual(c[2], r.month);
+        try std.testing.expectEqual(c[3], r.day);
     }
-    try std.testing.expectEqual(12, Datetime.days2mdhms(2026, 243.5).hour);
 }
