@@ -454,7 +454,7 @@ pub const FitsTableInfo = struct {
 test Fits {
     const test_file_png = "sample_fits/image_1.png";
     const test_file_table = "sample_fits/ascii_table_1.csv";
-    const io = std.Io.Threaded.global_single_threaded.io();
+    const io = std.testing.io;
     var fits_png = try Fits.open_and_parse("test/sample_fits.fits", io, std.testing.allocator, .{ .createImages = true });
     defer fits_png.close();
 
@@ -471,7 +471,7 @@ test Fits {
 }
 
 test "Read FITS table" {
-    const io = std.Io.Threaded.global_single_threaded.io();
+    const io = std.testing.io;
     const test_file_table = "small/binary_table_1.csv";
     var fits_file = try Fits.open_and_parse("test/small.fits", io, std.testing.allocator, .{});
     defer fits_file.close();

@@ -128,7 +128,7 @@ pub fn Parser(comptime Frame: type) type {
 }
 
 test "Vita49 Parse From File w/ sync" {
-    const io = std.Io.Threaded.global_single_threaded.io();
+    const io = std.testing.io;
     const file_name = "./test/vita49.bin".*;
     //3a02 0a00 3412 0000 0056
     const sync_pattern = .{ 0x3A, 0x02, 0x0a, 0x00, 0x34, 0x12, 0x00, 0x00, 0x00, 0x56 };
@@ -143,7 +143,7 @@ test "Vita49 Parse From File w/ sync" {
 }
 
 test "Vita49 Parse From File w/o sync" {
-    const io = std.Io.Threaded.global_single_threaded.io();
+    const io = std.testing.io;
     const file_name = "./test/vita49.bin".*;
     //3a02 0a00 3412 0000 0056
     const P = Parser(Vita49);
@@ -157,7 +157,7 @@ test "Vita49 Parse From File w/o sync" {
 }
 
 test "CCSDS Parse From File w/o sync" {
-    const io = std.Io.Threaded.global_single_threaded.io();
+    const io = std.testing.io;
     const file_name = "./test/ccsds.bin".*;
     const P = Parser(Ccsds);
     var parser = try P.init(null, null, 1024, io, std.testing.allocator);
@@ -172,7 +172,7 @@ test "CCSDS Parse From File w/o sync" {
 }
 
 test "CCSDS Parse From File w/ sync" {
-    const io = std.Io.Threaded.global_single_threaded.io();
+    const io = std.testing.io;
     const file_name = "./test/ccsds.bin".*;
     // 7897 c000 000a 0102
     const sync_pattern = .{ 0x78, 0x97, 0xC0, 0x00, 0x00, 0x0A, 0x01, 0x02 };
@@ -225,7 +225,7 @@ fn waitForServer() u16 {
 }
 
 test "Vita49 TCP Parser" {
-    const io = std.Io.Threaded.global_single_threaded.io();
+    const io = std.testing.io;
     const vita49_pkt = &[_]u8{
         0x3A, 0x02, 0x0A, 0x00, 0x34, 0x12, 0x00, 0x00, 0x00, 0x56, 0x34,
         0x12, 0x78, 0x9A, 0xBC, 0xDE, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00,
@@ -256,7 +256,7 @@ test "Vita49 TCP Parser" {
 fn testVita49Callback(_: Vita49) void {}
 
 test "Vita49 TCP Parser w/ Callback" {
-    const io = std.Io.Threaded.global_single_threaded.io();
+    const io = std.testing.io;
     const vita49_pkt = &[_]u8{
         0x3A, 0x02, 0x0A, 0x00, 0x34, 0x12, 0x00, 0x00, 0x00, 0x56, 0x34,
         0x12, 0x78, 0x9A, 0xBC, 0xDE, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00,
@@ -284,7 +284,7 @@ test "Vita49 TCP Parser w/ Callback" {
 }
 
 test "CCSDS TCP Parser" {
-    const io = std.Io.Threaded.global_single_threaded.io();
+    const io = std.testing.io;
     const ccsds_pkt = &[_]u8{
         0x78, 0x97, 0xC0, 0x00, 0x00, 0x0A, 0x01, 0x02,
         0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A,
