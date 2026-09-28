@@ -147,8 +147,8 @@ pub fn propagateBatchDirect(comptime N: usize, el: *const BatchElements(N), tsin
     const am = el.aBase * tempa * tempa;
     const emRaw = el.ecco - tempe;
     // Vallado error 1: mean eccentricity out of range. Flag per lane; never fail the batch.
-    const bad = @select(bool, emRaw >= one, @as(@Vector(N, bool), @splat(true)), emRaw < @as(Vec, @splat(-0.001)));
-    const em = @max(@select(f64, bad, eccFloor, emRaw), eccFloor);
+    const bad = (emRaw >= one) | (emRaw < @as(Vec, @splat(-0.001)));
+    const em = @select(f64, bad, eccFloor, @max(emRaw, eccFloor));
 
     mm = simdMath.modTwoPiN(N, mm + el.noUnkozai * templ);
     nodem = simdMath.modTwoPiN(N, nodem);

@@ -290,7 +290,6 @@ pub fn propagateBatchDirect(comptime N: usize, el: *const Sdp4BatchElements(N), 
 
     // Step 3: Compute semi major axis and mean motion
     // Failures are flagged per lane (NaN output) so one bad satellite never affects its batch
-    const trueV: @Vector(N, bool) = @splat(true);
     var bad = nm <= zero;
     nm = @select(f64, bad, el.noUnkozai, nm);
 
@@ -299,15 +298,14 @@ pub fn propagateBatchDirect(comptime N: usize, el: *const Sdp4BatchElements(N), 
     em = em - tempe;
 
     const eccFloor: Vec = @splat(1.0e-6);
-    bad = @select(bool, em >= one, trueV, bad);
-    bad = @select(bool, am < @as(Vec, @splat(0.95)), trueV, bad);
+    bad = bad | (em >= one) | (em < @as(Vec, @splat(-0.001))) | (am < @as(Vec, @splat(0.95)));
     em = @select(f64, bad, eccFloor, @max(em, eccFloor));
 
     mm = mm + el.noUnkozai * templ;
     const xlm = mm + argpm + nodem;
-    nodem = simdMath.modTwoPiN(N, nodem);
-    argpm = simdMath.modTwoPiN(N, argpm);
-    mm = simdMath.modTwoPiN(N, xlm - argpm - nodem);
+    nodem = simdMath.fmodTwoPiN(N, nodem);
+    argpm = simdMath.fmodTwoPiN(N, argpm);
+    mm = simdMath.fmodTwoPiN(N, simdMath.fmodTwoPiN(N, xlm) - argpm - nodem);
 
     // Step 4: Deep space periodic perturbations (dpperBatch)
     dpperBatch(N, el, tsince, &em, &inclm, &nodem, &argpm, &mm);
@@ -319,9 +317,9 @@ pub fn propagateBatchDirect(comptime N: usize, el: *const Sdp4BatchElements(N), 
     nodem = @select(f64, neg_incl, nodem + piV, nodem);
     argpm = @select(f64, neg_incl, argpm - piV, argpm);
 
-    em = @max(em, eccFloor);
-    bad = @select(bool, em >= one, trueV, bad);
-    em = @select(f64, bad, eccFloor, em);
+    // Vallado error 3: perturbed eccentricity out of [0, 1] (check before flooring)
+    bad = bad | (em > one) | (em < zero);
+    em = @select(f64, bad, eccFloor, @max(em, eccFloor));
 
     // Step 5: Recompute inclination dependent terms (per lane, dpper modifies inclination)
     const sinip = simdMath.sinN(N, inclm);
@@ -502,7 +500,7 @@ fn dpperBatch(
     const dbet = -ph * sinop + pinc * cosip * cosop;
     alfdp = alfdp + dalf;
     betdp = betdp + dbet;
-    const nodep_mod = simdMath.modTwoPiN(N, nodep.*);
+    const nodep_mod = simdMath.fmodTwoPiN(N, nodep.*);
     const xls = mp.* + argpp.* + cosip * nodep_mod;
     const dls = pl + pgh - pinc * nodep_mod * sinip;
     const xnoh = nodep_mod;
@@ -560,6 +558,34 @@ test "Sdp4Batch matches scalar - GEO (irez=1)" {
 
 test "Sdp4Batch matches scalar - HEO (irez=2)" {
     try expectBatchMatchesScalar("1 09880U 77021B   24186.00000000  .00000023  00000+0  00000+0 0  9999\n2 09880  63.4300  75.8891 7318036 269.8735  16.7549  2.00611684 54321");
+}
+
+test "low-inclination orbit with node near zero matches Vallado reference" {
+    // GTO, i = 7.1 deg (Lyddane branch), RAAN = 2.1 deg regressing through zero.
+    // Reference: python-sgp4 (Vallado C++), WGS72. Floored modulo instead of C fmod
+    // on nodem/argpm/nodep put this off by up to ~12 km within a week.
+    var tle = try Tle.parse("1 33544U 88109T   26271.09276029  .00000582  00000-0  11079-2 0  9993\n2 33544   7.1221   2.0860 7149968 159.7190 257.8135  2.38233506205927", testing.allocator);
+    defer tle.deinit();
+    const sdp4 = try Sdp4.init(tle, constants.wgs72);
+    const els = [4]Sdp4.Elements{ sdp4.elements, sdp4.elements, sdp4.elements, sdp4.elements };
+    const batch = initFromElements(4, els, constants.wgs72);
+    var carry = initCarry(4, &batch);
+
+    const cases = [_]struct { t: f64, r: [3]f64 }{
+        .{ .t = 0.0, .r = .{ 35118.774784770, 1317.008646251, -0.041637174 } },
+        .{ .t = 1440.0, .r = .{ 5391.047428816, -18337.235707291, -2301.192936811 } },
+        .{ .t = 5000.0, .r = .{ -4429.036027604, 5783.982712503, 726.867371306 } },
+        .{ .t = 10080.0, .r = .{ 35709.871342454, -16272.075341790, -1965.911691927 } },
+    };
+    for (cases) |c| {
+        const scalar = try sdp4.propagate(c.t);
+        const pv = try propagateBatchDirect(4, &batch, @as(simdMath.VecN(4), @splat(c.t)), &carry);
+        const simd = [3]f64{ pv.rx[0], pv.ry[0], pv.rz[0] };
+        for (0..3) |j| {
+            try testing.expectApproxEqAbs(c.r[j], scalar[0][j], 1e-3);
+            try testing.expectApproxEqAbs(c.r[j], simd[j], 1e-3);
+        }
+    }
 }
 
 test "Sdp4Batch mixed irez batch" {

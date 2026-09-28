@@ -418,9 +418,13 @@ fn computeHigherOrderDrag(
 
 fn propagateElements(el: *const Elements, tsince: f64) Error![2][3]f64 {
     const secular = updateSecular(el, tsince);
+    // Vallado error 1: mean eccentricity out of range
+    if (secular.emRaw >= 1.0 or secular.emRaw < -0.001) return Error.InvalidEccentricity;
     const nm = el.grav.xke / std.math.pow(f64, secular.a, 1.5);
     const kepler = solveKepler(el, secular);
     const corrected = applyShortPeriodCorrections(el, kepler, nm);
+    // Vallado error 6: below the Earth's surface
+    if (corrected.r < 1.0) return Error.SatelliteDecayed;
     return computePositionVelocity(el, corrected);
 }
 
@@ -430,6 +434,8 @@ pub const SecularState = struct {
     nodem: f64,
     em: f64,
     a: f64,
+    /// Mean eccentricity before the 1e-6 floor, for Vallado's error 1 check
+    emRaw: f64 = 0.0,
 };
 
 fn updateSecular(el: *const Elements, tsince: f64) SecularState {
@@ -463,8 +469,8 @@ fn updateSecular(el: *const Elements, tsince: f64) SecularState {
     }
 
     const am = el.aBase * tempa * tempa;
-    var em = el.ecco - tempe;
-    em = @max(em, eccentricityFloor);
+    const emRaw = el.ecco - tempe;
+    const em = @max(emRaw, eccentricityFloor);
 
     mm = mm + el.noUnkozai * templ;
     const xlm = mm + argpm + nodem;
@@ -473,7 +479,7 @@ fn updateSecular(el: *const Elements, tsince: f64) SecularState {
     argpm = @mod(argpm, constants.twoPi);
     mm = @mod(xlm - argpm - nodem, constants.twoPi);
 
-    return .{ .mm = mm, .argpm = argpm, .nodem = nodem, .em = em, .a = am };
+    return .{ .mm = mm, .argpm = argpm, .nodem = nodem, .em = em, .a = am, .emRaw = emRaw };
 }
 
 pub const KeplerState = struct {
@@ -610,6 +616,7 @@ fn SecularStateN(comptime N: usize) type {
         nodem: Vec,
         em: Vec,
         a: Vec,
+        emRaw: Vec,
     };
 }
 
@@ -641,13 +648,21 @@ pub fn pvToArrays(comptime N: usize, pv: PositionVelocity(N)) PosVelArray(N) {
     return results;
 }
 
+/// Vallado error 6 for the N-times paths: fail if any sample is below the surface
+/// (callers fall back to per-time scalar propagation to isolate it).
+pub fn aboveSurfaceN(comptime N: usize, pv: PositionVelocity(N), radiusEarthKm: f64) Error!PosVelArray(N) {
+    const r2 = pv.rx * pv.rx + pv.ry * pv.ry + pv.rz * pv.rz;
+    if (@reduce(.Or, r2 < @as(simdMath.VecN(N), @splat(radiusEarthKm * radiusEarthKm)))) return Error.SatelliteDecayed;
+    return pvToArrays(N, pv);
+}
+
 /// Set lanes flagged `bad`, or whose position is below the Earth's surface
 /// (Vallado error 6), to NaN so one failing satellite never affects its batch.
 pub fn maskInvalid(comptime N: usize, pv: PositionVelocity(N), bad: @Vector(N, bool), radiusEarthKm: simdMath.VecN(N)) PositionVelocity(N) {
     const Vec = simdMath.VecN(N);
     const nan: Vec = @splat(std.math.nan(f64));
     const r2 = pv.rx * pv.rx + pv.ry * pv.ry + pv.rz * pv.rz;
-    const invalid = @select(bool, bad, @as(@Vector(N, bool), @splat(true)), r2 < radiusEarthKm * radiusEarthKm);
+    const invalid = bad | (r2 < radiusEarthKm * radiusEarthKm);
     return .{
         .rx = @select(f64, invalid, nan, pv.rx),
         .ry = @select(f64, invalid, nan, pv.ry),
@@ -774,12 +789,11 @@ pub fn propagateN(self: *const Sgp4, comptime N: usize, times: [N]f64) Error!Pos
 
     const secular = updateSecularN(N, el, timeVec);
 
-    const emFloor: Vec = @splat(eccentricityFloor);
-    if (@reduce(.Or, secular.em < emFloor)) {
-        return Error.SatelliteDecayed;
-    }
+    // Vallado error 1: mean eccentricity out of range (em is clamped; check the raw value)
+    const em_bad = (secular.emRaw >= @as(Vec, @splat(1.0))) | (secular.emRaw < @as(Vec, @splat(-0.001)));
+    if (@reduce(.Or, em_bad)) return Error.InvalidEccentricity;
 
-    return pvToArrays(N, keplerAndPosVel(
+    return aboveSurfaceN(N, keplerAndPosVel(
         N,
         secular.a,
         secular.em,
@@ -798,7 +812,7 @@ pub fn propagateN(self: *const Sgp4, comptime N: usize, times: [N]f64) Error!Pos
         @as(Vec, @splat(el.grav.j2)),
         @as(Vec, @splat(el.grav.radiusEarthKm)),
         @as(Vec, @splat(el.vkmpersec)),
-    ));
+    ), el.grav.radiusEarthKm);
 }
 
 fn updateSecularN(comptime N: usize, el: *const Elements, tsince: simdMath.VecN(N)) SecularStateN(N) {
@@ -864,8 +878,8 @@ fn updateSecularN(comptime N: usize, el: *const Elements, tsince: simdMath.VecN(
 
     const am = aBaseVec * tempa * tempa;
     const eccFloorVec: Vec = @splat(eccentricityFloor);
-    var em = eccoVec - tempe;
-    em = @max(em, eccFloorVec);
+    const emRaw = eccoVec - tempe;
+    const em = @max(emRaw, eccFloorVec);
 
     mm = mm + noUnkozaiVec * templ;
     const xlm = mm + argpm + nodem;
@@ -880,6 +894,7 @@ fn updateSecularN(comptime N: usize, el: *const Elements, tsince: simdMath.VecN(
         .nodem = nodem,
         .em = em,
         .a = am,
+        .emRaw = emRaw,
     };
 }
 

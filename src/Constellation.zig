@@ -521,9 +521,8 @@ inline fn writeZeros(
         if (base + lane < numReal and laneActive(ctx.satelliteMask, origIndices[base + lane])) {
             const origIdx = origIndices[base + lane];
             const ob = outBase(layout, @as(usize, origIdx), timeIdx, ctx.numTimes, ctx.numSatellites);
-            const nan = std.math.nan(f64);
-            ctx.resultsPos[ob..][0..3].* = .{ nan, nan, nan };
-            if (hasVel) ctx.resultsVel.?[ob..][0..3].* = .{ nan, nan, nan };
+            ctx.resultsPos[ob..][0..3].* = @splat(std.math.nan(f64));
+            if (hasVel) ctx.resultsVel.?[ob..][0..3].* = @splat(std.math.nan(f64));
         }
     }
 }

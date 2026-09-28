@@ -274,23 +274,24 @@ fn propagateArray(comptime T: type, propagator: *const T, n: usize, epochJd: f64
                 vel_ptr[base..][0..3].* = results[j][1];
             }
         } else {
-            for (0..SgpSimdN) |j| {
-                @memset(pos_ptr[(i + j) * 3 ..][0..3], 0);
-                @memset(vel_ptr[(i + j) * 3 ..][0..3], 0);
-            }
+            // A failure at any of the 8 times fails the chunk; redo each time exactly
+            for (0..SgpSimdN) |j| propagateOne(T, propagator, epochJd, jd_ptr, fr_ptr, pos_ptr, vel_ptr, i + j);
         }
     }
     // Handle remainder with scalar propagation
-    while (i < n) : (i += 1) {
-        const tsince = ((jd_ptr[i] + fr_ptr[i]) - epochJd) * constants.minutesPerDay;
-        if (propagator.propagate(tsince)) |result| {
-            const base = i * 3;
-            pos_ptr[base..][0..3].* = result[0];
-            vel_ptr[base..][0..3].* = result[1];
-        } else |_| {
-            @memset(pos_ptr[i * 3 ..][0..3], 0);
-            @memset(vel_ptr[i * 3 ..][0..3], 0);
-        }
+    while (i < n) : (i += 1) propagateOne(T, propagator, epochJd, jd_ptr, fr_ptr, pos_ptr, vel_ptr, i);
+}
+
+/// Scalar propagation of one time; NaN on failure (reported as e=6 in Python).
+fn propagateOne(comptime T: type, propagator: *const T, epochJd: f64, jd_ptr: [*]const f64, fr_ptr: [*]const f64, pos_ptr: [*]f64, vel_ptr: [*]f64, i: usize) void {
+    const tsince = ((jd_ptr[i] + fr_ptr[i]) - epochJd) * constants.minutesPerDay;
+    const base = i * 3;
+    if (propagator.propagate(tsince)) |result| {
+        pos_ptr[base..][0..3].* = result[0];
+        vel_ptr[base..][0..3].* = result[1];
+    } else |_| {
+        pos_ptr[base..][0..3].* = @splat(std.math.nan(f64));
+        vel_ptr[base..][0..3].* = @splat(std.math.nan(f64));
     }
 }
 
@@ -719,12 +720,8 @@ fn propagateArraySdp4SortedStrided(
             vel_ptr[base + 1] = result[1][1];
             vel_ptr[base + 2] = result[1][2];
         } else |_| {
-            pos_ptr[base + 0] = 0;
-            pos_ptr[base + 1] = 0;
-            pos_ptr[base + 2] = 0;
-            vel_ptr[base + 0] = 0;
-            vel_ptr[base + 1] = 0;
-            vel_ptr[base + 2] = 0;
+            pos_ptr[base..][0..3].* = @splat(std.math.nan(f64));
+            vel_ptr[base..][0..3].* = @splat(std.math.nan(f64));
         }
     }
 }
