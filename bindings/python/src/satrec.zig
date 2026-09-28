@@ -619,9 +619,12 @@ pub fn pySdp4BatchPropagateInto(_: [*c]c.PyObject, args: [*c]c.PyObject, kwds: [
     }
 
     // Propagate in parallel using threads
-    const stride: usize = if (output_stride_arg > 0) @intCast(output_stride_arg) else num_sats;
+    // Default: satellite-major (n_sdp4, n_times, 3). With output_stride: time-major, strided.
+    const time_major = output_stride_arg > 0;
+    const stride: usize = if (time_major) @intCast(output_stride_arg) else num_sats;
     const offset: usize = @intCast(sat_offset_arg);
-    sdp4BatchPropagate(sdp4_ptrs, epochs, n_times, stride, offset, jd_ptr, fr_ptr, pos_ptr, vel_ptr);
+    const layout: astroz.Constellation.Layout = if (time_major) .timeMajor else .satelliteMajor;
+    sdp4BatchPropagate(sdp4_ptrs, epochs, n_times, stride, offset, layout, jd_ptr, fr_ptr, pos_ptr, vel_ptr);
 
     return py.none();
 }
@@ -634,6 +637,7 @@ fn sdp4BatchPropagate(
     n_times: usize,
     output_stride: usize,
     sat_offset: usize,
+    layout: astroz.Constellation.Layout,
     jd_ptr: [*]const f64,
     fr_ptr: [*]const f64,
     pos_ptr: [*]f64,
@@ -680,7 +684,7 @@ fn sdp4BatchPropagate(
         pos_ptr[0..out_size],
         vel_ptr[0..out_size],
         .teme,
-        .timeMajor,
+        layout,
     ) catch return;
 }
 

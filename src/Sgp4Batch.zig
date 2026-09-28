@@ -145,15 +145,17 @@ pub fn propagateBatchDirect(comptime N: usize, el: *const BatchElements(N), tsin
     templ = @select(f64, hoMask, templ + el.t3cof * t3 + t4 * (el.t4cof + tsince * el.t5cof), templ);
 
     const am = el.aBase * tempa * tempa;
-    const em = @max(el.ecco - tempe, eccFloor);
-
-    if (@reduce(.Or, em < eccFloor)) return Error.SatelliteDecayed;
+    const emRaw = el.ecco - tempe;
+    // Vallado error 1: mean eccentricity out of range. Flag per lane; never fail the batch.
+    const bad = @select(bool, emRaw >= one, @as(@Vector(N, bool), @splat(true)), emRaw < @as(Vec, @splat(-0.001)));
+    const em = @max(@select(f64, bad, eccFloor, emRaw), eccFloor);
 
     mm = simdMath.modTwoPiN(N, mm + el.noUnkozai * templ);
     nodem = simdMath.modTwoPiN(N, nodem);
     argpm = simdMath.modTwoPiN(N, argpm);
 
-    return Sgp4.keplerAndPosVel(N, am, em, mm, argpm, nodem, el.inclo, el.aycof, el.xlcof, el.con41, el.x1mth2, el.x7thm1, el.sinio, el.cosio, el.xke, el.j2, el.radiusEarthKm, el.vkmpersec);
+    const pv = Sgp4.keplerAndPosVel(N, am, em, mm, argpm, nodem, el.inclo, el.aycof, el.xlcof, el.con41, el.x1mth2, el.x7thm1, el.sinio, el.cosio, el.xke, el.j2, el.radiusEarthKm, el.vkmpersec);
+    return Sgp4.maskInvalid(N, pv, bad, el.radiusEarthKm);
 }
 
 /// Test helper: propagate N satellites at a single time, returns PosVelArray
@@ -186,6 +188,34 @@ test "SIMD matches scalar" {
                 try std.testing.expectApproxEqAbs(scalar[0][j], simd[i][0][j], 1e-3);
                 try std.testing.expectApproxEqAbs(scalar[1][j], simd[i][1][j], 1e-6);
             }
+        }
+    }
+}
+
+test "failing lane is NaN and does not affect the rest of the batch" {
+    const allocator = std.testing.allocator;
+    const tleStrs = [_][]const u8{
+        "1 25544U 98067A   24127.82853009  .00015698  00000+0  27310-3 0  9995\n2 25544  51.6393 160.4574 0003580 140.6673 205.7250 15.50957674452123",
+        // High-drag object below the surface (Vallado error 6) by tsince = 4440 min
+        "1 34861U 93036ACF 26267.79130228  .03431856  16253-1  59548-2 0  9999\n2 34861  73.9678 163.3115 0018652 175.7729 244.8366 16.04748491924590",
+        "1 55909U 23035B   24187.51050877  .00023579  00000+0  16099-2 0  9998\n2 55909  43.9978 311.8012 0011446 278.6226  81.3336 15.05761711 71371",
+        "1 55910U 23035C   24187.17717543  .00022897  00000+0  15695-2 0  9993\n2 55910  43.9975 313.1680 0011485 277.1866  82.7988 15.05748091 71356",
+    };
+
+    var tles: [4]Tle = undefined;
+    defer for (&tles) |*t| t.deinit();
+    for (0..4) |i| tles[i] = try Tle.parse(tleStrs[i], allocator);
+
+    const els = try initBatchElements(4, tles, constants.wgs84);
+    const t = 4440.0;
+    const simd = try testPropagateSatellites(4, &els, t);
+
+    for (0..3) |j| try std.testing.expect(std.math.isNan(simd[1][0][j]));
+    for ([_]usize{ 0, 2, 3 }) |i| {
+        const scalar = try (try Sgp4.init(tles[i], constants.wgs84)).propagate(t);
+        for (0..3) |j| {
+            try std.testing.expectApproxEqAbs(scalar[0][j], simd[i][0][j], 1e-3);
+            try std.testing.expectApproxEqAbs(scalar[1][j], simd[i][1][j], 1e-6);
         }
     }
 }

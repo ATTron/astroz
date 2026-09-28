@@ -176,7 +176,7 @@ class Satrec:
         r = np.empty((n, 3), dtype=np.float64)
         v = np.empty((n, 3), dtype=np.float64)
         self._native.sgp4_array_into(jd, fr, r, v)
-        e = np.zeros(n, dtype=np.uint8)
+        e = np.where(np.isnan(r[:, 0]), 6, 0).astype(np.uint8)
         return e, r, v
 
     def __getattr__(self, name):
@@ -317,6 +317,7 @@ class SatrecArray:
                     if velocities
                     else np.zeros((n_sats, n_times, 3), dtype=np.float64)
                 )
+                e[np.isnan(r[..., 0])] = 6
                 return e, r, v
             else:
                 # Mixed: propagate SGP4 batch, scatter to correct indices
@@ -356,6 +357,8 @@ class SatrecArray:
             if velocities:
                 v[sdp4_idx] = sdp4_v
 
+        # Failed propagations come back as NaN; report them like python-sgp4 (6 = decayed)
+        e[np.isnan(r[..., 0])] = 6
         return e, r, v
 
 

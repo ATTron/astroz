@@ -289,19 +289,19 @@ pub fn propagateBatchDirect(comptime N: usize, el: *const Sdp4BatchElements(N), 
     }
 
     // Step 3: Compute semi major axis and mean motion
-    const nm_bad = nm <= zero;
-    if (@reduce(.Or, nm_bad)) return Error.SatelliteDecayed;
+    // Failures are flagged per lane (NaN output) so one bad satellite never affects its batch
+    const trueV: @Vector(N, bool) = @splat(true);
+    var bad = nm <= zero;
+    nm = @select(f64, bad, el.noUnkozai, nm);
 
     const am = simdMath.pow23N(N, el.xke / nm) * tempa * tempa;
     nm = el.xke / simdMath.pow15N(N, am);
     em = em - tempe;
 
     const eccFloor: Vec = @splat(1.0e-6);
-    const em_bad = em >= one;
-    if (@reduce(.Or, em_bad)) return Error.InvalidEccentricity;
-    em = @max(em, eccFloor);
-    const am_bad = am < @as(Vec, @splat(0.95));
-    if (@reduce(.Or, am_bad)) return Error.SatelliteDecayed;
+    bad = @select(bool, em >= one, trueV, bad);
+    bad = @select(bool, am < @as(Vec, @splat(0.95)), trueV, bad);
+    em = @select(f64, bad, eccFloor, @max(em, eccFloor));
 
     mm = mm + el.noUnkozai * templ;
     const xlm = mm + argpm + nodem;
@@ -320,8 +320,8 @@ pub fn propagateBatchDirect(comptime N: usize, el: *const Sdp4BatchElements(N), 
     argpm = @select(f64, neg_incl, argpm - piV, argpm);
 
     em = @max(em, eccFloor);
-    const em_bad2 = em >= one;
-    if (@reduce(.Or, em_bad2)) return Error.InvalidEccentricity;
+    bad = @select(bool, em >= one, trueV, bad);
+    em = @select(f64, bad, eccFloor, em);
 
     // Step 5: Recompute inclination dependent terms (per lane, dpper modifies inclination)
     const sinip = simdMath.sinN(N, inclm);
@@ -339,7 +339,8 @@ pub fn propagateBatchDirect(comptime N: usize, el: *const Sdp4BatchElements(N), 
     const x7thm1 = seven * cosip2 - one;
 
     // Steps 6-8: Kepler solver + short-period corrections + position/velocity (shared with SGP4)
-    return Sgp4.keplerAndPosVel(N, am, em, mm, argpm, nodem, inclm, aycof, xlcof, con41, x1mth2, x7thm1, sinip, cosip, el.xke, el.j2, el.radiusEarthKm, el.vkmpersec);
+    const pv = Sgp4.keplerAndPosVel(N, am, em, mm, argpm, nodem, inclm, aycof, xlcof, con41, x1mth2, x7thm1, sinip, cosip, el.xke, el.j2, el.radiusEarthKm, el.vkmpersec);
+    return Sgp4.maskInvalid(N, pv, bad, el.radiusEarthKm);
 }
 
 /// Compute resonance acceleration for a heterogeneous batch.

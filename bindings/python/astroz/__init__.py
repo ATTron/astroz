@@ -114,6 +114,7 @@ from ._astroz import (
     Satrec as _Satrec,
     Sgp4Constellation as _Sgp4Constellation,
     coarse_screen as _coarse_screen,
+    sdp4_batch_propagate_into as _sdp4_batch_propagate_into,
     hohmann_transfer,
     bi_elliptic_transfer,
     lambert,
@@ -527,6 +528,21 @@ def propagate(
             output=output,
             reference_jd=start,
             time_major=True,
+        )
+
+    # SDP4 batch: positions [n_sgp4, n_sats), time-major with full-width stride
+    if const._sdp4_satrecs:
+        if output != "teme":
+            raise NotImplementedError("deep-space (SDP4) satellites currently support output='teme' only")
+        vel_out = vel if velocities else np.empty(shape, dtype=np.float64)
+        _sdp4_batch_propagate_into(
+            const._sdp4_satrecs,
+            np.full(n_times, start),
+            times / 1440.0,
+            pos,
+            vel_out,
+            output_stride=n_sats,
+            sat_offset=n_sgp4,
         )
 
     return (pos, vel) if velocities else pos

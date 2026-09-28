@@ -641,6 +641,23 @@ pub fn pvToArrays(comptime N: usize, pv: PositionVelocity(N)) PosVelArray(N) {
     return results;
 }
 
+/// Set lanes flagged `bad`, or whose position is below the Earth's surface
+/// (Vallado error 6), to NaN so one failing satellite never affects its batch.
+pub fn maskInvalid(comptime N: usize, pv: PositionVelocity(N), bad: @Vector(N, bool), radiusEarthKm: simdMath.VecN(N)) PositionVelocity(N) {
+    const Vec = simdMath.VecN(N);
+    const nan: Vec = @splat(std.math.nan(f64));
+    const r2 = pv.rx * pv.rx + pv.ry * pv.ry + pv.rz * pv.rz;
+    const invalid = @select(bool, bad, @as(@Vector(N, bool), @splat(true)), r2 < radiusEarthKm * radiusEarthKm);
+    return .{
+        .rx = @select(f64, invalid, nan, pv.rx),
+        .ry = @select(f64, invalid, nan, pv.ry),
+        .rz = @select(f64, invalid, nan, pv.rz),
+        .vx = @select(f64, invalid, nan, pv.vx),
+        .vy = @select(f64, invalid, nan, pv.vy),
+        .vz = @select(f64, invalid, nan, pv.vz),
+    };
+}
+
 /// Solve Kepler's equation, apply short period corrections, and compute position/velocity.
 /// Shared between SGP4 and SDP4 propagation (scalar-time and cross-satellite batch).
 pub fn keplerAndPosVel(
