@@ -742,7 +742,7 @@ fn dpper(
         const dbet = -ph * sinop + pinc * cosip * cosop;
         alfdp += dalf;
         betdp += dbet;
-        nodep.* = @mod(nodep.*, constants.twoPi);
+        nodep.* = @rem(nodep.*, constants.twoPi);
         const xls = mp.* + argpp.* + cosip * nodep.*;
         const dls = pl + pgh - pinc * nodep.* * sinip;
         const xnoh = nodep.*;
@@ -922,9 +922,11 @@ fn propagateElementsCarry(el: *const Elements, tsince: f64, carry: *ResonanceCar
 
     var mm = ds.mm + sgp4El.noUnkozai * templ;
     const xlm = mm + ds.argpm + ds.nodem;
-    var nodem = @mod(ds.nodem, constants.twoPi);
-    var argpm = @mod(ds.argpm, constants.twoPi);
-    mm = @mod(xlm - argpm - nodem, constants.twoPi);
+    // Vallado uses C fmod (sign-preserving) here and in dpper; the Lyddane
+    // branch (inclination < 0.2 rad) depends on it for nodes near zero.
+    var nodem = @rem(ds.nodem, constants.twoPi);
+    var argpm = @rem(ds.argpm, constants.twoPi);
+    mm = @rem(@rem(xlm, constants.twoPi) - argpm - nodem, constants.twoPi);
     var inclm = ds.inclm;
 
     dpper(el, tsince, &em, &inclm, &nodem, &argpm, &mm);
@@ -934,8 +936,9 @@ fn propagateElementsCarry(el: *const Elements, tsince: f64, carry: *ResonanceCar
         nodem += std.math.pi;
         argpm -= std.math.pi;
     }
+    // Vallado error 3: perturbed eccentricity out of [0, 1] (check before flooring)
+    if (em < 0.0 or em > 1.0) return Error.InvalidEccentricity;
     if (em < 1.0e-6) em = 1.0e-6;
-    if (em >= 1.0) return Error.InvalidEccentricity;
 
     const sinip = @sin(inclm);
     const cosip = @cos(inclm);
@@ -1253,7 +1256,7 @@ fn dpperN(
     const dbet = -ph * sinop + pinc * cosip * cosop;
     alfdp = alfdp + dalf;
     betdp = betdp + dbet;
-    const nodep_mod = simdMath.modTwoPiN(N, nodep.*);
+    const nodep_mod = simdMath.fmodTwoPiN(N, nodep.*);
     const xls = mp.* + argpp.* + cosip * nodep_mod;
     const dls = pl + pgh - pinc * nodep_mod * sinip;
     const xnoh = nodep_mod;
@@ -1344,7 +1347,7 @@ pub fn propagateN(self: *const Sdp4, comptime N: usize, times: [N]f64) Error!Sgp
     var em = ds.em - tempe;
 
     const eccFloor: Vec = @splat(1.0e-6);
-    const em_bad = em >= one;
+    const em_bad = (em >= one) | (em < @as(Vec, @splat(-0.001)));
     if (@reduce(.Or, em_bad)) return Error.InvalidEccentricity;
     em = @max(em, eccFloor);
     const am_bad = am < @as(Vec, @splat(0.95));
@@ -1352,9 +1355,9 @@ pub fn propagateN(self: *const Sdp4, comptime N: usize, times: [N]f64) Error!Sgp
 
     var mm = ds.mm + noUnkozaiV * templ;
     const xlm = mm + ds.argpm + ds.nodem;
-    var nodem = simdMath.modTwoPiN(N, ds.nodem);
-    var argpm = simdMath.modTwoPiN(N, ds.argpm);
-    mm = simdMath.modTwoPiN(N, xlm - argpm - nodem);
+    var nodem = simdMath.fmodTwoPiN(N, ds.nodem);
+    var argpm = simdMath.fmodTwoPiN(N, ds.argpm);
+    mm = simdMath.fmodTwoPiN(N, simdMath.fmodTwoPiN(N, xlm) - argpm - nodem);
     var inclm = ds.inclm;
 
     // Step 4: Deep space periodic perturbations
@@ -1367,9 +1370,10 @@ pub fn propagateN(self: *const Sdp4, comptime N: usize, times: [N]f64) Error!Sgp
     nodem = @select(f64, neg_incl, nodem + piV, nodem);
     argpm = @select(f64, neg_incl, argpm - piV, argpm);
 
-    em = @max(em, eccFloor);
-    const em_bad2 = em >= one;
+    // Vallado error 3: perturbed eccentricity out of [0, 1] (check before flooring)
+    const em_bad2 = (em > one) | (em < zero);
     if (@reduce(.Or, em_bad2)) return Error.InvalidEccentricity;
+    em = @max(em, eccFloor);
 
     // Step 5: Recompute inclination-dependent terms (per-lane)
     const sinip = simdMath.sinN(N, inclm);
@@ -1388,7 +1392,7 @@ pub fn propagateN(self: *const Sdp4, comptime N: usize, times: [N]f64) Error!Sgp
     const x7thm1 = seven * cosip2 - one;
 
     // Steps 6-8: Kepler solver + short-period corrections + position/velocity (shared with SGP4)
-    return Sgp4.pvToArrays(N, Sgp4.keplerAndPosVel(
+    return Sgp4.aboveSurfaceN(N, Sgp4.keplerAndPosVel(
         N,
         am,
         em,
@@ -1407,7 +1411,7 @@ pub fn propagateN(self: *const Sdp4, comptime N: usize, times: [N]f64) Error!Sgp
         @as(Vec, @splat(sgp4El.grav.j2)),
         @as(Vec, @splat(sgp4El.grav.radiusEarthKm)),
         @as(Vec, @splat(sgp4El.vkmpersec)),
-    ));
+    ), sgp4El.grav.radiusEarthKm);
 }
 
 const testing = std.testing;

@@ -121,6 +121,14 @@ pub fn modTwoPiN(comptime N: usize, x: VecN(N)) VecN(N) {
     return result;
 }
 
+/// Truncated remainder by 2*pi (C fmod semantics: result keeps the sign of x).
+/// SDP4 must use this where Vallado uses fmod; the Lyddane terms depend on the sign.
+pub fn fmodTwoPiN(comptime N: usize, x: VecN(N)) VecN(N) {
+    const Vec = VecN(N);
+    const twoPiVec: Vec = @splat(constants.twoPi);
+    return x - @trunc(x / twoPiVec) * twoPiVec;
+}
+
 /// Vectorized atan2 using polynomial approximation for the principal value
 /// with quadrant correction. Accurate to ~1e-7 radians, sufficient for SGP4
 pub fn atan2N(comptime N: usize, y: VecN(N), x: VecN(N)) VecN(N) {
