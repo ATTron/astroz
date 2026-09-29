@@ -494,15 +494,20 @@ inline fn writeOutput(
             const origIdx = origIndices[base + lane];
             const ob = outBase(layout, @as(usize, origIdx), timeIdx, ctx.numTimes, ctx.numSatellites);
             ctx.resultsPos[ob..][0..3].* = switch (mode) {
-                .geodetic => WCS.ecefToGeodetic(eciToEcef(results[lane][0], sinG, cosG)),
+                .geodetic => WCS.ecefToGeodeticDeg(eciToEcef(results[lane][0], sinG, cosG)),
                 .ecef => eciToEcef(results[lane][0], sinG, cosG),
                 .teme => results[lane][0],
             };
             if (hasVel) {
-                ctx.resultsVel.?[ob..][0..3].* = if (mode != .teme)
-                    eciToEcef(results[lane][1], sinG, cosG)
-                else
-                    results[lane][1];
+                ctx.resultsVel.?[ob..][0..3].* = if (mode != .teme) blk: {
+                    // Velocity in the rotating frame: rotate, then remove the
+                    // frame's own motion (omega x r). Without this a GEO bird
+                    // shows ~3 km/s in ECEF instead of ~0.
+                    const p = eciToEcef(results[lane][0], sinG, cosG);
+                    const v = eciToEcef(results[lane][1], sinG, cosG);
+                    const w = constants.earth.rotationRate;
+                    break :blk .{ v[0] + w * p[1], v[1] - w * p[0], v[2] };
+                } else results[lane][1];
             }
         }
     }
@@ -961,4 +966,26 @@ test "ECEF output mode" {
         try testing.expectApproxEqAbs(ey, posEcef[ob + 1], 1e-6);
         try testing.expectApproxEqAbs(posTeme[ob + 2], posEcef[ob + 2], 1e-6);
     }
+
+    // ECEF velocity is the time derivative of the ECEF track, so a 1 s
+    // finite difference must match it (LEO acceleration bounds the error at
+    // ~0.005 km/s over half a second) and the GEO bird must sit nearly still.
+    const dtDays = 1.0 / 86400.0;
+    const jd2 = [_]f64{ @floor(epoch), @floor(epoch) };
+    const fr2 = [_]f64{ epoch - @floor(epoch), epoch - @floor(epoch) + dtDays };
+    var pos2: [2 * 3 * 3]f64 = undefined;
+    var vel2: [2 * 3 * 3]f64 = undefined;
+    c.resetCarry();
+    try c.propagate(&jd2, &fr2, &pos2, &vel2, .ecef, .timeMajor);
+    for (0..3) |sat| {
+        const a = sat * 3;
+        const b = 9 + sat * 3;
+        for (0..3) |k| {
+            const fd = pos2[b + k] - pos2[a + k];
+            try testing.expectApproxEqAbs(fd, vel2[a + k], 0.01);
+        }
+    }
+    const geo = 3;
+    const geoSpeed = @sqrt(vel2[geo] * vel2[geo] + vel2[geo + 1] * vel2[geo + 1] + vel2[geo + 2] * vel2[geo + 2]);
+    try testing.expect(geoSpeed < 0.1);
 }

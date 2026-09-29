@@ -287,6 +287,55 @@ def _start_jd(start_time):
     return 2440587.5 + (start_time.timestamp() / 86400.0)
 
 
+def _gmst_rad(jd):
+    """Mirror of WorldCoordinateSystem.julianToGmst for an array of Julian dates."""
+    d = np.asarray(jd, dtype=np.float64) - 2451545.0
+    t = d / 36525.0
+    gmst = 280.46061837 + 360.98564736629 * d + 0.000387933 * t * t - t * t * t / 38710000.0
+    return np.deg2rad(np.mod(gmst, 360.0))
+
+
+_EARTH_ROTATION_RATE = 7.2921150e-5  # rad/s, constants.earth.rotationRate
+_WGS84_A = 6378.137
+_WGS84_E2 = 6.69437999014e-3
+
+
+def _teme_to_ecef_into(pos, vel, jd, sats):
+    """Rotate pos[:, sats] (and vel) from TEME to ECEF in place. Velocity is
+    the derivative of the ECEF track (rotation minus omega x r), matching the
+    Zig writeOutput path."""
+    theta = _gmst_rad(jd)[:, None]
+    c, s = np.cos(theta), np.sin(theta)
+    p = pos[:, sats]
+    x, y = p[..., 0].copy(), p[..., 1].copy()
+    p[..., 0] = c * x + s * y
+    p[..., 1] = c * y - s * x
+    if vel is not None:
+        v = vel[:, sats]
+        vx, vy = v[..., 0].copy(), v[..., 1].copy()
+        v[..., 0] = c * vx + s * vy + _EARTH_ROTATION_RATE * p[..., 1]
+        v[..., 1] = c * vy - s * vx - _EARTH_ROTATION_RATE * p[..., 0]
+
+
+def _ecef_to_geodetic_into(pos, sats):
+    """WGS84 ECEF km -> (lat deg, lon deg, alt km) in place; mirrors
+    WorldCoordinateSystem.ecefToGeodeticDeg (iterative, 10 rounds)."""
+    p = pos[:, sats]
+    x, y, z = p[..., 0].copy(), p[..., 1].copy(), p[..., 2].copy()
+    lon = np.arctan2(y, x)
+    r = np.sqrt(x * x + y * y)
+    lat = np.arctan2(z, r * (1.0 - _WGS84_E2))
+    for _ in range(10):
+        sin_lat = np.sin(lat)
+        n = _WGS84_A / np.sqrt(1.0 - _WGS84_E2 * sin_lat * sin_lat)
+        lat = np.arctan2(z + _WGS84_E2 * n * sin_lat, r)
+    sin_lat = np.sin(lat)
+    n = _WGS84_A / np.sqrt(1.0 - _WGS84_E2 * sin_lat * sin_lat)
+    p[..., 0] = np.degrees(lat)
+    p[..., 1] = np.degrees(lon)
+    p[..., 2] = r / np.cos(lat) - n
+
+
 def _pad_epochs_for_simd(epochs_arr):
     """Pad epoch array to multiple of 8 for SIMD alignment."""
     n = len(epochs_arr)
@@ -528,12 +577,12 @@ def propagate(
             output=output,
             reference_jd=start,
             time_major=True,
+            output_stride=n_sats,
         )
 
-    # SDP4 batch: positions [n_sgp4, n_sats), time-major with full-width stride
+    # SDP4 batch: positions [n_sgp4, n_sats), time-major with full-width stride.
+    # The SDP4 kernel emits TEME; ECEF / geodetic are applied here in numpy.
     if const._sdp4_satrecs:
-        if output != "teme":
-            raise NotImplementedError("deep-space (SDP4) satellites currently support output='teme' only")
         vel_out = vel if velocities else np.empty(shape, dtype=np.float64)
         _sdp4_batch_propagate_into(
             const._sdp4_satrecs,
@@ -544,6 +593,11 @@ def propagate(
             output_stride=n_sats,
             sat_offset=n_sgp4,
         )
+        if output != "teme":
+            sdp4 = slice(n_sgp4, n_sats)
+            _teme_to_ecef_into(pos, vel, start + times / 1440.0, sdp4)
+            if output == "geodetic":
+                _ecef_to_geodetic_into(pos, sdp4)
 
     return (pos, vel) if velocities else pos
 
