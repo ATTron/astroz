@@ -2,9 +2,22 @@
 //! Fast vectorized trig functions that compute N values at once
 
 const std = @import("std");
+const builtin = @import("builtin");
 const constants = @import("constants.zig");
 
 pub const batchSize: usize = 8;
+
+const hasFma = switch (builtin.cpu.arch) {
+    .x86, .x86_64 => std.Target.x86.featureSetHas(builtin.cpu.features, .fma),
+    .aarch64, .aarch64_be => true,
+    else => false,
+};
+
+/// a * b + c. Fused where the CPU has FMA; elsewhere (e.g. wasm32, x86_64
+/// without FMA) @mulAdd becomes a slow software call per lane.
+pub inline fn mulAdd(comptime T: type, a: T, b: T, c: T) T {
+    return if (hasFma) @mulAdd(T, a, b, c) else a * b + c;
+}
 
 pub fn VecN(comptime N: usize) type {
     return @Vector(N, f64);
@@ -55,27 +68,27 @@ pub fn sincosN(comptime N: usize, angle: VecN(N)) SinCosN(N) {
     const roundMagic: Vec = @splat(6755399441055744.0);
     const kRounded = kFloat + roundMagic - roundMagic;
 
-    var reduced = @mulAdd(Vec, -piOver2Hi, kRounded, angle);
-    reduced = @mulAdd(Vec, -piOver2Lo, kRounded, reduced);
+    var reduced = mulAdd(Vec, -piOver2Hi, kRounded, angle);
+    reduced = mulAdd(Vec, -piOver2Lo, kRounded, reduced);
     const k: VecI = @trunc(kRounded);
 
     const r2 = reduced * reduced;
 
     // Sin polynomial: sin(r) ~= r + r^3*P(r^2)
-    var sinP = @mulAdd(Vec, sinC6, r2, sinC5);
-    sinP = @mulAdd(Vec, sinP, r2, sinC4);
-    sinP = @mulAdd(Vec, sinP, r2, sinC3);
-    sinP = @mulAdd(Vec, sinP, r2, sinC2);
-    sinP = @mulAdd(Vec, sinP, r2, sinC1);
-    const sinReduced = @mulAdd(Vec, sinP, r2 * reduced, reduced);
+    var sinP = mulAdd(Vec, sinC6, r2, sinC5);
+    sinP = mulAdd(Vec, sinP, r2, sinC4);
+    sinP = mulAdd(Vec, sinP, r2, sinC3);
+    sinP = mulAdd(Vec, sinP, r2, sinC2);
+    sinP = mulAdd(Vec, sinP, r2, sinC1);
+    const sinReduced = mulAdd(Vec, sinP, r2 * reduced, reduced);
 
     // Cos polynomial: cos(r) ~= 1 + r^2*P(r^2)
-    var cosP = @mulAdd(Vec, cosC6, r2, cosC5);
-    cosP = @mulAdd(Vec, cosP, r2, cosC4);
-    cosP = @mulAdd(Vec, cosP, r2, cosC3);
-    cosP = @mulAdd(Vec, cosP, r2, cosC2);
-    cosP = @mulAdd(Vec, cosP, r2, cosC1);
-    const cosReduced = @mulAdd(Vec, cosP, r2, one);
+    var cosP = mulAdd(Vec, cosC6, r2, cosC5);
+    cosP = mulAdd(Vec, cosP, r2, cosC4);
+    cosP = mulAdd(Vec, cosP, r2, cosC3);
+    cosP = mulAdd(Vec, cosP, r2, cosC2);
+    cosP = mulAdd(Vec, cosP, r2, cosC1);
+    const cosReduced = mulAdd(Vec, cosP, r2, one);
 
     // Quadrant correction
     const swap = (k & oneI) != @as(VecI, @splat(0));
@@ -108,7 +121,7 @@ pub fn modTwoPiN(comptime N: usize, x: VecN(N)) VecN(N) {
     const zero: Vec = @splat(0.0);
 
     const n = @floor(x * invTwoPiVec);
-    var result = @mulAdd(Vec, negTwoPiVec, n, x);
+    var result = mulAdd(Vec, negTwoPiVec, n, x);
     const mask = result < zero;
     result = @select(f64, mask, result + twoPiVec, result);
     return result;
@@ -152,14 +165,14 @@ pub fn atan2N(comptime N: usize, y: VecN(N), x: VecN(N)) VecN(N) {
     const c17: Vec = @splat(0.0028662257);
 
     var atanT = c17;
-    atanT = @mulAdd(Vec, atanT, t2, c15);
-    atanT = @mulAdd(Vec, atanT, t2, c13);
-    atanT = @mulAdd(Vec, atanT, t2, c11);
-    atanT = @mulAdd(Vec, atanT, t2, c9);
-    atanT = @mulAdd(Vec, atanT, t2, c7);
-    atanT = @mulAdd(Vec, atanT, t2, c5);
-    atanT = @mulAdd(Vec, atanT, t2, c3);
-    atanT = @mulAdd(Vec, atanT, t2, c1);
+    atanT = mulAdd(Vec, atanT, t2, c15);
+    atanT = mulAdd(Vec, atanT, t2, c13);
+    atanT = mulAdd(Vec, atanT, t2, c11);
+    atanT = mulAdd(Vec, atanT, t2, c9);
+    atanT = mulAdd(Vec, atanT, t2, c7);
+    atanT = mulAdd(Vec, atanT, t2, c5);
+    atanT = mulAdd(Vec, atanT, t2, c3);
+    atanT = mulAdd(Vec, atanT, t2, c1);
     atanT = atanT * t;
 
     const swapMask = absY > absX;

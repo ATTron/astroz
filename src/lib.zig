@@ -21,6 +21,7 @@ pub const Spice = @import("Spice.zig");
 pub const Sgp4 = @import("Sgp4.zig");
 pub const Sdp4 = @import("Sdp4.zig");
 pub const Satellite = @import("Satellite.zig");
+pub const Observer = @import("Observer.zig");
 pub const Constellation = @import("Constellation.zig");
 pub const Screening = @import("Screening.zig");
 pub const dispatch = @import("dispatch.zig");
