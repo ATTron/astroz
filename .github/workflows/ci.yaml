@@ -68,12 +68,8 @@ jobs:
       - name: Build extension
         run: |
           py_inc=$(python -c "import sysconfig; print(sysconfig.get_path('include'))")
-          py_libdir=$(python -c "import sysconfig; print(sysconfig.get_config_var('LIBDIR'))")
-          py_lib=$(python -c "import sys; print('python%d.%d' % sys.version_info[:2])")
           zig build python-bindings \
             -Dpython-include="$py_inc" \
-            -Dpython-lib="$py_lib" \
-            -Dpython-lib-path="$py_libdir" \
             -Doptimize=ReleaseFast
           cp zig-out/bindings/python/astroz/lib_astroz.so bindings/python/astroz/_astroz.so
 
