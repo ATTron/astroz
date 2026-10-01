@@ -1,7 +1,7 @@
 """Setup script for astroz Python bindings using Zig."""
 
+import os
 import subprocess
-import sys
 import sysconfig
 from pathlib import Path
 
@@ -15,11 +15,6 @@ class ZigBuildExt(build_ext):
     def build_extension(self, ext):
         # Get Python configuration
         python_include = sysconfig.get_path("include")
-        python_lib_dir = sysconfig.get_config_var("LIBDIR")
-
-        # Get Python library name (e.g., "python3.12")
-        py_version = f"{sys.version_info.major}.{sys.version_info.minor}"
-        python_lib = f"python{py_version}"
 
         # Get the output directory
         ext_fullpath = Path(self.get_ext_fullpath(ext.name))
@@ -38,13 +33,11 @@ class ZigBuildExt(build_ext):
             "-Doptimize=ReleaseFast",
         ]
 
-        # On non-macOS platforms, link against Python library
-        # On macOS, Python extensions should NOT link against the Python library -
-        # symbols resolve at runtime when loaded by the interpreter
-        if sys.platform != "darwin":
-            cmd.append(f"-Dpython-lib={python_lib}")
-            if python_lib_dir and Path(python_lib_dir).exists():
-                cmd.append(f"-Dpython-lib-path={python_lib_dir}")
+        # CI sets this (e.g. x86_64-linux-gnu.2.17) so wheels don't pick up the
+        # build machine's glibc and CPU
+        zig_target = os.environ.get("ASTROZ_ZIG_TARGET")
+        if zig_target:
+            cmd.append(f"-Dtarget={zig_target}")
 
         print(f"Building with: {' '.join(cmd)}")
         subprocess.check_call(cmd, cwd=project_root)

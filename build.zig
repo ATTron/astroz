@@ -48,8 +48,6 @@ pub fn build(b: *std.Build) void {
     const cspice_include = b.option([]const u8, "cspice-include", "Directory containing the CSPICE headers");
     const cspice_lib = b.option([]const u8, "cspice-lib", "Path to the CSPICE static archive (cspice.a)");
     const python_include = b.option([]const u8, "python-include", "Directory containing Python.h");
-    const python_lib = b.option([]const u8, "python-lib", "Python library to link (default: python3.12)") orelse "python3.12";
-    const python_lib_path = b.option([]const u8, "python-lib-path", "Directory containing the Python library");
 
     const build_options = b.addOptions();
     build_options.addOption(bool, "enable_cspice", enable_cspice);
@@ -144,9 +142,7 @@ pub fn build(b: *std.Build) void {
     //
     // Example with a uv-managed interpreter:
     //   zig build python-bindings -Doptimize=ReleaseFast \
-    //     -Dpython-include=$(uv run python -c "import sysconfig; print(sysconfig.get_path('include'))") \
-    //     -Dpython-lib-path=$(uv run python -c "import sysconfig; print(sysconfig.get_config_var('LIBDIR'))") \
-    //     -Dpython-lib=python3.12
+    //     -Dpython-include=$(uv run python -c "import sysconfig; print(sysconfig.get_path('include'))")
     const astroz_python = b.addModule("astroz_python", .{
         .root_source_file = b.path("src/lib.zig"),
         .target = target,
@@ -170,19 +166,15 @@ pub fn build(b: *std.Build) void {
         py_mod.addIncludePath(.{ .cwd_relative = "/usr/include/python3.12" });
         py_mod.addIncludePath(.{ .cwd_relative = "/usr/include/python3" });
     }
-    const is_macos = target.result.os.tag == .macos;
-    if (!is_macos) {
-        if (python_lib_path) |dir| py_mod.addLibraryPath(.{ .cwd_relative = dir });
-        py_mod.linkSystemLibrary(python_lib, .{});
-    }
     const py_lib = b.addLibrary(.{
         .linkage = .dynamic,
         .name = "_astroz",
         .root_module = py_mod,
         .use_llvm = use_llvm,
     });
-    // On macOS the interpreter provides the Python symbols at load time.
-    if (is_macos) py_lib.linker_allow_shlib_undefined = true;
+    // Python symbols come from the interpreter at load time; manylinux Pythons
+    // have no libpython.so to link against.
+    py_lib.linker_allow_shlib_undefined = true;
     oma.addMultiVersion(oma_dep, py_lib, .{ .source = kernels_src, .pic = true });
     const py_step = b.step("python-bindings", "Build the Python extension module");
     py_step.dependOn(&b.addInstallArtifact(py_lib, .{

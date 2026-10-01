@@ -37,3 +37,18 @@ where = ["."]
 
 [tool.setuptools.package-data]
 astroz = ["*.so", "*.dylib", "*.pyd", "py.typed", "*.pyi"]
+
+[tool.cibuildwheel]
+build = "cp310-* cp311-* cp312-* cp313-* cp314-*"
+skip = "*-musllinux_*"
+test-command = "python -c \"import astroz\""
+
+[tool.cibuildwheel.linux]
+# glibc 2.17 so the wheel also loads on Lambda's Amazon Linux 2 runtimes (glibc 2.26)
+before-all = "curl -sSL https://ziglang.org/download/0.16.0/zig-$(uname -m)-linux-0.16.0.tar.xz | tar -xJ -C /opt && ln -s /opt/zig-$(uname -m)-linux-0.16.0/zig /usr/local/bin/zig"
+environment = { ASTROZ_ZIG_TARGET = "$(uname -m)-linux-gnu.2.17" }
+repair-wheel-command = "auditwheel repair --plat manylinux2014_$(uname -m) -w {dest_dir} {wheel}"
+
+[tool.cibuildwheel.macos]
+archs = ["arm64"]
+environment = { ASTROZ_ZIG_TARGET = "aarch64-macos.13.0", MACOSX_DEPLOYMENT_TARGET = "13.0" }

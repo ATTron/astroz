@@ -7,67 +7,21 @@ on:
 
 jobs:
   build_wheels:
-    name: Build wheels (${{ matrix.os }}, Python ${{ matrix.python }})
+    name: Build wheels (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        include:
-          # Linux x86_64
-          - os: ubuntu-latest
-            python: '3.14'
-            target: linux-x86_64
-          - os: ubuntu-latest
-            python: '3.13'
-            target: linux-x86_64
-          - os: ubuntu-latest
-            python: '3.12'
-            target: linux-x86_64
-          - os: ubuntu-latest
-            python: '3.11'
-            target: linux-x86_64
-          - os: ubuntu-latest
-            python: '3.10'
-            target: linux-x86_64
-          # Linux aarch64 (Graviton, Apple Silicon containers)
-          - os: ubuntu-24.04-arm
-            python: '3.14'
-            target: linux-aarch64
-          - os: ubuntu-24.04-arm
-            python: '3.13'
-            target: linux-aarch64
-          - os: ubuntu-24.04-arm
-            python: '3.12'
-            target: linux-aarch64
-          - os: ubuntu-24.04-arm
-            python: '3.11'
-            target: linux-aarch64
-          - os: ubuntu-24.04-arm
-            python: '3.10'
-            target: linux-aarch64
-          # macOS ARM64
-          - os: macos-latest
-            python: '3.14'
-            target: macos-arm64
-          - os: macos-latest
-            python: '3.13'
-            target: macos-arm64
-          - os: macos-latest
-            python: '3.12'
-            target: macos-arm64
-          - os: macos-latest
-            python: '3.11'
-            target: macos-arm64
+        # cibuildwheel builds and tests every Python version per OS;
+        # settings live in bindings/python/pyproject.toml
+        os: [ubuntu-latest, ubuntu-24.04-arm, macos-latest]
 
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: ${{ matrix.python }}
-
+      # Linux gets Zig inside the build container instead (before-all)
       - name: Set up Zig
+        if: runner.os == 'macOS'
         uses: mlugg/setup-zig@v2
         with:
           version: 0.16.0
@@ -79,104 +33,49 @@ jobs:
           else
             VERSION="0.0.0.dev"
           fi
-          sed -i.bak "s/version = \".*\"/version = \"$VERSION\"/" bindings/python/pyproject.toml
+          sed -i.bak "s/^version = \".*\"/version = \"$VERSION\"/" bindings/python/pyproject.toml
           sed -i.bak "s/__version__ = \".*\"/__version__ = \"$VERSION\"/" bindings/python/astroz/__init__.py
-          echo "VERSION=$VERSION" >> $GITHUB_ENV
 
-      - name: Build Python bindings
-        run: |
-          PYTHON_INCLUDE=$(python -c "import sysconfig; print(sysconfig.get_path('include'))")
-          PYTHON_LIBDIR=$(python -c "import sysconfig; print(sysconfig.get_config_var('LIBDIR'))")
-          PYTHON_LIB=$(python -c "import sys; print(f'python{sys.version_info.major}.{sys.version_info.minor}')")
-          echo "Python include: $PYTHON_INCLUDE"
-          echo "Python libdir: $PYTHON_LIBDIR"
-          echo "Python lib: $PYTHON_LIB"
-
-          # On macOS, don't link against Python library - symbols resolve at load time.
-          # On Linux, pin the target explicitly: without -Dtarget Zig compiles for
-          # the runner's own CPU and glibc (AVX-512 baseline, glibc 2.39 on
-          # ubuntu-latest), and the wheel then SIGILLs on non-AVX-512 hosts and
-          # refuses to load on glibc < 2.36 (Amazon Linux 2023 has 2.34).
-          # glibc 2.28 = manylinux_2_28; a baseline CPU keeps the wheel portable
-          # while oma still dispatches to AVX2/AVX-512/SVE at runtime.
-          if [[ "$RUNNER_OS" == "macOS" ]]; then
-            zig build python-bindings \
-              -Dpython-include="$PYTHON_INCLUDE" \
-              -Doptimize=ReleaseFast
-          else
-            zig build python-bindings \
-              -Dtarget="$(uname -m)-linux-gnu.2.28" \
-              -Dpython-include="$PYTHON_INCLUDE" \
-              -Dpython-lib="$PYTHON_LIB" \
-              -Dpython-lib-path="$PYTHON_LIBDIR" \
-              -Doptimize=ReleaseFast
-          fi
-
-      - name: Copy built library
-        run: |
-          ls -la zig-out/bindings/python/astroz/
-          # Zig builds lib_astroz.so (Linux) or lib_astroz.dylib (macOS)
-          if [ -f zig-out/bindings/python/astroz/lib_astroz.so ]; then
-            cp zig-out/bindings/python/astroz/lib_astroz.so bindings/python/astroz/_astroz.so
-          elif [ -f zig-out/bindings/python/astroz/lib_astroz.dylib ]; then
-            cp zig-out/bindings/python/astroz/lib_astroz.dylib bindings/python/astroz/_astroz.so
-          else
-            echo "ERROR: Could not find built library"
-            exit 1
-          fi
-
-      - name: Install build tools
-        run: pip install build wheel
-
-      - name: Build wheel
-        run: |
-          cd bindings/python
-          python -m build --wheel
-
-      - name: Repair wheel (Linux)
-        if: runner.os == 'Linux'
-        run: |
-          pip install auditwheel patchelf
-          auditwheel repair bindings/python/dist/*.whl -w bindings/python/dist/repaired/ || true
-          if [ -d "bindings/python/dist/repaired" ] && [ "$(ls -A bindings/python/dist/repaired/)" ]; then
-            rm bindings/python/dist/*.whl
-            mv bindings/python/dist/repaired/*.whl bindings/python/dist/
-          fi
-
-      - name: Test wheel
-        run: |
-          pip install bindings/python/dist/*.whl
-          python -c "from astroz import Tle, Constellation, propagate, __version__; print(f'astroz {__version__}')"
-          python -c "
-          from astroz import Tle, propagate
-          tle_text = '1 25544U 98067A   24127.82853009  .00015698  00000+0  27310-3 0  9995\n2 25544  51.6393 160.4574 0003580 140.6673 205.7250 15.50957674452123'
-          tle = Tle(tle_text)
-          pos = propagate(tle_text, [30.0])
-          print(f'Position: {pos[0, 0]}')
-          "
-          python -c "
-          from astroz.api import Satrec, SatrecArray, jday, WGS72
-          import numpy as np
-          line1 = '1 25544U 98067A   24127.82853009  .00015698  00000+0  27310-3 0  9995'
-          line2 = '2 25544  51.6393 160.4574 0003580 140.6673 205.7250 15.50957674452123'
-          sat = Satrec.twoline2rv(line1, line2, WGS72)
-          jd, fr = jday(2024, 5, 6, 12, 0, 0.0)
-          e, r, v = sat.sgp4(jd, fr)
-          print(f'astroz.api: pos=({r[0]:.1f}, {r[1]:.1f}, {r[2]:.1f})')
-          arr = SatrecArray([sat])
-          e, r, v = arr.sgp4(np.array([jd]), np.array([fr]))
-          print(f'SatrecArray: shape={r.shape}')
-          "
-
-      - name: Upload wheels
-        uses: actions/upload-artifact@v4
+      - uses: pypa/cibuildwheel@v4.2.1
         with:
-          name: wheel-${{ matrix.target }}-py${{ matrix.python }}
-          path: bindings/python/dist/*.whl
+          package-dir: bindings/python
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wheels-${{ matrix.os }}
+          path: wheelhouse/*.whl
+
+  # Make sure the wheels install on real Lambda images. 3.10 runs on Amazon
+  # Linux 2 (glibc 2.26), 3.14 on Amazon Linux 2023.
+  test_lambda:
+    name: Lambda (${{ matrix.os }}, Python ${{ matrix.python }})
+    needs: [build_wheels]
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, ubuntu-24.04-arm]
+        python: ['3.10', '3.14']
+
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: wheels-${{ matrix.os }}
+          path: dist
+
+      - name: Install and import in Lambda base image
+        run: |
+          docker run --rm --entrypoint /bin/bash \
+            -v "$PWD/dist:/dist:ro" \
+            public.ecr.aws/lambda/python:${{ matrix.python }} \
+            -c 'set -e
+                pip install --quiet --only-binary=:all: --target /tmp/pkg numpy
+                pip install --quiet --no-index --no-deps --find-links /dist --target /tmp/pkg astroz
+                PYTHONPATH=/tmp/pkg python -c "import astroz"'
 
   publish:
     name: Publish to PyPI
-    needs: [build_wheels]
+    needs: [build_wheels, test_lambda]
     runs-on: ubuntu-latest
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
 
@@ -186,7 +85,7 @@ jobs:
     steps:
       - uses: actions/download-artifact@v4
         with:
-          pattern: wheel-*
+          pattern: wheels-*
           path: dist
           merge-multiple: true
 
