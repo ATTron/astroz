@@ -35,3 +35,7 @@ uv.lock
 bindings/python/astroz/*.so
 bindings/python/astroz/*.dylib
 bindings/python/astroz/*.pyd
+
+# JavaScript bindings
+bindings/javascript/node_modules/
+bindings/javascript/src/wasm.ts
