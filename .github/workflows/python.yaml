@@ -29,6 +29,22 @@ jobs:
           - os: ubuntu-latest
             python: '3.10'
             target: linux-x86_64
+          # Linux aarch64 (Graviton, Apple Silicon containers)
+          - os: ubuntu-24.04-arm
+            python: '3.14'
+            target: linux-aarch64
+          - os: ubuntu-24.04-arm
+            python: '3.13'
+            target: linux-aarch64
+          - os: ubuntu-24.04-arm
+            python: '3.12'
+            target: linux-aarch64
+          - os: ubuntu-24.04-arm
+            python: '3.11'
+            target: linux-aarch64
+          - os: ubuntu-24.04-arm
+            python: '3.10'
+            target: linux-aarch64
           # macOS ARM64
           - os: macos-latest
             python: '3.14'
@@ -76,13 +92,20 @@ jobs:
           echo "Python libdir: $PYTHON_LIBDIR"
           echo "Python lib: $PYTHON_LIB"
 
-          # On macOS, don't link against Python library - symbols resolve at load time
+          # On macOS, don't link against Python library - symbols resolve at load time.
+          # On Linux, pin the target explicitly: without -Dtarget Zig compiles for
+          # the runner's own CPU and glibc (AVX-512 baseline, glibc 2.39 on
+          # ubuntu-latest), and the wheel then SIGILLs on non-AVX-512 hosts and
+          # refuses to load on glibc < 2.36 (Amazon Linux 2023 has 2.34).
+          # glibc 2.28 = manylinux_2_28; a baseline CPU keeps the wheel portable
+          # while oma still dispatches to AVX2/AVX-512/SVE at runtime.
           if [[ "$RUNNER_OS" == "macOS" ]]; then
             zig build python-bindings \
               -Dpython-include="$PYTHON_INCLUDE" \
               -Doptimize=ReleaseFast
           else
             zig build python-bindings \
+              -Dtarget="$(uname -m)-linux-gnu.2.28" \
               -Dpython-include="$PYTHON_INCLUDE" \
               -Dpython-lib="$PYTHON_LIB" \
               -Dpython-lib-path="$PYTHON_LIBDIR" \
