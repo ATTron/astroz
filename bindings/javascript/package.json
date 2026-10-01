@@ -1,0 +1,36 @@
+{
+  "name": "astroz",
+  "version": "0.14.0",
+  "description": "Fast SGP4/SDP4 satellite propagation and look angles, compiled from Zig to WebAssembly",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": ["dist"],
+  "scripts": {
+    "build:wasm": "cd ../.. && zig build wasm && bun bindings/javascript/embed-wasm.ts",
+    "build": "bun run build:wasm && tsc",
+    "test": "bun test",
+    "prepublishOnly": "bun run build && bun test"
+  },
+  "keywords": ["sgp4", "sdp4", "tle", "satellite", "orbit", "propagation", "look angles", "wasm", "astrodynamics"],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ATTron/astroz.git",
+    "directory": "bindings/javascript"
+  },
+  "homepage": "https://github.com/ATTron/astroz/tree/main/bindings/javascript#readme",
+  "engines": {
+    "node": ">=18"
+  },
+  "devDependencies": {
+    "satellite.js": "^7.1.0",
+    "typescript": "^5.6.0"
+  }
+}

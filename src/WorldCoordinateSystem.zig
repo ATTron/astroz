@@ -94,6 +94,32 @@ pub fn eciToEcefGmst(eci: Vector3, gmst: f64) Vector3 {
     };
 }
 
+/// convert a TEME position and velocity to ECEF using GMST. Velocity is the
+/// derivative of the ECEF track (rotation minus omega x r).
+pub fn temeToEcef(pos: Vector3, vel: Vector3, gmst: f64) [2]Vector3 {
+    return temeToEcefSinCos(pos, vel, @sin(gmst), @cos(gmst));
+}
+
+/// temeToEcef with sin/cos of GMST precomputed, for many states at one time.
+pub fn temeToEcefSinCos(pos: Vector3, vel: Vector3, sinGmst: f64, cosGmst: f64) [2]Vector3 {
+    const r = Vector3{ pos[0] * cosGmst + pos[1] * sinGmst, -pos[0] * sinGmst + pos[1] * cosGmst, pos[2] };
+    const v = Vector3{ vel[0] * cosGmst + vel[1] * sinGmst, -vel[0] * sinGmst + vel[1] * cosGmst, vel[2] };
+    const w = constants.earth.rotationRate;
+    return .{ r, .{ v[0] + w * r[1], v[1] - w * r[0], v[2] } };
+}
+
+/// convert geodetic coordinates (WGS84, radians and km) to ECEF.
+pub fn geodeticToEcef(lat: f64, lon: f64, alt: f64) Vector3 {
+    const sinLat = @sin(lat);
+    const cosLat = @cos(lat);
+    const n = wgs84A / @sqrt(1.0 - wgs84E2 * sinLat * sinLat);
+    return .{
+        (n + alt) * cosLat * @cos(lon),
+        (n + alt) * cosLat * @sin(lon),
+        (n * (1.0 - wgs84E2) + alt) * sinLat,
+    };
+}
+
 /// convert ECEF to geodetic coordinates (WGS84).
 pub fn ecefToGeodetic(ecef: Vector3) Vector3 {
     const x = ecef[0];

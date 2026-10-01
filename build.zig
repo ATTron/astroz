@@ -181,6 +181,36 @@ pub fn build(b: *std.Build) void {
         .dest_dir = .{ .override = .{ .custom = "bindings/python/astroz" } },
     }).step);
 
+    // WebAssembly module for the JavaScript bindings. Like the Python module it
+    // leaves out the C dependencies.
+    const wasm_target = b.resolveTargetQuery(.{
+        .cpu_arch = .wasm32,
+        .os_tag = .freestanding,
+        .cpu_features_add = std.Target.wasm.featureSet(&.{ .simd128, .bulk_memory }),
+    });
+    const astroz_wasm = b.createModule(.{
+        .root_source_file = b.path("src/lib.zig"),
+        .target = wasm_target,
+        .optimize = .ReleaseFast,
+        .imports = &.{.{ .name = "build_options", .module = build_options_mod }},
+    });
+    const wasm = b.addExecutable(.{
+        .name = "astroz",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("bindings/javascript/zig/root.zig"),
+            .target = wasm_target,
+            .optimize = .ReleaseFast,
+            .strip = true,
+            .imports = &.{.{ .name = "astroz", .module = astroz_wasm }},
+        }),
+    });
+    wasm.entry = .disabled;
+    wasm.rdynamic = true;
+    const wasm_step = b.step("wasm", "Build the WebAssembly module for the JavaScript bindings");
+    wasm_step.dependOn(&b.addInstallArtifact(wasm, .{
+        .dest_dir = .{ .override = .{ .custom = "bindings/javascript/wasm" } },
+    }).step);
+
     // Benchmark
     const bench = b.addExecutable(.{
         .name = "sgp4_bench",
