@@ -51,7 +51,6 @@ pub fn pyPropagateNumerical(_: [*c]c.PyObject, args: [*c]c.PyObject, kwargs: [*c
         &atol_obj,
     ) == 0) return null;
 
-    // Parse state vector (6 elements)
     if (c.PySequence_Size(state_obj) != 6) {
         py.raiseValue("state must have exactly 6 elements [x, y, z, vx, vy, vz]");
         return null;
@@ -64,7 +63,6 @@ pub fn pyPropagateNumerical(_: [*c]c.PyObject, args: [*c]c.PyObject, kwargs: [*c
         if (initial_state[i] == -1.0 and c.PyErr_Occurred() != null) return null;
     }
 
-    // Parse optional parameters
     const has_j2 = !py.isNone(j2_obj);
     const has_drag = !py.isNone(drag_cd_obj);
 
@@ -102,7 +100,6 @@ pub fn pyPropagateNumerical(_: [*c]c.PyObject, args: [*c]c.PyObject, kwargs: [*c
         }
     }
 
-    // Build force models on the stack
     var twobody = propagators.TwoBody.init(mu);
     var j2_model = propagators.J2.init(mu, j2_val, r_eq_val);
     var drag_model = propagators.Drag.init(
@@ -115,7 +112,6 @@ pub fn pyPropagateNumerical(_: [*c]c.PyObject, args: [*c]c.PyObject, kwargs: [*c
         drag_max_altitude_km,
     );
 
-    // Build force model array and composite
     var force_models_buf: [4]propagators.ForceModel = undefined;
     var n_forces: usize = 0;
 
@@ -146,7 +142,6 @@ pub fn pyPropagateNumerical(_: [*c]c.PyObject, args: [*c]c.PyObject, kwargs: [*c
     }
     defer if (composite) |*comp| comp.deinit();
 
-    // Build integrator and propagate
     var rk4 = propagators.Rk4{};
     var dp87 = propagators.DormandPrince87.initWithTolerance(rtol, atol);
     const integrator = if (use_dp87) dp87.integrator() else rk4.integrator();
@@ -158,7 +153,6 @@ pub fn pyPropagateNumerical(_: [*c]c.PyObject, args: [*c]c.PyObject, kwargs: [*c
     };
     defer trajectory.deinit(allocator);
 
-    // Build Python result: (times_list, states_list)
     const n = trajectory.items.len;
     const times_list = c.PyList_New(@intCast(n)) orelse return null;
     const states_list = c.PyList_New(@intCast(n)) orelse {
@@ -182,12 +176,5 @@ pub fn pyPropagateNumerical(_: [*c]c.PyObject, args: [*c]c.PyObject, kwargs: [*c
         _ = c.PyList_SetItem(states_list, @intCast(i), s_obj);
     }
 
-    const result = py.tuple(2) orelse {
-        py.decref(times_list);
-        py.decref(states_list);
-        return null;
-    };
-    py.tupleSet(result, 0, times_list);
-    py.tupleSet(result, 1, states_list);
-    return result;
+    return c.Py_BuildValue("(NN)", times_list, states_list);
 }

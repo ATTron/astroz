@@ -77,7 +77,6 @@ pub fn pyLambert(_: [*c]c.PyObject, args: [*c]c.PyObject) callconv(.c) [*c]c.PyO
     py.decref(dv);
     py.decref(av);
 
-    // Add scalar fields with proper refcount management
     inline for (.{
         .{ "transfer_angle", lr.transferAngle },
         .{ "sma", lr.semiMajorAxis },
@@ -103,7 +102,6 @@ pub fn pyOrbitalVelocity(_: [*c]c.PyObject, args: [*c]c.PyObject, kwargs: [*c]c.
     var kwnames = [_:null]?[*:0]const u8{ "mu", "radius", "sma" };
     if (c.PyArg_ParseTupleAndKeywords(args, kwargs, "dd|O", @ptrCast(&kwnames), &mu, &radius, &sma_obj) == 0) return null;
 
-    // optionalFloat returns the default (which we ignore) for None; we need ?f64 here
     var sma: ?f64 = null;
     if (!py.isNone(sma_obj)) {
         sma = c.PyFloat_AsDouble(sma_obj);
