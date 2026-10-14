@@ -2,19 +2,23 @@
     .name = .astroz,
     .version = "0.14.0",
     .fingerprint = 0x2d8583fca695159f, // Changing this has security and trust implications.
-    .minimum_zig_version = "0.16.0",
+    .minimum_zig_version = "0.17.0",
     .dependencies = .{
-        .cfitsio = .{
-            .url = "git+https://github.com/ATTron/cfitsio/#2faa5c5b263e0c4a903d7bbf54bb71a4597e876c",
-            .hash = "cfitsio-4.6.2-LaSYACsZAAD1UX_WWiQXcsBWwPnoMjwMzBA7WFNw8Xu2",
-        },
         .zignal = .{
-            .url = "git+https://github.com/arrufat/zignal#3175ddb504c1a9dc86a0c1dcc700a6d8c06646c0",
-            .hash = "zignal-0.10.0-dev-OrZ3s9AAKADY_ZUA28rmpJqbEVBEoTtnkEdLebkrm_Ig",
+            .url = "git+https://github.com/arrufat/zignal#1719dae43146b836f8382571300dcd84b3950072",
+            .hash = "zignal-0.11.0-OrZ3s2B2KgAZfNsqKBXBRlkdwSkNuXJzFPFCMG5Sxska",
+        },
+        .translate_c = .{
+            .url = "git+https://codeberg.org/ziglang/translate-c#4f5ad374e50d1a98d3da79fa5d3bda9949103bf7",
+            .hash = "translate_c-2.0.1-Q_BUWmpOBwCIhy--up1q6cl3OlIQE86iJU8R-bZ01aPj",
         },
         .oma = .{
-            .url = "git+https://github.com/ATTron/oma#4d21951ead81571800298a20b04aa62673fa475b",
-            .hash = "oma-0.0.1-lqmw5RItAABkBRXop9wBptV8bB8pObT2bSvkz0jgsrdC",
+            .url = "git+https://github.com/ATTron/oma#803d0f94a2358a2450ec5adaac060e050b728c46",
+            .hash = "oma-0.0.1-lqmw5R0tAACCEcWnuvvNwDuvCvhjVfSQrVXEjiCIELdr",
+        },
+        .cfitsio = .{
+            .url = "git+https://github.com/ATTron/cfitsio#20647601893292324c9796cad2485ef21257ba56",
+            .hash = "cfitsio-4.6.2-LaSYACsbAACVa3el6UARZgx90PjcXm4yfBVBlff5criw",
         },
     },
     .paths = .{

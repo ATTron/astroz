@@ -1,9 +1,6 @@
 //! Python C API helpers for Zig
 
-pub const c = @cImport({
-    @cDefine("PY_SSIZE_T_CLEAN", {});
-    @cInclude("Python.h");
-});
+pub const c = @import("c");
 
 const std = @import("std");
 
@@ -147,16 +144,16 @@ pub fn optionalFloat(obj: [*c]c.PyObject, default: f64) ?f64 {
 }
 
 pub fn structToDict(result: anytype, comptime keys: anytype) ?*c.PyObject {
-    const fields = @typeInfo(@TypeOf(result)).@"struct".fields;
-    if (keys.len != fields.len) @compileError("key count must match struct field count");
+    const field_names = @typeInfo(@TypeOf(result)).@"struct".field_names;
+    if (keys.len != field_names.len) @compileError("key count must match struct field count");
     const dict = c.PyDict_New() orelse return null;
-    inline for (fields, 0..) |field, i| {
-        const val = c.PyFloat_FromDouble(@field(result, field.name)) orelse {
+    inline for (field_names, keys) |name, key| {
+        const val = c.PyFloat_FromDouble(@field(result, name)) orelse {
             decref(dict);
             return null;
         };
         defer decref(val);
-        if (c.PyDict_SetItemString(dict, keys[i], val) < 0) {
+        if (c.PyDict_SetItemString(dict, key, val) < 0) {
             decref(dict);
             return null;
         }

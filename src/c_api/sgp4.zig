@@ -6,7 +6,8 @@ const Tle = astroz.Tle;
 const constants = astroz.constants;
 const dispatch = astroz.dispatch;
 
-const BatchSize = astroz.Constellation.BatchSize;
+/// Matches the lane count of `dispatch.sgp4Times8`.
+const BatchSize = 8;
 
 const allocator = @import("allocator.zig");
 const err = @import("error.zig");
@@ -24,6 +25,7 @@ pub fn init(tleHandle: tleApi.Handle, gravModel: i32, out: *Handle) err.Code {
             Sgp4.Error.DeepSpaceNotSupported => .deepSpaceNotSupported,
             Sgp4.Error.InvalidEccentricity => .invalidEccentricity,
             Sgp4.Error.SatelliteDecayed => .satelliteDecayed,
+            Sgp4.Error.OutOfMemory => .allocFailed,
         };
     };
 
@@ -112,6 +114,7 @@ pub fn initBatch(tleHandles: [*]const tleApi.Handle, gravModel: i32, out: *Batch
             Sgp4.Error.DeepSpaceNotSupported => .deepSpaceNotSupported,
             Sgp4.Error.InvalidEccentricity => .invalidEccentricity,
             Sgp4.Error.SatelliteDecayed => .satelliteDecayed,
+            Sgp4.Error.OutOfMemory => .allocFailed,
         };
     };
 

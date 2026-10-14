@@ -126,7 +126,7 @@ pub fn init(allocator: Allocator, tles: []const Tle, grav: constants.Sgp4Gravity
     }
 
     // Batch SGP4
-    const nSgp4B = if (nSgp4 == 0) 0 else (nSgp4 + batchSize - 1) / batchSize;
+    const nSgp4B = @divCeil(nSgp4, batchSize);
     const sgp4Pad = nSgp4B * batchSize;
 
     const sgp4Batches = allocator.alloc(Sgp4Bels, nSgp4B) catch return Error.OutOfMemory;
@@ -156,7 +156,7 @@ pub fn init(allocator: Allocator, tles: []const Tle, grav: constants.Sgp4Gravity
     }
 
     // Batch SDP4
-    const nSdp4B = if (nSdp4 == 0) 0 else (nSdp4 + batchSize - 1) / batchSize;
+    const nSdp4B = @divCeil(nSdp4, batchSize);
     const sdp4Pad = nSdp4B * batchSize;
 
     const sdp4Batches = allocator.alloc(Sdp4Bels, nSdp4B) catch return Error.OutOfMemory;
@@ -309,15 +309,15 @@ pub fn propagate(
 
 /// Dispatch to the correct propagateImpl variant
 inline fn dispatchImpl(layout: Layout, outputMode: OutputMode, hasVel: bool, ctx: PropCtx) void {
-    const key: u4 = @as(u4, @intFromEnum(layout)) << 3 |
-        @as(u4, @intCast(@intFromEnum(outputMode))) << 1 |
+    const key: u4 = @as(u4, @backingInt(layout)) << 3 |
+        @as(u4, @intCast(@backingInt(outputMode))) << 1 |
         @intFromBool(hasVel);
 
     inline for (0..16) |i| {
         const mode_bits = (i >> 1) & 0b11;
         if (mode_bits < 3 and key == i) {
-            const l: Layout = @enumFromInt(i >> 3);
-            const m: OutputMode = @enumFromInt(mode_bits);
+            const l: Layout = @fromBackingInt(@intCast(i >> 3));
+            const m: OutputMode = @fromBackingInt(@intCast(mode_bits));
             const v = (i & 1) == 1;
             return propagateImpl(l, m, v, ctx);
         }
@@ -331,14 +331,14 @@ fn propagateImpl(
     ctx: PropCtx,
 ) void {
     const maxThreads = getMaxThreads();
-    var handles: [MaxThreads]?std.Thread = .{null} ** MaxThreads;
+    var handles: [MaxThreads]?std.Thread = @splat(null);
     var idx: usize = 0;
 
     // SGP4 phase: thread over time ranges (timeMajor) or batch ranges (satelliteMajor)
     if (ctx.sgp4Batches.len > 0) {
         const work = if (layout == .satelliteMajor) ctx.sgp4Batches.len else ctx.numTimes;
         const nt = @min(work, maxThreads);
-        const per = (work + nt - 1) / nt;
+        const per = @divCeil(work, nt);
         for (0..nt) |tid| {
             const start = tid * per;
             const end = @min(start + per, work);
@@ -362,7 +362,7 @@ fn propagateImpl(
         const work = ctx.sdp4Batches.len;
         const remaining = if (maxThreads > idx) maxThreads - idx else 1;
         const nt = @min(work, remaining);
-        const per = (work + nt - 1) / nt;
+        const per = @divCeil(work, nt);
         for (0..nt) |tid| {
             const start = tid * per;
             const end = @min(start + per, work);

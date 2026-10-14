@@ -150,8 +150,7 @@ pub fn initFromElements(comptime N: usize, els: [N]Sdp4.Elements, grav: constant
 
     // Reflection based transpose: match batch field names to source paths
     @setEvalBranchQuota(10000);
-    inline for (@typeInfo(Batch).@"struct".fields) |field| {
-        const name = field.name;
+    inline for (@typeInfo(Batch).@"struct".field_names) |name| {
         if (comptime std.mem.startsWith(u8, name, "solar_")) {
             const suffix = comptime name["solar_".len..];
             var arr: [N]f64 = undefined;

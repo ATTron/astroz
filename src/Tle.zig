@@ -68,11 +68,7 @@ pub fn parseLines(line1: []const u8, line2: []const u8, allocator: std.mem.Alloc
     const intlDesignator = if (intlYearField.len > 0 and intlLaunchField.len > 0) blk: {
         const intlYear = try std.fmt.parseInt(u16, intlYearField, 10);
         const intlLaunchNum = try std.fmt.parseInt(u32, intlLaunchField, 10);
-        break :blk try std.fmt.allocPrint(
-            allocator,
-            "{d:0>2}-{d:0>3}{s}",
-            .{ intlYear, intlLaunchNum, intlPiece },
-        );
+        break :blk try allocator.print("{d:0>2}-{d:0>3}{s}", .{ intlYear, intlLaunchNum, intlPiece });
     } else blk: {
         break :blk try allocator.dupe(u8, "");
     };
