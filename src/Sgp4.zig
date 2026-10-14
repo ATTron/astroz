@@ -5,7 +5,6 @@ const std = @import("std");
 const constants = @import("constants.zig");
 const calculations = @import("calculations.zig");
 const simdMath = @import("simdMath.zig");
-const Datetime = @import("Datetime.zig");
 const Tle = @import("Tle.zig");
 
 const Sgp4 = @This();
@@ -50,12 +49,9 @@ pub const Elements = struct {
     // Trigonometric terms
     sinio: f64,
     cosio: f64,
-    cosio2: f64,
-    cosio4: f64,
 
     // Polynomial terms in cos^2(i)
     con41: f64, // 3cos^2(i) - 1
-    con42: f64, // 1 - 5cos^2(i)
     x1mth2: f64, // sin^2(i)
     x7thm1: f64, // 7cos^2(i) - 1
 
@@ -129,24 +125,37 @@ pub fn initElements(tle: Tle, grav: constants.Sgp4GravityModel) Error!Elements {
     const drag = computeDragCoefficients(meanElements, recovered, trig, poly, perige, grav);
     const higherOrder = computeHigherOrderDrag(recovered, drag, perige, grav);
 
-    return Elements{
+    return buildElements(grav, tle.epochJd, meanElements, recovered, trig, poly, secular, drag, higherOrder);
+}
+
+/// Assemble Elements from the init stages (shared with SDP4).
+pub fn buildElements(
+    grav: constants.Sgp4GravityModel,
+    epochJd: f64,
+    mean: MeanElements,
+    rec: RecoveredElements,
+    trig: TrigTerms,
+    poly: PolyTerms,
+    secular: SecularRates,
+    drag: DragCoefficients,
+    higherOrder: HigherOrderDrag,
+) Elements {
+    const ratio = grav.xke / rec.noUnkozai;
+    return .{
         .grav = grav,
-        .epochJd = tle.epochJd,
-        .noKozai = meanElements.noKozai,
-        .ecco = meanElements.ecco,
-        .inclo = meanElements.inclo,
-        .nodeo = meanElements.nodeo,
-        .argpo = meanElements.argpo,
-        .mo = meanElements.mo,
-        .bstar = meanElements.bstar,
-        .noUnkozai = recovered.noUnkozai,
-        .a = recovered.a,
+        .epochJd = epochJd,
+        .noKozai = mean.noKozai,
+        .ecco = mean.ecco,
+        .inclo = mean.inclo,
+        .nodeo = mean.nodeo,
+        .argpo = mean.argpo,
+        .mo = mean.mo,
+        .bstar = mean.bstar,
+        .noUnkozai = rec.noUnkozai,
+        .a = rec.a,
         .sinio = trig.sinio,
         .cosio = trig.cosio,
-        .cosio2 = trig.cosio2,
-        .cosio4 = trig.cosio4,
         .con41 = poly.con41,
-        .con42 = poly.con42,
         .x1mth2 = poly.x1mth2,
         .x7thm1 = poly.x7thm1,
         .mdot = secular.mdot,
@@ -170,10 +179,7 @@ pub fn initElements(tle: Tle, grav: constants.Sgp4GravityModel) Error!Elements {
         .t3cof = higherOrder.t3cof,
         .t4cof = higherOrder.t4cof,
         .t5cof = higherOrder.t5cof,
-        .aBase = blk: {
-            const ratio = grav.xke / recovered.noUnkozai;
-            break :blk std.math.cbrt(ratio * ratio);
-        },
+        .aBase = std.math.cbrt(ratio * ratio),
         .vkmpersec = grav.xke * grav.radiusEarthKm / 60.0,
         .isimp = higherOrder.isimp,
     };
@@ -381,7 +387,7 @@ pub fn computeDragCoefficients(
     };
 }
 
-const HigherOrderDrag = struct {
+pub const HigherOrderDrag = struct {
     d2: f64,
     d3: f64,
     d4: f64,
@@ -389,6 +395,9 @@ const HigherOrderDrag = struct {
     t4cof: f64,
     t5cof: f64,
     isimp: bool,
+
+    /// Simplified drag model: no higher-order terms
+    pub const none: HigherOrderDrag = .{ .d2 = 0, .d3 = 0, .d4 = 0, .t3cof = 0, .t4cof = 0, .t5cof = 0, .isimp = true };
 };
 
 fn computeHigherOrderDrag(
@@ -397,9 +406,7 @@ fn computeHigherOrderDrag(
     perige: f64,
     grav: constants.Sgp4GravityModel,
 ) HigherOrderDrag {
-    if (perige < perigeeSimplified) {
-        return .{ .d2 = 0, .d3 = 0, .d4 = 0, .t3cof = 0, .t4cof = 0, .t5cof = 0, .isimp = true };
-    }
+    if (perige < perigeeSimplified) return .none;
 
     const s = sParameterStandard / grav.radiusEarthKm + 1.0;
     const tsi = 1.0 / (rec.a - s);

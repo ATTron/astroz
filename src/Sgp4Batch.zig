@@ -16,8 +16,6 @@ pub fn BatchElements(comptime N: usize) type {
     const Vec = simdMath.VecN(N);
 
     return struct {
-        const Self = @This();
-
         // Gravity constants (splatted)
         xke: Vec,
         j2: Vec,

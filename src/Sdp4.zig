@@ -5,7 +5,6 @@
 const std = @import("std");
 const constants = @import("constants.zig");
 const simdMath = @import("simdMath.zig");
-const Datetime = @import("Datetime.zig");
 const Tle = @import("Tle.zig");
 const Sgp4 = @import("Sgp4.zig");
 
@@ -193,57 +192,8 @@ pub fn initElements(tle: Tle, grav: constants.Sgp4GravityModel) Error!Elements {
     const dc = dscom(meanEl, rec, trig, day);
     const di = dsinit(meanEl, rec, trig, secRates, &dc, gsto);
 
-    const sgp4El = Sgp4.Elements{
-        .grav = grav,
-        .epochJd = epochJd,
-        .noKozai = meanEl.noKozai,
-        .ecco = meanEl.ecco,
-        .inclo = meanEl.inclo,
-        .nodeo = meanEl.nodeo,
-        .argpo = meanEl.argpo,
-        .mo = meanEl.mo,
-        .bstar = meanEl.bstar,
-        .noUnkozai = rec.noUnkozai,
-        .a = rec.a,
-        .sinio = trig.sinio,
-        .cosio = trig.cosio,
-        .cosio2 = trig.cosio2,
-        .cosio4 = trig.cosio4,
-        .con41 = poly.con41,
-        .con42 = poly.con42,
-        .x1mth2 = poly.x1mth2,
-        .x7thm1 = poly.x7thm1,
-        .mdot = secRates.mdot,
-        .argpdot = secRates.argpdot,
-        .nodedot = secRates.nodedot,
-        .cc1 = drag.cc1,
-        .cc4 = drag.cc4,
-        .cc5 = drag.cc5,
-        .t2cof = drag.t2cof,
-        .omgcof = drag.omgcof,
-        .xnodcf = drag.xnodcf,
-        .xlcof = drag.xlcof,
-        .xmcof = drag.xmcof,
-        .aycof = drag.aycof,
-        .eta = drag.eta,
-        .delmo = drag.delmo,
-        .sinmao = drag.sinmao,
-        .d2 = 0,
-        .d3 = 0,
-        .d4 = 0,
-        .t3cof = 0,
-        .t4cof = 0,
-        .t5cof = 0,
-        .aBase = blk: {
-            const ratio = grav.xke / rec.noUnkozai;
-            break :blk std.math.cbrt(ratio * ratio);
-        },
-        .vkmpersec = grav.xke * grav.radiusEarthKm / 60.0,
-        .isimp = true,
-    };
-
     return Elements{
-        .sgp4 = sgp4El,
+        .sgp4 = Sgp4.buildElements(grav, epochJd, meanEl, rec, trig, poly, secRates, drag, .none),
         .solar = dc.solar,
         .lunar = dc.lunar,
         .zmol = dc.zmol,
@@ -291,53 +241,35 @@ const DscomResult = struct {
     zmol: f64,
     zmos: f64,
     // Intermediate values for dsinit
-    snodm: f64,
-    cnodm: f64,
     sinim: f64,
     cosim: f64,
-    sinomm: f64,
-    cosomm: f64,
     emsq: f64,
-    rtemsq: f64,
     nm: f64,
-    gam: f64,
     ss1: f64,
     ss2: f64,
     ss3: f64,
     ss4: f64,
     ss5: f64,
-    ss6: f64,
-    ss7: f64,
     s1: f64,
     s2: f64,
     s3: f64,
     s4: f64,
     s5: f64,
-    s6: f64,
-    s7: f64,
     sz1: f64,
-    sz2: f64,
     sz3: f64,
     sz11: f64,
-    sz12: f64,
     sz13: f64,
     sz21: f64,
-    sz22: f64,
     sz23: f64,
     sz31: f64,
-    sz32: f64,
     sz33: f64,
     z1: f64,
-    z2: f64,
     z3: f64,
     z11: f64,
-    z12: f64,
     z13: f64,
     z21: f64,
-    z22: f64,
     z23: f64,
     z31: f64,
-    z32: f64,
     z33: f64,
 };
 
@@ -350,14 +282,14 @@ fn dscom(
     var r: DscomResult = std.mem.zeroes(DscomResult);
 
     r.nm = rec.noUnkozai;
-    r.snodm = @sin(el.nodeo);
-    r.cnodm = @cos(el.nodeo);
-    r.sinomm = @sin(el.argpo);
-    r.cosomm = @cos(el.argpo);
     r.sinim = trig.sinio;
     r.cosim = trig.cosio;
     r.emsq = el.ecco * el.ecco;
-    r.rtemsq = @sqrt(1.0 - r.emsq);
+    const snodm = @sin(el.nodeo);
+    const cnodm = @cos(el.nodeo);
+    const sinomm = @sin(el.argpo);
+    const cosomm = @cos(el.argpo);
+    const rtemsq = @sqrt(1.0 - r.emsq);
 
     // Lunar node and inclination
     const xnodce = @mod(4.5236020 - 9.2422029e-4 * day, constants.twoPi);
@@ -367,11 +299,11 @@ fn dscom(
     const zsinil = @sqrt(1.0 - zcosil * zcosil);
     const zsinhl = 0.089683511 * stem / zsinil;
     const zcoshl = @sqrt(1.0 - zsinhl * zsinhl);
-    r.gam = 5.8351514 + 0.0019443680 * day;
+    const gam = 5.8351514 + 0.0019443680 * day;
     var zx = 0.39785416 * stem / zsinil;
     const zy = zcoshl * ctem + 0.91744867 * zsinhl * stem;
     zx = std.math.atan2(zx, zy);
-    zx += r.gam - xnodce;
+    zx += gam - xnodce;
     const zcosgl = @cos(zx);
     const zsingl = @sin(zx);
 
@@ -383,8 +315,8 @@ fn dscom(
     var zsing: f64 = zsings;
     var zcosi: f64 = zcosis;
     var zsini: f64 = zsinis;
-    var zcosh: f64 = r.cnodm;
-    var zsinh: f64 = r.snodm;
+    var zcosh: f64 = cnodm;
+    var zsinh: f64 = snodm;
     var cc: f64 = c1ss;
 
     var lsflg: u8 = 1;
@@ -400,14 +332,14 @@ fn dscom(
         const a5 = -r.sinim * a7 + r.cosim * a8;
         const a6 = -r.sinim * a9 + r.cosim * a10;
 
-        const x1 = a1 * r.cosomm + a2 * r.sinomm;
-        const x2 = a3 * r.cosomm + a4 * r.sinomm;
-        const x3 = -a1 * r.sinomm + a2 * r.cosomm;
-        const x4 = -a3 * r.sinomm + a4 * r.cosomm;
-        const x5 = a5 * r.sinomm;
-        const x6 = a6 * r.sinomm;
-        const x7 = a5 * r.cosomm;
-        const x8 = a6 * r.cosomm;
+        const x1 = a1 * cosomm + a2 * sinomm;
+        const x2 = a3 * cosomm + a4 * sinomm;
+        const x3 = -a1 * sinomm + a2 * cosomm;
+        const x4 = -a3 * sinomm + a4 * cosomm;
+        const x5 = a5 * sinomm;
+        const x6 = a6 * sinomm;
+        const x7 = a5 * cosomm;
+        const x8 = a6 * cosomm;
 
         const z31v = 12.0 * x1 * x1 - 3.0 * x3 * x3;
         const z32v = 24.0 * x1 * x2 - 6.0 * x3 * x4;
@@ -427,33 +359,26 @@ fn dscom(
         const z3t = z3v + z3v + betasq * z33v;
 
         const s3v = cc * xnoi;
-        const s2v = -0.5 * s3v / r.rtemsq;
-        const s4v = s3v * r.rtemsq;
+        const s2v = -0.5 * s3v / rtemsq;
+        const s4v = s3v * rtemsq;
         const s1v = -15.0 * el.ecco * s4v;
         const s5v = x1 * x3 + x2 * x4;
         const s6v = x2 * x3 + x1 * x4;
         const s7v = x2 * x4 - x1 * x3;
 
         if (lsflg == 1) {
-            // Store solar terms
             r.ss1 = s1v;
             r.ss2 = s2v;
             r.ss3 = s3v;
             r.ss4 = s4v;
             r.ss5 = s5v;
-            r.ss6 = s6v;
-            r.ss7 = s7v;
             r.sz1 = z1t;
-            r.sz2 = z2t;
             r.sz3 = z3t;
             r.sz11 = z11v;
-            r.sz12 = z12v;
             r.sz13 = z13v;
             r.sz21 = z21v;
-            r.sz22 = z22v;
             r.sz23 = z23v;
             r.sz31 = z31v;
-            r.sz32 = z32v;
             r.sz33 = z33v;
 
             r.solar = computePerturbCoeffs(s1v, s2v, s3v, s4v, s6v, s7v, z1t, z2t, z3t, z11v, z12v, z13v, z21v, z22v, z23v, z31v, z32v, z33v, r.emsq, zes);
@@ -463,36 +388,29 @@ fn dscom(
             zsing = zsingl;
             zcosi = zcosil;
             zsini = zsinil;
-            zcosh = zcoshl * r.cnodm + zsinhl * r.snodm;
-            zsinh = r.snodm * zcoshl - r.cnodm * zsinhl;
+            zcosh = zcoshl * cnodm + zsinhl * snodm;
+            zsinh = snodm * zcoshl - cnodm * zsinhl;
             cc = c1l;
         } else {
-            // Store lunar terms
             r.s1 = s1v;
             r.s2 = s2v;
             r.s3 = s3v;
             r.s4 = s4v;
             r.s5 = s5v;
-            r.s6 = s6v;
-            r.s7 = s7v;
             r.z1 = z1t;
-            r.z2 = z2t;
             r.z3 = z3t;
             r.z11 = z11v;
-            r.z12 = z12v;
             r.z13 = z13v;
             r.z21 = z21v;
-            r.z22 = z22v;
             r.z23 = z23v;
             r.z31 = z31v;
-            r.z32 = z32v;
             r.z33 = z33v;
 
             r.lunar = computePerturbCoeffs(s1v, s2v, s3v, s4v, s6v, s7v, z1t, z2t, z3t, z11v, z12v, z13v, z21v, z22v, z23v, z31v, z32v, z33v, r.emsq, zel);
         }
     }
 
-    r.zmol = @mod(4.7199672 + 0.22997150 * day - r.gam, constants.twoPi);
+    r.zmol = @mod(4.7199672 + 0.22997150 * day - gam, constants.twoPi);
     r.zmos = @mod(6.2565837 + 0.017201977 * day, constants.twoPi);
 
     return r;
@@ -951,7 +869,6 @@ fn propagateElementsCarry(el: *const Elements, tsince: f64, carry: *ResonanceCar
     elCopy.inclo = inclm;
     elCopy.cosio = cosip;
     elCopy.sinio = sinip;
-    elCopy.cosio2 = cosip2;
     elCopy.x1mth2 = 1.0 - cosip2;
     elCopy.con41 = 3.0 * cosip2 - 1.0;
     elCopy.x7thm1 = 7.0 * cosip2 - 1.0;

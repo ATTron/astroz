@@ -12,7 +12,6 @@ const Sdp4 = @import("Sdp4.zig");
 pub const Sgp4Batch = @import("Sgp4Batch.zig");
 pub const Sdp4Batch = @import("Sdp4Batch.zig");
 const Tle = @import("Tle.zig");
-const Datetime = @import("Datetime.zig");
 const constants = @import("constants.zig");
 pub const simdMath = @import("simdMath.zig");
 const dispatch = @import("dispatch.zig");
@@ -137,7 +136,7 @@ pub fn init(allocator: Allocator, tles: []const Tle, grav: constants.Sgp4Gravity
     errdefer allocator.free(sgp4Orig);
 
     var refEpoch: f64 = 0;
-    if (nSgp4 > 0) refEpoch = tleEpochJd(tles[sgp4Idx[0]]);
+    if (nSgp4 > 0) refEpoch = tles[sgp4Idx[0]].epochJd;
 
     for (0..nSgp4B) |bi| {
         const base = bi * batchSize;
@@ -537,10 +536,6 @@ inline fn laneActive(satelliteMask: ?[]const u8, origIdx: u32) bool {
     return true;
 }
 
-fn tleEpochJd(tle: Tle) f64 {
-    return tle.epochJd;
-}
-
 /// Propagate SGP4 constellation with specified memory layout and threading strategy
 /// Stateless: takes pre built batch elements directly
 pub fn propagateConstellation(
@@ -797,7 +792,7 @@ test "propagate matches scalar - TEME timeMajor" {
     var c = try Constellation.init(testing.allocator, &tles, constants.wgs72);
     defer c.deinit();
 
-    const epoch = tleEpochJd(tles[0]);
+    const epoch = tles[0].epochJd;
     const jd1 = [_]f64{@floor(epoch)};
     const fr1 = [_]f64{epoch - @floor(epoch)};
     var pos: [5 * 3]f64 = undefined;
@@ -811,7 +806,7 @@ test "propagate matches scalar - TEME timeMajor" {
         var tle = try Tle.parse(tleStr, testing.allocator);
         defer tle.deinit();
         const sgp4 = try Sgp4.init(tle, constants.wgs72);
-        const satEpoch = tleEpochJd(tle);
+        const satEpoch = tle.epochJd;
         const tsince = (jd1[0] + fr1[0] - satEpoch) * 1440.0;
         const scalar = try sgp4.propagate(tsince);
         const ob = idx * 3;
@@ -829,7 +824,7 @@ test "propagate matches scalar - TEME timeMajor" {
         var tle = try Tle.parse(tleStr, testing.allocator);
         defer tle.deinit();
         const sdp4 = try Sdp4.init(tle, constants.wgs72);
-        const satEpoch = tleEpochJd(tle);
+        const satEpoch = tle.epochJd;
         const tsince = (jd1[0] + fr1[0] - satEpoch) * 1440.0;
         const scalar = try sdp4.propagate(tsince);
         const ob = idx * 3;
@@ -854,7 +849,7 @@ test "timeMajor vs satelliteMajor produce identical results" {
     var c = try Constellation.init(testing.allocator, &tles, constants.wgs72);
     defer c.deinit();
 
-    const epoch = tleEpochJd(tles[0]);
+    const epoch = tles[0].epochJd;
     const jdArr = [_]f64{ @floor(epoch), @floor(epoch) };
     const frArr = [_]f64{ epoch - @floor(epoch), epoch - @floor(epoch) + 1.0 / 1440.0 };
 
@@ -890,7 +885,7 @@ test "all-SGP4 constellation" {
     try testing.expectEqual(@as(usize, 3), c.numSgp4);
     try testing.expectEqual(@as(usize, 0), c.numSdp4);
 
-    const epoch = tleEpochJd(tles[0]);
+    const epoch = tles[0].epochJd;
     const jdArr = [_]f64{@floor(epoch)};
     const frArr = [_]f64{epoch - @floor(epoch)};
     var pos: [3 * 3]f64 = undefined;
@@ -917,7 +912,7 @@ test "all-SDP4 constellation" {
     try testing.expectEqual(@as(usize, 0), c.numSgp4);
     try testing.expectEqual(@as(usize, 2), c.numSdp4);
 
-    const epoch = tleEpochJd(tles[0]);
+    const epoch = tles[0].epochJd;
     const jdArr = [_]f64{@floor(epoch)};
     const frArr = [_]f64{epoch - @floor(epoch)};
     var pos: [2 * 3]f64 = undefined;
@@ -942,7 +937,7 @@ test "ECEF output mode" {
     var c = try Constellation.init(testing.allocator, &tles, constants.wgs72);
     defer c.deinit();
 
-    const epoch = tleEpochJd(tles[0]);
+    const epoch = tles[0].epochJd;
     const jdArr = [_]f64{@floor(epoch)};
     const frArr = [_]f64{epoch - @floor(epoch)};
 

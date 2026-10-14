@@ -63,8 +63,7 @@ pub const wgs84: Sgp4GravityModel = .{
     .j3oj2 = -0.00233899967218727,
 };
 
-/// deep space threshold: orbital period > 225 minutes.
-/// satellites with mean motion < 6.4 rev/day need SDP4 (not yet implemented).
+/// Orbits with a period over 225 minutes (mean motion < 6.4 rev/day) use SDP4.
 pub const sgp4DeepSpaceThresholdMinutes: f64 = 225.0;
 
 pub const CelestialBody = struct {
