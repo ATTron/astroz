@@ -247,7 +247,7 @@ const vel = result[1]; // [vx, vy, vz] km/s
 - #### [Generate Image from FITS File](examples/parse_fits_file.zig)
   Parse and render FITS astronomical image data.
 
-<img src="test/test.png" width="450" height="400" alt="sample fits image as png"/>
+<img src="assets/fits.png" width="450" height="400" alt="sample fits image as png"/>
 
 - #### [Precess Star Coordinates](examples/precess_star.zig)
   Calculate stellar precession to a target epoch.
