@@ -3,7 +3,6 @@
 
 const std = @import("std");
 const constants = @import("constants.zig");
-const calculations = @import("calculations.zig");
 const simdMath = @import("simdMath.zig");
 const Tle = @import("Tle.zig");
 
@@ -904,45 +903,7 @@ fn updateSecularN(comptime N: usize, el: *const Elements, tsince: simdMath.VecN(
     };
 }
 
-test "sgp4 basic init" {
-    const testTle =
-        \\1 55909U 23035B   24187.51050877  .00023579  00000+0  16099-2 0  9998
-        \\2 55909  43.9978 311.8012 0011446 278.6226  81.3336 15.05761711 71371
-    ;
-
-    var tle = try Tle.parse(testTle, std.testing.allocator);
-    defer tle.deinit();
-
-    const sgp4 = try Sgp4.init(tle, constants.wgs84);
-
-    try std.testing.expect(sgp4.elements.ecco > 0.0);
-    try std.testing.expect(sgp4.elements.ecco < 1.0);
-    try std.testing.expect(sgp4.elements.noUnkozai > 0.0);
-}
-
-test "sgp4 propagate basic" {
-    const testTle =
-        \\1 55909U 23035B   24187.51050877  .00023579  00000+0  16099-2 0  9998
-        \\2 55909  43.9978 311.8012 0011446 278.6226  81.3336 15.05761711 71371
-    ;
-
-    var tle = try Tle.parse(testTle, std.testing.allocator);
-    defer tle.deinit();
-
-    const sgp4 = try Sgp4.init(tle, constants.wgs84);
-    const result = try sgp4.propagate(0.0);
-    const r = result[0];
-    const v = result[1];
-
-    const rMag = calculations.mag(r);
-    const vMag = calculations.mag(v);
-
-    try std.testing.expect(rMag > 6000.0 and rMag < 8000.0);
-    try std.testing.expect(vMag > 6.0 and vMag < 9.0);
-}
-
 test "sgp4 vallado reference ISS" {
-    // ISS TLE
     const testTle =
         \\1 25544U 98067A   24127.82853009  .00015698  00000+0  27310-3 0  9995
         \\2 25544  51.6393 160.4574 0003580 140.6673 205.7250 15.50957674452123
@@ -982,74 +943,29 @@ test "sgp4 vallado reference ISS" {
     try std.testing.expect(velErr < 0.00001);
 }
 
-test "propagateN(4) matches scalar" {
-    const allocator = std.testing.allocator;
-
-    // ISS TLE
-    const tleStr =
-        \\1 25544U 98067A   24127.82853009  .00015698  00000+0  27310-3 0  9995
-        \\2 25544  51.6393 160.4574 0003580 140.6673 205.7250 15.50957674452123
-    ;
-
-    var tle = try Tle.parse(tleStr, allocator);
-    defer tle.deinit();
-
-    var sgp4 = try Sgp4.init(tle, constants.wgs84);
-
-    const times = [4]f64{ 0.0, 10.0, 60.0, 1440.0 };
-
-    // scalar run
-    var scalarResults: [4][2][3]f64 = undefined;
-    for (0..4) |i| {
-        const result = try sgp4.propagate(times[i]);
-        scalarResults[i][0] = result[0];
-        scalarResults[i][1] = result[1];
-    }
-
-    // SIMD run
-    const simdResults = try sgp4.propagateN(4, times);
-
-    // Tolerance accounts for vectorized atan2 polynomial approximation (~1e-7 radians)
-    // This translates to ~10mm position error at LEO distances - well within SGP4's accuracy
-    const tol = 1e-4;
-    for (0..4) |i| {
-        for (0..3) |j| {
-            try std.testing.expectApproxEqAbs(scalarResults[i][0][j], simdResults[i][0][j], tol);
-            try std.testing.expectApproxEqAbs(scalarResults[i][1][j], simdResults[i][1][j], tol);
-        }
-    }
-}
-
-test "propagateN(8) matches scalar" {
-    const allocator = std.testing.allocator;
-    const tleStr =
-        \\1 55909U 23035B   24187.51050877  .00023579  00000+0  16099-2 0  9998
-        \\2 55909  43.9978 311.8012 0011446 278.6226  81.3336 15.05761711 71371
-    ;
-
-    var tle = try Tle.parse(tleStr, allocator);
-    defer tle.deinit();
-
-    var sgp4 = try Sgp4.init(tle, constants.wgs84);
-
+test "propagateN matches scalar" {
+    const tleStrs = [_][]const u8{
+        "1 25544U 98067A   24127.82853009  .00015698  00000+0  27310-3 0  9995\n2 25544  51.6393 160.4574 0003580 140.6673 205.7250 15.50957674452123",
+        "1 55909U 23035B   24187.51050877  .00023579  00000+0  16099-2 0  9998\n2 55909  43.9978 311.8012 0011446 278.6226  81.3336 15.05761711 71371",
+    };
     const times = [8]f64{ 0.0, 10.0, 60.0, 120.0, 360.0, 720.0, 1080.0, 1440.0 };
-
-    // scalar run
-    var scalarResults: PosVelArray(8) = undefined;
-    for (0..8) |i| {
-        const result = try sgp4.propagate(times[i]);
-        scalarResults[i][0] = result[0];
-        scalarResults[i][1] = result[1];
-    }
-
-    // SIMD run
-    const simdResults = try sgp4.propagateN(8, times);
-
+    // Covers the vectorized atan2 approximation (~1e-7 rad, about 10 mm at LEO)
     const tol = 1e-4;
-    for (0..8) |i| {
-        for (0..3) |j| {
-            try std.testing.expectApproxEqAbs(scalarResults[i][0][j], simdResults[i][0][j], tol);
-            try std.testing.expectApproxEqAbs(scalarResults[i][1][j], simdResults[i][1][j], tol);
+
+    for (tleStrs) |tleStr| {
+        var tle = try Tle.parse(tleStr, std.testing.allocator);
+        defer tle.deinit();
+        const sgp4 = try Sgp4.init(tle, constants.wgs84);
+
+        inline for (.{ 4, 8 }) |n| {
+            const simd = try sgp4.propagateN(n, times[0..n].*);
+            for (0..n) |i| {
+                const scalar = try sgp4.propagate(times[i]);
+                for (0..3) |j| {
+                    try std.testing.expectApproxEqAbs(scalar[0][j], simd[i][0][j], tol);
+                    try std.testing.expectApproxEqAbs(scalar[1][j], simd[i][1][j], tol);
+                }
+            }
         }
     }
 }

@@ -722,14 +722,18 @@ const leoTle3 = "1 55910U 23035C   24187.17717543  .00022897  00000+0  15695-2 0
 const geoTle = "1 28626U 05004A   24186.00000000 -.00000098  00000+0  00000+0 0  9998\n2 28626   0.0163 279.8379 0003069  20.3251 343.1766  1.00270142 70992";
 const gpsTle = "1 20413U 90005A   24186.00000000  .00000012  00000+0  10000-3 0  9992\n2 20413  55.4408  61.4858 0112981 129.5765 231.5553  2.00561730104446";
 
-test "mixed init classifies correctly" {
-    var tles: [5]Tle = undefined;
+fn parseTles(comptime N: usize, strs: [N][]const u8) ![N]Tle {
+    var tles: [N]Tle = undefined;
+    for (&tles, strs) |*t, str| t.* = try Tle.parse(str, testing.allocator);
+    return tles;
+}
+
+/// LEO and deep-space TLEs interleaved; indices 1 and 3 are SDP4
+const mixedTles = [5][]const u8{ leoTle1, geoTle, leoTle2, gpsTle, leoTle3 };
+
+test "propagate matches scalar - TEME timeMajor" {
+    var tles = try parseTles(5, mixedTles);
     defer for (&tles) |*t| t.deinit();
-    tles[0] = try Tle.parse(leoTle1, testing.allocator);
-    tles[1] = try Tle.parse(geoTle, testing.allocator);
-    tles[2] = try Tle.parse(leoTle2, testing.allocator);
-    tles[3] = try Tle.parse(gpsTle, testing.allocator);
-    tles[4] = try Tle.parse(leoTle3, testing.allocator);
 
     var c = try Constellation.init(testing.allocator, &tles, constants.wgs72);
     defer c.deinit();
@@ -737,19 +741,6 @@ test "mixed init classifies correctly" {
     try testing.expectEqual(@as(usize, 3), c.numSgp4);
     try testing.expectEqual(@as(usize, 2), c.numSdp4);
     try testing.expectEqual(@as(usize, 5), c.numSatellites);
-}
-
-test "propagate matches scalar - TEME timeMajor" {
-    var tles: [5]Tle = undefined;
-    defer for (&tles) |*t| t.deinit();
-    tles[0] = try Tle.parse(leoTle1, testing.allocator);
-    tles[1] = try Tle.parse(geoTle, testing.allocator);
-    tles[2] = try Tle.parse(leoTle2, testing.allocator);
-    tles[3] = try Tle.parse(gpsTle, testing.allocator);
-    tles[4] = try Tle.parse(leoTle3, testing.allocator);
-
-    var c = try Constellation.init(testing.allocator, &tles, constants.wgs72);
-    defer c.deinit();
 
     const epoch = tles[0].epochJd;
     const jd1 = [_]f64{@floor(epoch)};
@@ -759,51 +750,23 @@ test "propagate matches scalar - TEME timeMajor" {
 
     try c.propagate(&jd1, &fr1, &pos, &vel, .teme, .timeMajor);
 
-    const leoIndices = [_]usize{ 0, 2, 4 };
-    const leoTles = [_][]const u8{ leoTle1, leoTle2, leoTle3 };
-    for (leoIndices, leoTles) |idx, tleStr| {
-        var tle = try Tle.parse(tleStr, testing.allocator);
-        defer tle.deinit();
-        const sgp4 = try Sgp4.init(tle, constants.wgs72);
-        const satEpoch = tle.epochJd;
-        const tsince = (jd1[0] + fr1[0] - satEpoch) * 1440.0;
-        const scalar = try sgp4.propagate(tsince);
+    for (tles, 0..) |tle, idx| {
+        const tsince = (jd1[0] + fr1[0] - tle.epochJd) * 1440.0;
+        const scalar = if (idx == 1 or idx == 3)
+            try (try Sdp4.init(tle, constants.wgs72)).propagate(tsince)
+        else
+            try (try Sgp4.init(tle, constants.wgs72)).propagate(tsince);
         const ob = idx * 3;
-        try testing.expectApproxEqAbs(scalar[0][0], pos[ob + 0], 0.01);
-        try testing.expectApproxEqAbs(scalar[0][1], pos[ob + 1], 0.01);
-        try testing.expectApproxEqAbs(scalar[0][2], pos[ob + 2], 0.01);
-        try testing.expectApproxEqAbs(scalar[1][0], vel[ob + 0], 1e-5);
-        try testing.expectApproxEqAbs(scalar[1][1], vel[ob + 1], 1e-5);
-        try testing.expectApproxEqAbs(scalar[1][2], vel[ob + 2], 1e-5);
-    }
-
-    const dsIndices = [_]usize{ 1, 3 };
-    const dsTles = [_][]const u8{ geoTle, gpsTle };
-    for (dsIndices, dsTles) |idx, tleStr| {
-        var tle = try Tle.parse(tleStr, testing.allocator);
-        defer tle.deinit();
-        const sdp4 = try Sdp4.init(tle, constants.wgs72);
-        const satEpoch = tle.epochJd;
-        const tsince = (jd1[0] + fr1[0] - satEpoch) * 1440.0;
-        const scalar = try sdp4.propagate(tsince);
-        const ob = idx * 3;
-        try testing.expectApproxEqAbs(scalar[0][0], pos[ob + 0], 0.01);
-        try testing.expectApproxEqAbs(scalar[0][1], pos[ob + 1], 0.01);
-        try testing.expectApproxEqAbs(scalar[0][2], pos[ob + 2], 0.01);
-        try testing.expectApproxEqAbs(scalar[1][0], vel[ob + 0], 1e-5);
-        try testing.expectApproxEqAbs(scalar[1][1], vel[ob + 1], 1e-5);
-        try testing.expectApproxEqAbs(scalar[1][2], vel[ob + 2], 1e-5);
+        for (0..3) |j| {
+            try testing.expectApproxEqAbs(scalar[0][j], pos[ob + j], 0.01);
+            try testing.expectApproxEqAbs(scalar[1][j], vel[ob + j], 1e-5);
+        }
     }
 }
 
 test "timeMajor vs satelliteMajor produce identical results" {
-    var tles: [5]Tle = undefined;
+    var tles = try parseTles(5, mixedTles);
     defer for (&tles) |*t| t.deinit();
-    tles[0] = try Tle.parse(leoTle1, testing.allocator);
-    tles[1] = try Tle.parse(geoTle, testing.allocator);
-    tles[2] = try Tle.parse(leoTle2, testing.allocator);
-    tles[3] = try Tle.parse(gpsTle, testing.allocator);
-    tles[4] = try Tle.parse(leoTle3, testing.allocator);
 
     var c = try Constellation.init(testing.allocator, &tles, constants.wgs72);
     defer c.deinit();
@@ -832,11 +795,8 @@ test "timeMajor vs satelliteMajor produce identical results" {
 }
 
 test "all-SGP4 constellation" {
-    var tles: [3]Tle = undefined;
+    var tles = try parseTles(3, .{ leoTle1, leoTle2, leoTle3 });
     defer for (&tles) |*t| t.deinit();
-    tles[0] = try Tle.parse(leoTle1, testing.allocator);
-    tles[1] = try Tle.parse(leoTle2, testing.allocator);
-    tles[2] = try Tle.parse(leoTle3, testing.allocator);
 
     var c = try Constellation.init(testing.allocator, &tles, constants.wgs72);
     defer c.deinit();
@@ -860,10 +820,8 @@ test "all-SGP4 constellation" {
 }
 
 test "all-SDP4 constellation" {
-    var tles: [2]Tle = undefined;
+    var tles = try parseTles(2, .{ geoTle, gpsTle });
     defer for (&tles) |*t| t.deinit();
-    tles[0] = try Tle.parse(geoTle, testing.allocator);
-    tles[1] = try Tle.parse(gpsTle, testing.allocator);
 
     var c = try Constellation.init(testing.allocator, &tles, constants.wgs72);
     defer c.deinit();
@@ -887,11 +845,8 @@ test "all-SDP4 constellation" {
 }
 
 test "ECEF output mode" {
-    var tles: [3]Tle = undefined;
+    var tles = try parseTles(3, .{ leoTle1, geoTle, leoTle2 });
     defer for (&tles) |*t| t.deinit();
-    tles[0] = try Tle.parse(leoTle1, testing.allocator);
-    tles[1] = try Tle.parse(geoTle, testing.allocator);
-    tles[2] = try Tle.parse(leoTle2, testing.allocator);
 
     var c = try Constellation.init(testing.allocator, &tles, constants.wgs72);
     defer c.deinit();
