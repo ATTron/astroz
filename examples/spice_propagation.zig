@@ -85,5 +85,5 @@ pub fn main(init: std.process.Init) !void {
 
     const r_f = @sqrt(state[0] * state[0] + state[1] * state[1] + state[2] * state[2]);
     const v_f = @sqrt(state[3] * state[3] + state[4] * state[4] + state[5] * state[5]);
-    std.debug.print("{d:8.1} {d:10.2} {d:10.2} {d:10.4}\n", .{ t / 3600.0, r_f, r_f - 6378.137, v_f });
+    std.debug.print("{d:8.1} {d:10.2} {d:10.2} {d:10.4}\n", .{ t / 3600.0, r_f, r_f - rEq, v_f });
 }
