@@ -13,11 +13,11 @@
             .hash = "translate_c-2.0.1-Q_BUWmpOBwCIhy--up1q6cl3OlIQE86iJU8R-bZ01aPj",
         },
         .oma = .{
-            .url = "git+https://github.com/ATTron/oma#803d0f94a2358a2450ec5adaac060e050b728c46",
+            .url = "git+https://github.com/ATTron/oma#cddc0008623b08566619df31e33c9b8009abb478",
             .hash = "oma-0.0.1-lqmw5R0tAACCEcWnuvvNwDuvCvhjVfSQrVXEjiCIELdr",
         },
         .cfitsio = .{
-            .url = "git+https://github.com/ATTron/cfitsio#20647601893292324c9796cad2485ef21257ba56",
+            .url = "git+https://github.com/ATTron/cfitsio#9df1feb3bdfff93942586a4b84f7784ba7c2d97a",
             .hash = "cfitsio-4.6.2-LaSYACsbAACVa3el6UARZgx90PjcXm4yfBVBlff5criw",
         },
     },
