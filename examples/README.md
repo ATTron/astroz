@@ -1,12 +1,13 @@
 # astroz Examples
 
+The full list of examples is in the [top-level README](../README.md#examples). This page covers the Cesium visualization, which needs a bit more setup.
+
 ## Cesium Satellite Visualization
 
-Interactive 3D visualization of the entire near-earth satellite catalog (~13,000 satellites).
+A 3D view of the near-earth satellite catalog (about 13,000 satellites).
 
-**Files:**
-- `cesium_fast.py` - Main script (downloads TLEs, propagates, generates HTML)
-- `cesium_template.html` - HTML/JS template for the visualization
+- `cesium_fast.py` downloads TLEs, propagates them and writes the HTML page
+- `cesium_template.html` is the HTML/JS template it fills in
 
 ### Running
 
@@ -14,30 +15,20 @@ Interactive 3D visualization of the entire near-earth satellite catalog (~13,000
 uv run --python 3.12 examples/cesium_fast.py
 ```
 
-This generates `cesium_fast.html` in the project root. Open it in your browser.
+This writes `cesium_fast.html` to the current directory. Open it in a browser.
 
-### Features
+### What it does
 
-- Multithreaded SGP4 propagation (~300M propagations/sec on 16 threads with AVX512)
-- Color coded constellations (Starlink, OneWeb, Planet, Spire, Iridium, etc.)
-- Toggle constellation visibility
-- Search satellites by name (auto-labels when ≤10 results)
-- Click for orbital details, double-click to track
-- Real time mode showing actual current UTC positions
+- Propagates the catalog with the multithreaded SGP4 path (about 300M propagations/sec on 16 threads with AVX512)
+- Colors satellites by constellation (Starlink, OneWeb, Planet, Spire, Iridium, ...) and lets you toggle each one
+- Searches by name and labels the matches when there are 10 or fewer
+- Shows orbital details on click and tracks a satellite on double-click
+- Has a real-time mode that shows current UTC positions
 
-### Keyboard Shortcuts
+### Keyboard shortcuts
 
 | Key | Action |
 |-----|--------|
 | Space | Pause/resume |
 | R | Toggle real-time mode |
 | Esc | Stop tracking / reset view |
-
-## Other Examples
-
-- `python_sgp4.py` - Basic SGP4 propagation using python-sgp4 compatible API (`astroz.api`)
-- `conjunction_screening.py` - Conjunction detection example (Python)
-- `propagation.zig` - SGP4/SDP4 propagation with SIMD batch, modular interface, and unified Satellite type
-- `orbit_maneuvers.zig` - Hohmann transfer and orbital maneuvers
-- `maneuver_planning.zig` - Force model propagation (TwoBody, J2, Composite, Dormand-Prince 8(7))
-- `constellation_phasing.zig` - Sun-sync orbit design and constellation RAAN phasing
