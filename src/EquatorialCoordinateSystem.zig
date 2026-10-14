@@ -1,5 +1,5 @@
-//! Equatorial Coordinate System is a commonly used coordinate system in astronomy as it doesnt rely on
-//! the position of the viewer. Allowing you to find what you're looking easily without conversion
+//! Equatorial coordinates (right ascension and declination), which don't depend on the
+//! observer's location.
 
 const std = @import("std");
 
@@ -19,8 +19,7 @@ pub fn init(declination: Declination, rightAscension: RightAscension) Equatorial
     };
 }
 
-// TODO: this can 100% be done better
-/// Find anything at any date after Jan 1 2000 in the ECS format
+/// Precesses J2000 coordinates to `date` (after Jan 1 2000).
 pub fn precess(self: EquatorialCoordinateSystem, date: Datetime) EquatorialCoordinateSystem {
     const precessConstants = Precess.init(date);
     const deltas = self.calculateRaDec(precessConstants);
@@ -71,7 +70,6 @@ fn calculateRaDec(self: EquatorialCoordinateSystem, precessConstants: Precess) s
     return .{ .ra = returnRa, .dec = returnDec };
 }
 
-/// Declination portion of ECS.
 pub const Declination = struct {
     degrees: u16,
     arcminutes: u16,
@@ -85,7 +83,6 @@ pub const Declination = struct {
         };
     }
 
-    /// Convert to angular degrees, needed to precess
     pub fn convertToAngular(self: Declination) f64 {
         const degrees = @as(f32, @floatFromInt(self.degrees));
         const arcminutes = @as(f32, @floatFromInt(self.arcminutes)) / constants.arcminutesPerDegree;
@@ -94,7 +91,6 @@ pub const Declination = struct {
     }
 };
 
-/// Right ascension portion of ECS.
 pub const RightAscension = struct {
     hours: u16,
     minutes: u16,
@@ -108,7 +104,6 @@ pub const RightAscension = struct {
         };
     }
 
-    /// Convert to angular degrees, needed to precess
     pub fn convertToAngular(self: RightAscension) f64 {
         const hours = @as(f32, @floatFromInt(self.hours));
         const minutes = @as(f32, @floatFromInt(self.minutes)) / constants.minutesPerHour;
@@ -118,13 +113,11 @@ pub const RightAscension = struct {
 };
 
 const Precess = struct {
-    datetime: Datetime,
     t: f64,
     T: f64,
     M: f64,
     N: f64,
 
-    // TODO: clean up magic numbers
     pub fn init(datetime: Datetime) Precess {
         const t = @as(f64, @floatFromInt(datetime.year.?)) + calculateDoyPercentage(datetime);
         const T = (t - constants.j2k) / 100.0;
@@ -132,7 +125,6 @@ const Precess = struct {
         const N = 0.5567530 * T - 0.0001185 * std.math.pow(f64, T, 2.0) - 0.0000116 * std.math.pow(f64, T, 3.0);
 
         return .{
-            .datetime = datetime,
             .t = t,
             .T = T,
             .M = M,
@@ -165,7 +157,6 @@ test "Equatorial Coordinates" {
     try std.testing.expectApproxEqAbs(297.6958428700765, angularRa, 1e-4);
     try std.testing.expectApproxEqAbs(8.86833346048991, angularDec, 1e-4);
 
-    // Check precessed coordinates are within tolerance
     try std.testing.expectApproxEqAbs(expectedPrecessed.declination.arcseconds, precessedOutput.declination.arcseconds, 1e-4);
     try std.testing.expectApproxEqAbs(expectedPrecessed.rightAscension.seconds, precessedOutput.rightAscension.seconds, 1e-4);
 }

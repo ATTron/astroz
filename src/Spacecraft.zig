@@ -123,7 +123,7 @@ pub fn init(name: []const u8, tle: Tle, mass: f64, size: SatelliteSize, orbiting
             .{ 1.0, 0.0, 0.0 },
             .{ 0.0, 1.0, 0.0 },
         },
-        .orbitingObject = orbitingObject.?,
+        .orbitingObject = orbitingObject orelse constants.earth,
         .orbitPredictions = std.ArrayList(calculations.StateTime).empty,
         .allocator = allocator,
     };
@@ -197,7 +197,6 @@ pub fn propagate(self: *Spacecraft, t0: f64, days: f64, h: f64, impulseList: ?[]
     var t = t0;
     const tf = t0 + duration;
 
-    // setup force models and integrator
     var forces = self.createForceModels();
     const models = [_]propagators.ForceModel{
         propagators.ForceModel.wrap(propagators.TwoBody, &forces.twobody),
@@ -231,13 +230,11 @@ pub fn propagate(self: *Spacecraft, t0: f64, days: f64, h: f64, impulseList: ?[]
         }
         if (t >= tf) break;
 
-        // regular propagation step
         const stepSize = @min(h, tf - t);
         y = try integrator.step(y, t, stepSize, force);
         t += stepSize;
         try self.orbitPredictions.append(self.allocator, .{ .time = t, .state = y });
 
-        // check for abnormal orbit
         const r = calculations.posMag(y);
         const energy = self.calculateEnergy(y);
         if (energy > 0 or std.math.isNan(energy) or r > 100_000) {
@@ -264,7 +261,7 @@ fn applyImpulse(self: *Spacecraft, state: [6]f64, impulse: Impulse, t: *f64, h: 
             y = calculations.impulse(y, dv);
 
             // Propagate through transfer orbit(s)
-            const period = 2 * std.math.pi * @sqrt(std.math.pow(f64, r, 3) / self.orbitingObject.mu);
+            const period = calculations.orbitalPeriod(self.orbitingObject.mu, r);
             const tEnd = t.* + period * phase.orbits;
             if (tEnd > tf) return error.ImpulseOutOfRange;
             while (t.* < tEnd) {
@@ -362,15 +359,15 @@ fn rotateAbout(v: [3]f64, axis: [3]f64, angle: f64) [3]f64 {
 /// calculate delta-V for a phasing maneuver
 fn calculatePhaseChange(self: Spacecraft, radius: f64, phaseAngle: f64, transferOrbits: f64) f64 {
     const mu = self.orbitingObject.mu;
-    const vCircular = @sqrt(mu / radius);
-    const period = 2.0 * std.math.pi * @sqrt(std.math.pow(f64, radius, 3) / mu);
+    const vCircular = calculations.orbitalVelocity(mu, radius, null);
+    const period = calculations.orbitalPeriod(mu, radius);
 
     const deltaT = phaseAngle * period / (2.0 * std.math.pi * transferOrbits);
 
     const transferPeriod = period + deltaT;
     const aTransfer = std.math.pow(f64, transferPeriod * @sqrt(mu) / (2.0 * std.math.pi), 2.0 / 3.0);
 
-    const vTransfer = @sqrt(mu * (2.0 / radius - 1.0 / aTransfer));
+    const vTransfer = calculations.orbitalVelocity(mu, radius, aTransfer);
 
     return vTransfer - vCircular;
 }

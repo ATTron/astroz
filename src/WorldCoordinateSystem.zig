@@ -1,9 +1,8 @@
-//! World Coordinate System is commonly used
+//! ECI/ECEF/geodetic conversions and Earth-fixed positions from TLEs.
 const std = @import("std");
 
 const calculations = @import("calculations.zig");
 const constants = @import("constants.zig");
-const Spacecraft = @import("Spacecraft.zig");
 const Tle = @import("Tle.zig");
 const simdMath = @import("simdMath.zig");
 
@@ -31,13 +30,12 @@ x: f64,
 y: f64,
 z: f64,
 
-/// Currently this function assumes a fully parsed TLE already
+/// Earth-fixed position at `t0` seconds, rotating by the body's rotation rate.
 pub fn fromTle(tle: Tle, t0: f64, celestialObject: constants.CelestialBody) WorldCoordinateSystem {
-    std.log.info("TLE PARSING, {}", .{tle});
     const orbitalElements = calculations.tleToOrbitalElements(tle);
 
     const eci = orbitalElementsToECI(orbitalElements);
-    const ecef = eciToECEF(eci, t0, celestialObject);
+    const ecef = eciToEcefGmst(eci, celestialObject.rotationRate * t0);
 
     return .{ .x = ecef[0], .y = ecef[1], .z = ecef[2] };
 }
@@ -74,16 +72,7 @@ fn orbitalElementsToECI(elements: calculations.OrbitalElements) Vector3 {
     };
 }
 
-fn eciToECEF(eci: Vector3, timeSinceEpoch: f64, celestialObject: constants.CelestialBody) Vector3 {
-    const m = celestialObject.rotationRate * timeSinceEpoch;
-    return .{
-        eci[0] * @cos(m) + eci[1] * @sin(m),
-        -eci[0] * @sin(m) + eci[1] * @cos(m),
-        eci[2],
-    };
-}
-
-/// convert ECI to ECEF using GMST (Greenwich Mean Sidereal Time).
+/// Rotates ECI to ECEF by the Greenwich mean sidereal time (radians).
 pub fn eciToEcefGmst(eci: Vector3, gmst: f64) Vector3 {
     const cosGmst = @cos(gmst);
     const sinGmst = @sin(gmst);
@@ -94,7 +83,7 @@ pub fn eciToEcefGmst(eci: Vector3, gmst: f64) Vector3 {
     };
 }
 
-/// convert ECEF to geodetic coordinates (WGS84).
+/// ECEF (km) to WGS84 geodetic [lat (rad), lon (rad), alt (km)].
 pub fn ecefToGeodetic(ecef: Vector3) Vector3 {
     const x = ecef[0];
     const y = ecef[1];
@@ -120,7 +109,7 @@ pub fn ecefToGeodetic(ecef: Vector3) Vector3 {
     return .{ lat, lon, alt };
 }
 
-/// convert ECEF to geodetic coordinates (WGS84) in degrees.
+/// Like `ecefToGeodetic`, with lat/lon in degrees.
 pub fn ecefToGeodeticDeg(ecef: Vector3) Vector3 {
     const lla = ecefToGeodetic(ecef);
     return .{
@@ -142,7 +131,7 @@ pub fn eciToEcefVN(comptime N: usize, x: simdMath.VecN(N), y: simdMath.VecN(N), 
     };
 }
 
-/// Compute GMST (Greenwich Mean Sidereal Time) from Julian date
+/// Greenwich mean sidereal time (radians) at a Julian date.
 pub fn julianToGmst(jd: f64) f64 {
     const jdJ2000 = jd - constants.j2000Jd;
     const t = jdJ2000 / constants.julianDaysPerCentury;
@@ -156,7 +145,6 @@ pub fn julianToGmst(jd: f64) f64 {
 test "eciToEcefV4 matches scalar eciToEcefGmst" {
     const gmst = julianToGmst(2460500.5);
 
-    // 4 different ECI positions
     const positions = [4]Vector3{
         .{ 6500.0, 1000.0, 3000.0 },
         .{ -2000.0, 7000.0, -500.0 },
@@ -164,13 +152,11 @@ test "eciToEcefV4 matches scalar eciToEcefGmst" {
         .{ 5000.0, 5000.0, 1000.0 },
     };
 
-    // Scalar reference
     var ref: [4]Vector3 = undefined;
     for (0..4) |i| {
         ref[i] = eciToEcefGmst(positions[i], gmst);
     }
 
-    // SIMD
     const px = Vec4{ positions[0][0], positions[1][0], positions[2][0], positions[3][0] };
     const py = Vec4{ positions[0][1], positions[1][1], positions[2][1], positions[3][1] };
     const pz = Vec4{ positions[0][2], positions[1][2], positions[2][2], positions[3][2] };

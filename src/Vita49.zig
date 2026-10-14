@@ -13,8 +13,6 @@ payload: []const u8,
 trailer: ?Trailer,
 allocator: std.mem.Allocator,
 end: usize,
-
-// private
 _rawData: []const u8,
 
 pub fn init(pl: []const u8, allocator: std.mem.Allocator, config: ?[]const u8) !Vita49 {
@@ -63,10 +61,8 @@ pub fn init(pl: []const u8, allocator: std.mem.Allocator, config: ?[]const u8) !
     }
     if (header.trailer) {
         trailer = Trailer.init(stream[payloadRange.end..]);
-        payload = stream[payloadRange.start..payloadRange.end];
-    } else {
-        payload = stream[payloadRange.start..payloadRange.end];
     }
+    payload = stream[payloadRange.start..payloadRange.end];
     if (header.tsi != Tsi.none) {
         var tmpArray: [4]u8 = undefined;
         @memcpy(&tmpArray, stream[iStart .. iStart + 4]);
@@ -127,7 +123,6 @@ fn getPayloadRange(header: Header, hasStreamId: bool) !struct { start: usize, en
     return .{ .start = start, .end = end };
 }
 
-/// Vita49 error types
 pub const Error = error{ MalformedPayloadRange, InsufficientData };
 
 const PacketType = enum(u4) {
@@ -195,14 +190,14 @@ pub const Header = packed struct {
     }
 
     pub fn output(self: Header) void {
-        std.log.info("Vita49 Packet Header:\n", .{});
-        std.log.info("Packet type: {}\n", .{self.packetType});
-        std.log.info("Class ID: {}\n", .{self.classId});
-        std.log.info("Trailer Present: {}\n", .{self.trailer});
-        std.log.info("TSI: {}\n", .{self.tsi});
-        std.log.info("TSF: {}\n", .{self.tsf});
-        std.log.info("Packet_Count: {}\n", .{self.packetCount});
-        std.log.info("Packet_Size: {}\n", .{self.packetSize});
+        std.log.info("Vita49 Packet Header:", .{});
+        std.log.info("Packet type: {}", .{self.packetType});
+        std.log.info("Class ID: {}", .{self.classId});
+        std.log.info("Trailer Present: {}", .{self.trailer});
+        std.log.info("TSI: {}", .{self.tsi});
+        std.log.info("TSF: {}", .{self.tsf});
+        std.log.info("Packet_Count: {}", .{self.packetCount});
+        std.log.info("Packet_Size: {}", .{self.packetSize});
     }
 };
 

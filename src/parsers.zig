@@ -3,7 +3,7 @@ const std = @import("std");
 const Ccsds = @import("Ccsds.zig");
 const Vita49 = @import("Vita49.zig");
 
-/// Semi-generic function that takes either Vita49 or CCSDS as the Frame type.
+/// Packet parser for `Vita49` or `Ccsds` frames, read from a file or a TCP stream.
 pub fn Parser(comptime Frame: type) type {
     return struct {
         ipAddress: []const u8,
@@ -34,7 +34,7 @@ pub fn Parser(comptime Frame: type) type {
             };
         }
 
-        /// Clean up any allocator mess left per packet that is created by parser
+        /// Frees every parsed packet.
         pub fn deinit(self: *Self) void {
             for (self.packets.items) |*packet| {
                 packet.deinit();
@@ -42,15 +42,14 @@ pub fn Parser(comptime Frame: type) type {
             self.packets.deinit(self.allocator);
         }
 
-        /// Compute total packet byte size from a parsed frame
         fn frameByteSize(frame: Frame) usize {
-            if (comptime std.mem.eql(u8, @typeName(Frame), "Vita49"))
+            if (Frame == Vita49)
                 return @as(usize, frame.header.packetSize) * 4
             else
                 return @as(usize, frame.header.packetSize) + 6;
         }
 
-        /// Use this if you have a recording you need to parse
+        /// Parses a recording. With a sync pattern, every frame starting with it is parsed.
         pub fn parseFromFile(
             self: *Self,
             fileName: []const u8,
@@ -91,7 +90,7 @@ pub fn Parser(comptime Frame: type) type {
             }
         }
 
-        /// This will start the tcp listener and begin parsing as data comes in
+        /// Connects to `ipAddress:port` and parses frames until `stop` is called or the stream ends.
         pub fn start(self: *Self, io: std.Io, comptime callback: ?fn (Frame) void) !void {
             const addr = try std.Io.net.IpAddress.parseIp4(self.ipAddress, self.port);
 
@@ -112,15 +111,12 @@ pub fn Parser(comptime Frame: type) type {
 
                 const newFrame = Frame.init(incomingBuffer[0..bytesRead], self.allocator, null) catch continue;
                 std.log.debug("message received: {any}", .{newFrame});
-                _ = try self.packets.append(self.allocator, newFrame);
-                if (callback != null) {
-                    callback.?(newFrame);
-                }
+                try self.packets.append(self.allocator, newFrame);
+                if (callback) |cb| cb(newFrame);
             }
         }
 
-        /// Kills the tcp connection
-        /// Make sure you clean up
+        /// Makes `start` return after its current read.
         pub fn stop(self: *Self) void {
             self.shouldStop = true;
         }
@@ -145,7 +141,6 @@ test "Vita49 Parse From File w/ sync" {
 test "Vita49 Parse From File w/o sync" {
     const io = std.testing.io;
     const file_name = "./test/vita49.bin".*;
-    //3a02 0a00 3412 0000 0056
     const P = Parser(Vita49);
     var parser = try P.init(null, null, 1024, io, std.testing.allocator);
     defer parser.deinit();
@@ -188,14 +183,12 @@ test "CCSDS Parse From File w/ sync" {
     }
 }
 
-/// Dummy TCP server for tests — listens, accepts one connection, sends packets, closes.
+/// Test server: accepts one connection, sends `pkt` `count` times, then closes.
 fn runTestServer(comptime pkt: []const u8, comptime count: usize, io: std.Io) void {
     const addr = std.Io.net.IpAddress.parseIp4("127.0.0.1", 0) catch return;
     var server = std.Io.net.IpAddress.listen(&addr, io, .{ .reuse_address = true }) catch return;
     defer server.deinit(io);
 
-    // Write the bound port so the client knows where to connect.
-    // We stash it in a global so the test thread can read it.
     serverPort = server.socket.address.getPort();
     serverReady.store(.signaled, .release);
 
@@ -219,7 +212,6 @@ fn waitForServer() u16 {
         std.atomic.spinLoopHint();
     }
     const port = serverPort;
-    // Reset for next test
     serverReady.store(.waiting, .release);
     return port;
 }
@@ -239,9 +231,9 @@ test "Vita49 TCP Parser" {
     var p = try Parser(Vita49).init("127.0.0.1", port, 1024, io, std.testing.allocator);
     defer p.deinit();
 
-    // start() will read until the server closes the connection (EndOfStream)
+    // start() returns ReadFailed once the server closes the connection
     p.start(io, null) catch |err| switch (err) {
-        error.ReadFailed => {}, // expected: server closed connection
+        error.ReadFailed => {},
         else => return err,
     };
 
