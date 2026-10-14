@@ -733,6 +733,7 @@ fn dspace(el: *const Elements, tsince: f64, s: *DspaceState) void {
         // Half-day
         s.mm = xl - 2.0 * s.nodem + 2.0 * theta;
     }
+    // Vallado verbatim (a no-op up to rounding)
     const dndt = s.nm - el.sgp4.noUnkozai;
     s.nm = el.sgp4.noUnkozai + dndt;
 }
@@ -835,7 +836,7 @@ fn propagateElementsCarry(el: *const Elements, tsince: f64, carry: *ResonanceCar
     var em = ds.em - tempe;
 
     if (em >= 1.0 or em < -0.001) return Error.InvalidEccentricity;
-    if (em < 1.0e-6) em = 1.0e-6;
+    if (em < Sgp4.eccentricityFloor) em = Sgp4.eccentricityFloor;
     if (am < 0.95) return Error.SatelliteDecayed;
 
     var mm = ds.mm + sgp4El.noUnkozai * templ;
@@ -856,7 +857,7 @@ fn propagateElementsCarry(el: *const Elements, tsince: f64, carry: *ResonanceCar
     }
     // Vallado error 3: perturbed eccentricity out of [0, 1] (check before flooring)
     if (em < 0.0 or em > 1.0) return Error.InvalidEccentricity;
-    if (em < 1.0e-6) em = 1.0e-6;
+    if (em < Sgp4.eccentricityFloor) em = Sgp4.eccentricityFloor;
 
     const sinip = @sin(inclm);
     const cosip = @cos(inclm);
@@ -865,7 +866,7 @@ fn propagateElementsCarry(el: *const Elements, tsince: f64, carry: *ResonanceCar
     var elCopy = sgp4El.*;
     elCopy.aycof = -0.5 * sgp4El.grav.j3oj2 * sinip;
     const xlcofNum = -0.25 * sgp4El.grav.j3oj2 * sinip * (3.0 + 5.0 * cosip);
-    elCopy.xlcof = xlcofNum / (if (@abs(cosip + 1.0) > 1.5e-12) 1.0 + cosip else @as(f64, 1.5e-12));
+    elCopy.xlcof = xlcofNum / (if (@abs(cosip + 1.0) > Sgp4.singularityTolerance) 1.0 + cosip else Sgp4.singularityTolerance);
     elCopy.inclo = inclm;
     elCopy.cosio = cosip;
     elCopy.sinio = sinip;
@@ -1032,7 +1033,7 @@ fn dspaceN(comptime N: usize, el: *const Elements, tsince: simdMath.VecN(N), s: 
     const steppV: Vec = @splat(stepp);
     const step2V: Vec = @splat(step2);
     const positive = tsince > zero;
-    const delt = @select(f64, positive, @as(Vec, @splat(stepp)), @as(Vec, @splat(-stepp)));
+    const delt = @select(f64, positive, steppV, -steppV);
 
     // Masked integration loop
     var active = @abs(tsince - s.atime) >= steppV;
@@ -1066,6 +1067,7 @@ fn dspaceN(comptime N: usize, el: *const Elements, tsince: simdMath.VecN(N), s: 
         const two: Vec = @splat(2.0);
         s.mm = xl - two * s.nodem + two * theta;
     }
+    // Vallado verbatim (a no-op up to rounding)
     const dndt = s.nm - noUnkozaiV;
     s.nm = noUnkozaiV + dndt;
 }
@@ -1263,7 +1265,7 @@ pub fn propagateN(self: *const Sdp4, comptime N: usize, times: [N]f64) Error!Sgp
     nm = xkeV / simdMath.pow15N(N, am);
     var em = ds.em - tempe;
 
-    const eccFloor: Vec = @splat(1.0e-6);
+    const eccFloor: Vec = @splat(Sgp4.eccentricityFloor);
     const em_bad = (em >= one) | (em < @as(Vec, @splat(-0.001)));
     if (@reduce(.Or, em_bad)) return Error.InvalidEccentricity;
     em = @max(em, eccFloor);
@@ -1299,7 +1301,7 @@ pub fn propagateN(self: *const Sdp4, comptime N: usize, times: [N]f64) Error!Sgp
 
     const j3oj2V: Vec = @splat(sgp4El.grav.j3oj2);
     const aycof = -half * j3oj2V * sinip;
-    const singTol: Vec = @splat(1.5e-12);
+    const singTol: Vec = @splat(Sgp4.singularityTolerance);
     const denom = cosip + one;
     const safe_denom = @select(f64, @abs(denom) > singTol, denom, singTol);
     const xlcof = -quarter * j3oj2V * sinip * (three + five * cosip) / safe_denom;

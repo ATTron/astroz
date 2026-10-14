@@ -20,7 +20,7 @@ const perigeeSimplified = 220.0; // use simplified drag model, if below this val
 // Numerical tolerances
 const eccentricityMin = 1.0e-4; // minimum for cc3/xmcof
 pub const eccentricityFloor = 1.0e-6; // floor to prevent numerical issues
-const singularityTolerance = 1.5e-12; // near-polar orbit singularity check
+pub const singularityTolerance = 1.5e-12; // near-polar orbit singularity check
 
 pub const Error = error{
     DeepSpaceNotSupported,

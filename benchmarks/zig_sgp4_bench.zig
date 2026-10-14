@@ -2,12 +2,7 @@ const std = @import("std");
 const astroz = @import("astroz");
 
 const Sgp4 = astroz.Sgp4;
-const lanes = astroz.Constellation.Sgp4Batch.batchSize;
-
-comptime {
-    // dispatch.sgp4Times8 is fixed at 8 lanes.
-    std.debug.assert(lanes == 8);
-}
+const lanes = 8; // dispatch.sgp4Times8 is fixed at 8 lanes
 
 const line1 = "1 25544U 98067A   24127.82853009  .00015698  00000+0  27310-3 0  9995";
 const line2 = "2 25544  51.6393 160.4574 0003580 140.6673 205.7250 15.50957674452123";

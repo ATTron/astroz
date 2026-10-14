@@ -248,7 +248,7 @@ pub fn propagateBatchDirect(comptime N: usize, el: *const Sdp4BatchElements(N), 
         const steppV: Vec = @splat(Sdp4.stepp);
         const step2V: Vec = @splat(Sdp4.step2);
         const positive = tsince > zero;
-        const delt = @select(f64, positive, @as(Vec, @splat(Sdp4.stepp)), @as(Vec, @splat(-Sdp4.stepp)));
+        const delt = @select(f64, positive, steppV, -steppV);
 
         // Masked integration loop
         var active = hasRes & (@abs(tsince - carry.atime) >= steppV);
@@ -294,7 +294,7 @@ pub fn propagateBatchDirect(comptime N: usize, el: *const Sdp4BatchElements(N), 
     nm = el.xke / simdMath.pow15N(N, am);
     em = em - tempe;
 
-    const eccFloor: Vec = @splat(1.0e-6);
+    const eccFloor: Vec = @splat(Sgp4.eccentricityFloor);
     bad = bad | (em >= one) | (em < @as(Vec, @splat(-0.001))) | (am < @as(Vec, @splat(0.95)));
     em = @select(f64, bad, eccFloor, @max(em, eccFloor));
 
@@ -324,7 +324,7 @@ pub fn propagateBatchDirect(comptime N: usize, el: *const Sdp4BatchElements(N), 
     const cosip2 = cosip * cosip;
 
     const aycof = -half * el.j3oj2 * sinip;
-    const singTol: Vec = @splat(1.5e-12);
+    const singTol: Vec = @splat(Sgp4.singularityTolerance);
     const denom = cosip + one;
     const safe_denom = @select(f64, @abs(denom) > singTol, denom, singTol);
     const xlcof = -quarter * el.j3oj2 * sinip * (three + five * cosip) / safe_denom;

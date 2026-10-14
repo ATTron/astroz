@@ -49,9 +49,38 @@ pub inline fn outBase(comptime layout: Layout, satIdx: usize, timeIdx: usize, nu
         timeIdx * numSatellites * 3 + satIdx * 3;
 }
 
-/// Scalar ECI to ECEF rotation for a single position vector
 inline fn eciToEcef(pos: [3]f64, sinG: f64, cosG: f64) [3]f64 {
     return .{ pos[0] * cosG + pos[1] * sinG, pos[1] * cosG - pos[0] * sinG, pos[2] };
+}
+
+/// sin/cos of GMST at `baseJd + t / perDay` for each t, for rotating TEME into ECEF
+const GmstTable = struct {
+    sin: []f64 = &.{},
+    cos: []f64 = &.{},
+
+    fn init(times: []const f64, baseJd: f64, perDay: f64) Error!GmstTable {
+        const pa = std.heap.page_allocator;
+        const sin = pa.alloc(f64, times.len) catch return Error.OutOfMemory;
+        errdefer pa.free(sin);
+        const cos = pa.alloc(f64, times.len) catch return Error.OutOfMemory;
+        for (times, sin, cos) |t, *s, *c| {
+            const gmst = WCS.julianToGmst(baseJd + t / perDay);
+            s.* = @sin(gmst);
+            c.* = @cos(gmst);
+        }
+        return .{ .sin = sin, .cos = cos };
+    }
+
+    fn deinit(self: GmstTable) void {
+        std.heap.page_allocator.free(self.sin);
+        std.heap.page_allocator.free(self.cos);
+    }
+};
+
+fn checkOutputLen(numSatellites: usize, numTimes: usize, resultsPos: []f64, resultsVel: ?[]f64) Error!void {
+    const required = numSatellites * numTimes * 3;
+    if (resultsPos.len < required) return Error.SatelliteDecayed;
+    if (resultsVel) |rv| if (rv.len < required) return Error.SatelliteDecayed;
 }
 
 /// Cached thread count to avoid repeated syscalls
@@ -251,9 +280,7 @@ pub fn propagate(
     layout: Layout,
 ) Error!void {
     const numTimes = jd.len;
-    const required = self.numSatellites * numTimes * 3;
-    if (resultsPos.len < required) return Error.SatelliteDecayed;
-    if (resultsVel) |rv| if (rv.len < required) return Error.SatelliteDecayed;
+    try checkOutputLen(self.numSatellites, numTimes, resultsPos, resultsVel);
 
     const pa = std.heap.page_allocator;
 
@@ -267,20 +294,8 @@ pub fn propagate(
         tsinceBase[t] = (jdFull[t] - self.referenceEpochJd) * 1440.0;
     }
 
-    var sinBuf: []f64 = &.{};
-    var cosBuf: []f64 = &.{};
-    defer if (sinBuf.len > 0) pa.free(sinBuf);
-    defer if (cosBuf.len > 0) pa.free(cosBuf);
-
-    if (outputMode != .teme) {
-        sinBuf = pa.alloc(f64, numTimes) catch return Error.OutOfMemory;
-        cosBuf = pa.alloc(f64, numTimes) catch return Error.OutOfMemory;
-        for (0..numTimes) |t| {
-            const gmst = WCS.julianToGmst(jdFull[t]);
-            sinBuf[t] = @sin(gmst);
-            cosBuf[t] = @cos(gmst);
-        }
-    }
+    const gmst: GmstTable = if (outputMode != .teme) try .init(jdFull, 0.0, 1.0) else .{};
+    defer gmst.deinit();
 
     const ctx = PropCtx{
         .sgp4Batches = self.sgp4Batches,
@@ -298,28 +313,21 @@ pub fn propagate(
         .jdFull = jdFull,
         .resultsPos = resultsPos,
         .resultsVel = resultsVel,
-        .gmstSin = sinBuf,
-        .gmstCos = cosBuf,
+        .gmstSin = gmst.sin,
+        .gmstCos = gmst.cos,
         .satelliteMask = null,
     };
 
     dispatchImpl(layout, outputMode, resultsVel != null, ctx);
 }
 
-/// Dispatch to the correct propagateImpl variant
 inline fn dispatchImpl(layout: Layout, outputMode: OutputMode, hasVel: bool, ctx: PropCtx) void {
-    const key: u4 = @as(u4, @backingInt(layout)) << 3 |
-        @as(u4, @intCast(@backingInt(outputMode))) << 1 |
-        @intFromBool(hasVel);
-
-    inline for (0..16) |i| {
-        const mode_bits = (i >> 1) & 0b11;
-        if (mode_bits < 3 and key == i) {
-            const l: Layout = @fromBackingInt(@intCast(i >> 3));
-            const m: OutputMode = @fromBackingInt(@intCast(mode_bits));
-            const v = (i & 1) == 1;
-            return propagateImpl(l, m, v, ctx);
-        }
+    switch (layout) {
+        inline else => |l| switch (outputMode) {
+            inline else => |m| switch (hasVel) {
+                inline else => |v| propagateImpl(l, m, v, ctx),
+            },
+        },
     }
 }
 
@@ -333,54 +341,50 @@ fn propagateImpl(
     var handles: [MaxThreads]?std.Thread = @splat(null);
     var idx: usize = 0;
 
-    // SGP4 phase: thread over time ranges (timeMajor) or batch ranges (satelliteMajor)
+    // SGP4 threads over time ranges (timeMajor) or batch ranges (satelliteMajor)
     if (ctx.sgp4Batches.len > 0) {
         const work = if (layout == .satelliteMajor) ctx.sgp4Batches.len else ctx.numTimes;
-        const nt = @min(work, maxThreads);
-        const per = @divCeil(work, nt);
-        for (0..nt) |tid| {
-            const start = tid * per;
-            const end = @min(start + per, work);
-            if (start >= end) break;
-            if (idx < MaxThreads) {
-                handles[idx] = std.Thread.spawn(.{}, unifiedSgp4Range, .{
-                    layout, mode, hasVel, ctx, start, end,
-                }) catch {
-                    unifiedSgp4Range(layout, mode, hasVel, ctx, start, end);
-                    continue;
-                };
-                idx += 1;
-            } else {
-                unifiedSgp4Range(layout, mode, hasVel, ctx, start, end);
-            }
-        }
+        spawnRanges(unifiedSgp4Range, layout, mode, hasVel, ctx, work, @min(work, maxThreads), &handles, &idx);
     }
 
-    // SDP4 phase: thread over batch ranges (sequential time for carry)
+    // SDP4 threads over batch ranges only, so each batch steps through time in order for its resonance carry
     if (ctx.sdp4Batches.len > 0) {
         const work = ctx.sdp4Batches.len;
         const remaining = if (maxThreads > idx) maxThreads - idx else 1;
-        const nt = @min(work, remaining);
-        const per = @divCeil(work, nt);
-        for (0..nt) |tid| {
-            const start = tid * per;
-            const end = @min(start + per, work);
-            if (start >= end) break;
-            if (idx < MaxThreads) {
-                handles[idx] = std.Thread.spawn(.{}, unifiedSdp4Range, .{
-                    layout, mode, hasVel, ctx, start, end,
-                }) catch {
-                    unifiedSdp4Range(layout, mode, hasVel, ctx, start, end);
-                    continue;
-                };
-                idx += 1;
-            } else {
-                unifiedSdp4Range(layout, mode, hasVel, ctx, start, end);
-            }
-        }
+        spawnRanges(unifiedSdp4Range, layout, mode, hasVel, ctx, work, @min(work, remaining), &handles, &idx);
     }
 
     for (handles) |h| if (h) |t| t.join();
+}
+
+/// Split `work` into `nt` contiguous ranges and run `rangeFn` on each, on a new
+/// thread while handles remain (inline otherwise, or if the spawn fails).
+fn spawnRanges(
+    comptime rangeFn: anytype,
+    comptime layout: Layout,
+    comptime mode: OutputMode,
+    comptime hasVel: bool,
+    ctx: PropCtx,
+    work: usize,
+    nt: usize,
+    handles: *[MaxThreads]?std.Thread,
+    idx: *usize,
+) void {
+    const per = @divCeil(work, nt);
+    for (0..nt) |tid| {
+        const start = tid * per;
+        const end = @min(start + per, work);
+        if (start >= end) break;
+        if (idx.* < MaxThreads) {
+            handles[idx.*] = std.Thread.spawn(.{}, rangeFn, .{ layout, mode, hasVel, ctx, start, end }) catch {
+                rangeFn(layout, mode, hasVel, ctx, start, end);
+                continue;
+            };
+            idx.* += 1;
+        } else {
+            rangeFn(layout, mode, hasVel, ctx, start, end);
+        }
+    }
 }
 
 fn unifiedSgp4Range(
@@ -550,35 +554,18 @@ pub fn propagateConstellation(
     satelliteMask: ?[]const u8,
     layout: Layout,
 ) Error!void {
-    const requiredSize = numSatellites * times.len * 3;
-    if (resultsPos.len < requiredSize) return Error.SatelliteDecayed;
-    if (resultsVel) |rv| {
-        if (rv.len < requiredSize) return Error.SatelliteDecayed;
-    }
+    try checkOutputLen(numSatellites, times.len, resultsPos, resultsVel);
 
     const pa = std.heap.page_allocator;
 
-    // Build identity origIndices: satellite i maps to output position i
+    // Identity mapping: satellite i writes output column i
     const padded = batches.len * batchSize;
     const origIndices = pa.alloc(u32, padded) catch return Error.OutOfMemory;
     defer pa.free(origIndices);
     for (origIndices, 0..) |*v, i| v.* = @intCast(i);
 
-    // Precompute GMST sin/cos if coordinate transform needed
-    var sinBuf: []f64 = &.{};
-    var cosBuf: []f64 = &.{};
-    defer if (sinBuf.len > 0) pa.free(sinBuf);
-    defer if (cosBuf.len > 0) pa.free(cosBuf);
-
-    if (outputMode != .teme) {
-        sinBuf = pa.alloc(f64, times.len) catch return Error.OutOfMemory;
-        cosBuf = pa.alloc(f64, times.len) catch return Error.OutOfMemory;
-        for (times, 0..) |time, i| {
-            const gmst = WCS.julianToGmst(referenceJd + time / 1440.0);
-            sinBuf[i] = @sin(gmst);
-            cosBuf[i] = @cos(gmst);
-        }
-    }
+    const gmst: GmstTable = if (outputMode != .teme) try .init(times, referenceJd, 1440.0) else .{};
+    defer gmst.deinit();
 
     const ctx = PropCtx{
         .sgp4Batches = batches,
@@ -596,8 +583,8 @@ pub fn propagateConstellation(
         .jdFull = &.{},
         .resultsPos = resultsPos,
         .resultsVel = resultsVel,
-        .gmstSin = sinBuf,
-        .gmstCos = cosBuf,
+        .gmstSin = gmst.sin,
+        .gmstCos = gmst.cos,
         .satelliteMask = satelliteMask,
     };
 
@@ -622,37 +609,20 @@ pub fn propagateSdp4Constellation(
     layout: Layout,
 ) Error!void {
     const numTimes = jd.len;
-    const requiredSize = numSatellites * numTimes * 3;
-    if (resultsPos.len < requiredSize) return Error.SatelliteDecayed;
-    if (resultsVel) |rv| if (rv.len < requiredSize) return Error.SatelliteDecayed;
+    try checkOutputLen(numSatellites, numTimes, resultsPos, resultsVel);
 
     const pa = std.heap.page_allocator;
 
-    // Compute jdFull
     const jdFull = pa.alloc(f64, numTimes) catch return Error.OutOfMemory;
     defer pa.free(jdFull);
     for (0..numTimes) |t| jdFull[t] = jd[t] + fr[t];
 
-    // Initialize carries
     const carries = pa.alloc(Sdp4Carry, batches.len) catch return Error.OutOfMemory;
     defer pa.free(carries);
     for (batches, carries) |*b, *carry| carry.* = Sdp4Batch.initCarry(batchSize, b);
 
-    // Precompute GMST sin/cos if coordinate transform needed
-    var sinBuf: []f64 = &.{};
-    var cosBuf: []f64 = &.{};
-    defer if (sinBuf.len > 0) pa.free(sinBuf);
-    defer if (cosBuf.len > 0) pa.free(cosBuf);
-
-    if (outputMode != .teme) {
-        sinBuf = pa.alloc(f64, numTimes) catch return Error.OutOfMemory;
-        cosBuf = pa.alloc(f64, numTimes) catch return Error.OutOfMemory;
-        for (jdFull, 0..) |jdT, i| {
-            const gmst = WCS.julianToGmst(jdT);
-            sinBuf[i] = @sin(gmst);
-            cosBuf[i] = @cos(gmst);
-        }
-    }
+    const gmst: GmstTable = if (outputMode != .teme) try .init(jdFull, 0.0, 1.0) else .{};
+    defer gmst.deinit();
 
     const ctx = PropCtx{
         .sgp4Batches = &.{},
@@ -670,8 +640,8 @@ pub fn propagateSdp4Constellation(
         .jdFull = jdFull,
         .resultsPos = resultsPos,
         .resultsVel = resultsVel,
-        .gmstSin = sinBuf,
-        .gmstCos = cosBuf,
+        .gmstSin = gmst.sin,
+        .gmstCos = gmst.cos,
         .satelliteMask = null,
     };
 
@@ -705,23 +675,14 @@ pub fn screenConstellation(
         outMinTIndices[i] = 0;
     }
 
-    const page_alloc = std.heap.page_allocator;
-    const sinBuf = page_alloc.alloc(f64, times.len) catch return Error.OutOfMemory;
-    defer page_alloc.free(sinBuf);
-    const cosBuf = page_alloc.alloc(f64, times.len) catch return Error.OutOfMemory;
-    defer page_alloc.free(cosBuf);
-
-    for (times, 0..) |time, i| {
-        const gmst = WCS.julianToGmst(referenceJd + time / 1440.0);
-        sinBuf[i] = @sin(gmst);
-        cosBuf[i] = @cos(gmst);
-    }
+    const gmst: GmstTable = try .init(times, referenceJd, 1440.0);
+    defer gmst.deinit();
 
     for (times, 0..) |time, timeIdx| {
         var targetTimeArr: [batchSize]f64 = undefined;
         @memset(&targetTimeArr, time + targetEpochOffset);
         const targetResults = dispatch.sgp4Batch8(targetBatch, targetTimeArr) catch continue;
-        const targetPos = eciToEcef(targetResults[targetLane][0], sinBuf[timeIdx], cosBuf[timeIdx]);
+        const targetPos = eciToEcef(targetResults[targetLane][0], gmst.sin[timeIdx], gmst.cos[timeIdx]);
 
         for (batches, 0..) |*batch, batchIdx| {
             const satBase = batchIdx * batchSize;
@@ -736,7 +697,7 @@ pub fn screenConstellation(
                 const satIdx = satBase + lane;
                 if (satIdx >= numSatellites or satIdx == targetIdx) continue;
 
-                const pos = eciToEcef(batchResults[lane][0], sinBuf[timeIdx], cosBuf[timeIdx]);
+                const pos = eciToEcef(batchResults[lane][0], gmst.sin[timeIdx], gmst.cos[timeIdx]);
                 const dx = targetPos[0] - pos[0];
                 const dy = targetPos[1] - pos[1];
                 const dz = targetPos[2] - pos[2];
