@@ -1,109 +1,20 @@
-"""astroz - High-performance astrodynamics library.
+"""astroz: satellite propagation, conjunction screening and orbital mechanics.
 
-A Python library for satellite orbit propagation, conjunction screening,
-orbital mechanics, and numerical propagation, powered by a Zig backend
-with SIMD acceleration (AVX2/AVX512).
+There are two entry points:
 
-APIs
-----
-astroz (this module)
-    High-level API for quick propagation and screening with automatic
-    TLE loading from CelesTrak, files, or URLs.
+- this module: ``propagate`` and ``screen`` take a ``Constellation`` or
+  anything it can load (a CelesTrak group, NORAD IDs, a URL, a file, or raw
+  TLE / OMM JSON text)::
 
-astroz.api
-    python-sgp4 compatible API. Drop-in replacement - just change the import
-    for 2-100x speedup. See :mod:`astroz.api` for migration guide.
+      import astroz
+      positions = astroz.propagate("starlink", [0, 60, 120])
 
-Quick Start
------------
-**High-level API** (easiest)::
+- ``astroz.api``: a drop-in for ``sgp4.api`` (``Satrec``, ``SatrecArray``,
+  ``jday``).
 
-    import astroz
-    positions = astroz.propagate("starlink", [0, 60, 120])
+OMM JSON is detected automatically.
 
-**python-sgp4 compatible** (drop-in replacement)::
-
-    from astroz.api import Satrec, jday  # was: from sgp4.api import ...
-    sat = Satrec.twoline2rv(line1, line2)
-    e, r, v = sat.sgp4(jd, fr)
-
-Main Functions
---------------
-propagate
-    Propagate satellites to specified times, returning positions (and optionally
-    velocities) in ECEF, TEME, or geodetic coordinates.
-screen
-    Screen a constellation for conjunction events, either all-vs-all or
-    single-target mode.
-
-Orbital Mechanics
------------------
-hohmann_transfer
-    Compute Hohmann transfer between two circular orbits.
-bi_elliptic_transfer
-    Compute bi-elliptic transfer between two circular orbits.
-lambert
-    Solve Lambert's problem for two position vectors and time of flight.
-orbital_velocity
-    Compute orbital velocity using the vis-viva equation.
-orbital_period
-    Compute orbital period from Kepler's third law.
-escape_velocity
-    Compute escape velocity at a given radius.
-
-Numerical Propagation
----------------------
-propagate_numerical
-    Numerically propagate an orbit with optional perturbations (J2,
-    atmospheric drag). Supports RK4 and Dormand-Prince 8(7) integrators.
-
-Constants
----------
-EARTH_MU
-    Earth gravitational parameter (km^3/s^2), WGS84 value 398600.5.
-EARTH_R_EQ
-    Earth equatorial radius (km), WGS84 value 6378.137.
-EARTH_J2
-    Earth J2 zonal harmonic coefficient, WGS84 value 0.00108262998905.
-SUN_MU
-    Sun gravitational parameter (km^3/s^2), 1.32712e11.
-MOON_MU
-    Moon gravitational parameter (km^3/s^2), 4902.80.
-
-Classes
--------
-Constellation
-    Pre-parsed TLE data for efficient repeated propagation/screening.
-
-Data Sources
-------------
-The library supports TLE and OMM (CCSDS 502.0-B-3) formats:
-
-- **CelesTrak groups**: ``"starlink"``, ``"gps"``, ``"stations"``, etc.
-- **NORAD IDs**: ``norad_id=25544`` (ISS) or ``norad_id=[25544, 48274]``
-- **URLs**: Any URL returning TLE or OMM JSON data
-- **Local files**: Path to a TLE or OMM JSON file
-- **Raw TLE text**: Direct TLE string input
-- **Raw OMM JSON**: Direct JSON string (single object or array)
-
-OMM JSON is auto-detected and supports 6+ digit NORAD catalog IDs
-(required after the TLE format's 5-digit limit is exhausted in mid-2026).
-
-Performance
------------
-=================================  ============
-Operation                          Throughput
-=================================  ============
-Multi-satellite batch              290M props/s
-Single satellite ``sgp4_array()``  15M props/s
-Single ``sgp4()`` call             2.5M props/s
-=================================  ============
-
-See Also
---------
-- python-sgp4 migration: :mod:`astroz.api`
-- Zig documentation: https://attron.github.io/astroz/zig/
-- GitHub: https://github.com/ATTron/astroz
+Docs: https://attron.github.io/astroz/
 """
 
 import numpy as np
@@ -136,33 +47,25 @@ _CELESTRAK_ALIASES = {
     "glonass": "glo-ops",
 }
 
-DAY_SECONDS = 86400.0
 
 def _fetch_url(url):
-    """Fetch URL content."""
     import urllib.request
 
     req = urllib.request.Request(url, headers={"User-Agent": "astroz"})
     return urllib.request.urlopen(req, timeout=60).read().decode("utf-8")
 
 
-def _celestrak_url(group=None, norad_id=None, fmt="tle"):
-    """Build CelesTrak URL."""
-    fmt_str = fmt.upper()
+def _celestrak_url(group=None, norad_id=None):
     if norad_id is not None:
-        ids = (
-            ",".join(str(i) for i in norad_id)
-            if isinstance(norad_id, (list, tuple))
-            else str(norad_id)
-        )
-        return f"https://celestrak.org/NORAD/elements/gp.php?CATNR={ids}&FORMAT={fmt_str}"
-    if group is not None:
-        group_name = _CELESTRAK_ALIASES.get(group.lower(), group)
-    return f"https://celestrak.org/NORAD/elements/gp.php?GROUP={group_name}&FORMAT={fmt_str}"
+        ids = ",".join(map(str, norad_id)) if isinstance(norad_id, (list, tuple)) else str(norad_id)
+        query = f"CATNR={ids}"
+    else:
+        query = f"GROUP={_CELESTRAK_ALIASES.get(group.lower(), group)}"
+    return f"https://celestrak.org/NORAD/elements/gp.php?{query}&FORMAT=TLE"
 
 
 def _load_tle_text(source, norad_id=None):
-    """Load TLE text from various sources. Returns (text, format) tuple."""
+    """Returns (text, format) where format is "tle" or "json"."""
     if norad_id is not None:
         return _fetch_url(_celestrak_url(norad_id=norad_id)), "tle"
     if source is None:
@@ -183,29 +86,40 @@ def _load_tle_text(source, norad_id=None):
 
 
 def _parse_tle_pairs(tle_text):
-    """Parse TLE text into list of (line1, line2) pairs."""
+    """(line1, line2) pairs from TLE text; name lines and strays are skipped."""
     lines = [l.strip() for l in tle_text.strip().splitlines() if l.strip()]
     pairs = []
     i = 0
     while i < len(lines):
-        if lines[i].startswith("1 "):
-            if i + 1 < len(lines) and lines[i + 1].startswith("2 "):
-                pairs.append((lines[i], lines[i + 1]))
-                i += 2
-                continue
-        elif lines[i].startswith("2 "):
+        if lines[i].startswith("1 ") and i + 1 < len(lines) and lines[i + 1].startswith("2 "):
+            pairs.append((lines[i], lines[i + 1]))
+            i += 2
+        else:
             i += 1
-            continue
-        # Skip name lines
-        i += 1
     return pairs
 
 
-def _omm_to_tle_pairs(json_text):
-    """Convert OMM JSON (single object or array) to list of (line1, line2) pairs."""
-    import json
+def _tle_exp(val):
+    """TLE implied-decimal exponent field, e.g. 0.00027310 -> ' 27310-3'."""
     import math
-    from datetime import datetime
+
+    if val == 0:
+        return " 00000+0"
+    sign = "-" if val < 0 else " "
+    av = abs(val)
+    exp = math.floor(math.log10(av)) + 1
+    mantissa = round(av * 10 ** (5 - exp))
+    return f"{sign}{int(mantissa):05d}{exp:+d}"
+
+
+def _with_checksum(line):
+    line = line[:68].ljust(68)
+    return line + str(sum(int(c) if c.isdigit() else (1 if c == "-" else 0) for c in line) % 10)
+
+
+def _omm_to_tle_pairs(json_text):
+    """(line1, line2) pairs from OMM JSON (one object or an array)."""
+    import json
 
     data = json.loads(json_text)
     if isinstance(data, dict):
@@ -230,15 +144,11 @@ def _omm_to_tle_pairs(json_text):
         mm = rec["MEAN_MOTION"]
         revnum = rec.get("REV_AT_EPOCH", 0) or 0
 
-        # Parse ISO 8601 epoch to 2-digit year + day-of-year
         dt = datetime.fromisoformat(epoch_str).replace(tzinfo=None)
-        year = dt.year
-        yy = year % 100
-        # Day of year: Jan 1 = day 1
-        jan1 = datetime(year, 1, 1)
-        doy = (dt - jan1).total_seconds() / DAY_SECONDS + 1.0
+        yy = dt.year % 100
+        doy = (dt - datetime(dt.year, 1, 1)).total_seconds() / 86400.0 + 1.0
 
-        # OMM OBJECT_ID: "1998-067A" → TLE: "98067A  "
+        # OBJECT_ID "1998-067A" -> TLE "98067A  "
         if "-" in intl:
             parts = intl.split("-", 1)
             intl_year = parts[0][-2:]
@@ -247,41 +157,21 @@ def _omm_to_tle_pairs(json_text):
         else:
             intl_tle = f"{intl:<8s}"
 
-        def _fmt_exp(val):
-            if val == 0:
-                return " 00000+0"
-            sign = "-" if val < 0 else " "
-            av = abs(val)
-            exp = math.floor(math.log10(av)) + 1
-            mantissa = round(av * 10 ** (5 - exp))
-            return f"{sign}{int(mantissa):05d}{exp:+d}"
-
-        # no leading zero, implied decimal
+        # ndot has no leading zero: " .00015698"
         ndot_sign = "-" if ndot < 0 else " "
         ndot_frac = f"{abs(ndot):.8f}"
         ndot_str = f"{ndot_sign}{ndot_frac[1:]}"
 
-        # Build TLE line 1 character by character (69 chars)
-        # Cols: 1 | 3-7 | 8 | 10-17 | 19-32 | 34-43 | 45-52 | 54-61 | 63 | 65-68 | 69
-        l1 = f"1 {norad:05d}{cls[0]} {intl_tle} {yy:02d}{doy:012.8f} {ndot_str} {_fmt_exp(nddot)} {_fmt_exp(bstar)} {etype} {elset:4d}"
-        l1 = l1[:68].ljust(68)
-        cksum1 = sum(int(c) if c.isdigit() else (1 if c == "-" else 0) for c in l1) % 10
-        l1 = l1 + str(cksum1)
-
-        # Build TLE line 2 (69 chars)
-        ecc_str = f"{ecc:.7f}"[2:]  # "0.0011446" → "0011446"
+        l1 = f"1 {norad:05d}{cls[0]} {intl_tle} {yy:02d}{doy:012.8f} {ndot_str} {_tle_exp(nddot)} {_tle_exp(bstar)} {etype} {elset:4d}"
+        ecc_str = f"{ecc:.7f}"[2:]  # "0.0011446" -> "0011446"
         l2 = f"2 {norad:05d} {inc:8.4f} {raan:8.4f} {ecc_str} {argp:8.4f} {ma:8.4f} {mm:11.8f}{revnum:5d}"
-        l2 = l2[:68].ljust(68)
-        cksum2 = sum(int(c) if c.isdigit() else (1 if c == "-" else 0) for c in l2) % 10
-        l2 = l2 + str(cksum2)
-
-        pairs.append((l1, l2))
+        pairs.append((_with_checksum(l1), _with_checksum(l2)))
 
     return pairs
 
 
 def _start_jd(start_time):
-    """Convert start_time to Julian Date, defaulting to current UTC."""
+    """Julian date of start_time (default: now, UTC)."""
     if start_time is None:
         start_time = datetime.now(timezone.utc)
     return 2440587.5 + (start_time.timestamp() / 86400.0)
@@ -336,15 +226,6 @@ def _ecef_to_geodetic_into(pos, sats):
     p[..., 2] = r / np.cos(lat) - n
 
 
-def _pad_epochs_for_simd(epochs_arr):
-    """Pad epoch array to multiple of 8 for SIMD alignment."""
-    n = len(epochs_arr)
-    padded = ((n + 7) // 8) * 8
-    if padded > n:
-        return np.concatenate([epochs_arr, np.full(padded - n, epochs_arr[-1])])
-    return epochs_arr
-
-
 def _compute_epoch_offsets(constellation, start_time):
     """Compute epoch offsets from start_time."""
     start = _start_jd(start_time)
@@ -353,15 +234,10 @@ def _compute_epoch_offsets(constellation, start_time):
 
 
 class Constellation:
-    """Pre-parsed TLE data for efficient repeated propagation and screening.
+    """Satellites parsed once, for repeated ``propagate`` / ``screen`` calls.
 
-    Use this class when you need to propagate or screen the same satellites
-    multiple times. It parses TLE data once and caches the result, avoiding
-    the overhead of re-parsing on every call.
-
-    Transparently handles mixed SGP4 (near-earth) and SDP4 (deep-space)
-    satellites. Near-earth satellites use SIMD batch propagation, deep-space
-    satellites use per-satellite SIMD time-major propagation.
+    Near-earth satellites run through SIMD SGP4 batches and deep-space ones
+    through SDP4; a constellation can mix both.
 
     Parameters
     ----------
@@ -421,8 +297,7 @@ class Constellation:
         tle_text, fmt = _load_tle_text(source, norad_id)
         pairs = _omm_to_tle_pairs(tle_text) if fmt == "json" else _parse_tle_pairs(tle_text)
 
-        # Separate near-earth (SGP4) and deep-space (SDP4) TLEs.
-        # Output ordering: SGP4 sats first [0, n_sgp4), SDP4 after [n_sgp4, n_total).
+        # Output order is SGP4 satellites first, then SDP4
         sgp4_lines = []
         self._sdp4_satrecs = []
         self._total_sats = len(pairs)
@@ -439,8 +314,7 @@ class Constellation:
 
         self._zig = None
         if sgp4_lines:
-            sgp4_text = "\n".join(sgp4_lines)
-            self._zig = _Sgp4Constellation.from_tle_text(sgp4_text)
+            self._zig = _Sgp4Constellation.from_tle_text("\n".join(sgp4_lines))
 
     @property
     def num_satellites(self):
@@ -461,10 +335,7 @@ class Constellation:
 def propagate(
     source, times, *, start_time=None, output="ecef", velocities=False, norad_id=None
 ):
-    """Propagate one or more satellites to specified times.
-
-    Computes satellite positions (and optionally velocities) at the given times
-    using SGP4 propagation with SIMD acceleration and multi-threading.
+    """Propagate one or more satellites to the given times.
 
     Parameters
     ----------
@@ -528,18 +399,11 @@ def propagate(
 
     >>> iss_pos = propagate(None, range(1440), norad_id=25544)
 
-    Efficient repeated propagation with Constellation:
+    Reuse a Constellation to avoid re-parsing:
 
     >>> c = Constellation("starlink")
     >>> pos1 = propagate(c, [0, 60])
     >>> pos2 = propagate(c, [120, 180])
-
-    Notes
-    -----
-    - Uses SIMD-accelerated SGP4 (8-wide AVX2/AVX-512 when available)
-    - Multi-threaded for large constellations
-    - For repeated propagation of the same satellites, use a ``Constellation``
-      object to avoid re-parsing TLEs
 
     See Also
     --------
@@ -560,14 +424,9 @@ def propagate(
     vel = np.empty(shape, dtype=np.float64) if velocities else None
     n_sgp4 = const._n_sgp4
 
-    # SGP4 batch: positions [0, n_sgp4) — write directly into output
+    # SGP4 fills columns [0, n_sgp4); output_stride=n_sats leaves room for SDP4
     if const._zig is not None and n_sgp4 > 0:
-        sgp4_epochs = np.array(const._zig.epochs, dtype=np.float64)
-        sgp4_offsets = (start - _pad_epochs_for_simd(sgp4_epochs)) * 1440.0
-
-        # Write SGP4 results directly into output array.
-        # For mixed case, output_stride=n_sats tells Zig to use the full
-        # satellite dimension as stride, writing SGP4 at indices [0, n_sgp4).
+        sgp4_offsets = (start - np.array(const._zig.epochs, dtype=np.float64)) * 1440.0
         const._zig.propagate_into(
             times,
             pos,
@@ -580,8 +439,8 @@ def propagate(
             output_stride=n_sats,
         )
 
-    # SDP4 batch: positions [n_sgp4, n_sats), time-major with full-width stride.
-    # The SDP4 kernel emits TEME; ECEF / geodetic are applied here in numpy.
+    # SDP4 fills columns [n_sgp4, n_sats). It only emits TEME, so ECEF and
+    # geodetic conversion happen here.
     if const._sdp4_satrecs:
         vel_out = vel if velocities else np.empty(shape, dtype=np.float64)
         _sdp4_batch_propagate_into(
@@ -605,10 +464,10 @@ def propagate(
 def screen(
     source, times, threshold=10.0, *, target=None, start_time=None, norad_id=None
 ):
-    """Screen a constellation for conjunction events.
+    """Find close approaches within ``threshold`` km.
 
-    Identifies close approaches between satellites within a distance threshold.
-    Supports two modes: single-target (fastest) and all-vs-all screening.
+    With ``target`` set, screens every satellite against that one (fast,
+    fused propagate+screen). Without it, screens all pairs.
 
     Parameters
     ----------
@@ -627,9 +486,7 @@ def screen(
     threshold : float, default 10.0
         Distance threshold in kilometers. Pairs closer than this are reported.
     target : int, optional
-        Satellite index for single-target screening. When set, only conjunctions
-        with this specific satellite are found. This uses a fused propagate+screen
-        algorithm and is significantly faster than all-vs-all mode.
+        Satellite index for single-target screening.
     start_time : datetime, optional
         Reference time for the ``times`` array. Defaults to current UTC time.
     norad_id : int or list of int, optional
@@ -638,21 +495,17 @@ def screen(
 
     Returns
     -------
-    For single-target mode (``target`` is set):
-        min_distances : ndarray
-            Array of shape ``(n_satellites,)`` containing the minimum distance
-            to the target satellite over all times.
-        min_t_indices : ndarray
-            Array of shape ``(n_satellites,)`` containing the time index at
-            which the minimum distance occurred.
+    With ``target``:
+        min_distances : ndarray, shape ``(n_satellites,)``
+            Minimum distance to the target over all times.
+        min_t_indices : ndarray, shape ``(n_satellites,)``
+            Time index of that minimum.
 
-    For all-vs-all mode (``target`` is None):
-        pairs : ndarray
-            Array of shape ``(n_conjunctions, 2)`` containing satellite index
-            pairs that came within threshold distance.
-        t_indices : ndarray
-            Array of shape ``(n_conjunctions,)`` containing the time index
-            at which each conjunction occurred.
+    Without ``target``:
+        pairs : list of (int, int)
+            Satellite index pairs that came within ``threshold``.
+        t_indices : list of int
+            Time index of each pair's approach.
 
     Examples
     --------
@@ -673,14 +526,6 @@ def screen(
     >>> # Find ISS index in constellation, then screen
     >>> min_dist, min_t = screen(c, range(1440), threshold=10.0, target=iss_idx)
 
-    Notes
-    -----
-    - Single-target mode uses a fused propagate+screen algorithm that is
-      significantly faster than all-vs-all mode
-    - All-vs-all mode scales as O(n^2) with number of satellites
-    - For large constellations, consider using single-target mode with
-      specific satellites of interest
-
     See Also
     --------
     propagate : Propagate satellites to get full position data.
@@ -693,7 +538,7 @@ def screen(
 
     times_arr = np.ascontiguousarray(times, dtype=np.float64)
 
-    # Pure SGP4 constellation — use fast native paths
+    # Pure SGP4: use the native screening paths
     if not const._sdp4_satrecs and const._zig is not None:
         constellation = const._zig
         epoch_offsets, start_jd = _compute_epoch_offsets(constellation, start_time)
@@ -722,7 +567,7 @@ def screen(
             )
             return _coarse_screen(pos, n_sats, threshold, None)
 
-    # Mixed SGP4/SDP4 — propagate all then screen
+    # Mixed SGP4/SDP4: propagate everything, then screen
     pos = propagate(const, times_arr, start_time=start_time, output="teme")
     n_sats = const.num_satellites
     return _coarse_screen(pos, n_sats, threshold, None)
