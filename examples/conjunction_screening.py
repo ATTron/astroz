@@ -1,7 +1,4 @@
-"""Conjunction screening example using astroz.
-
-Demonstrates: load TLEs, screen for close approaches.
-"""
+"""Screen a constellation for close approaches over one day."""
 
 import sys
 import time
@@ -22,7 +19,6 @@ def main():
     threshold_km = 10.0
     times = np.arange(1440, dtype=np.float64)  # 1 day at 1-min resolution
 
-    # Load constellation
     print(f"Loading {source}...")
     t0 = time.perf_counter()
     c = (
@@ -32,19 +28,16 @@ def main():
     )
     print(f"Loaded {c.num_satellites} satellites in {time.perf_counter() - t0:.3f}s")
 
-    # All-vs-all screening
     print(f"Screening for conjunctions within {threshold_km} km...")
     t0 = time.perf_counter()
     pairs, t_indices = screen(c, times, threshold=threshold_km)
     elapsed = time.perf_counter() - t0
     print(f"Found {len(pairs)} events in {elapsed:.3f}s")
 
-    # Report results
     if len(pairs) == 0:
         print("No conjunctions found.")
         return
 
-    # Group by unique pairs
     from collections import defaultdict
 
     pair_times = defaultdict(list)
@@ -57,12 +50,10 @@ def main():
     )[:20]:
         print(f"  sat {sat_i:>5d} & {sat_j:>5d}: {len(times_list)} events")
 
-    # Single-target screening (faster for tracking one object)
+    # Screening against one target is much faster than all pairs
     print("\nSingle-target screening (satellite 0)...")
     t0 = time.perf_counter()
-    min_dists, min_t_indices = screen(
-        c, np.arange(1440, dtype=np.float64), threshold=50.0, target=0
-    )
+    min_dists, min_t_indices = screen(c, times, threshold=50.0, target=0)
     elapsed = time.perf_counter() - t0
 
     close = np.where(np.array(min_dists) < threshold_km)[0]
