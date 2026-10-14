@@ -9,40 +9,19 @@ on:
 
 jobs:
   test:
-    name: Unit tests and examples
+    name: Format, tests and examples
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install Zig
-        uses: mlugg/setup-zig@v2
+      - uses: mlugg/setup-zig@v2
         with:
           version: 0.17.0
           use-cache: false
 
-      - name: Fetch FITS fixture
-        run: curl -o test/table.fits http://data.astropy.org/tutorials/FITS-tables/chandra_events.fits
-
-      - name: Run tests
-        run: zig build test --summary all
-
-      - name: Compile examples
-        run: zig build build-examples --summary all
-
-  fmt:
-    name: Formatting
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install Zig
-        uses: mlugg/setup-zig@v2
-        with:
-          version: 0.17.0
-          use-cache: false
-
-      - name: Check formatting
-        run: zig build fmt
+      - run: zig build fmt
+      - run: zig build test --summary all
+      - run: zig build build-examples --summary all
 
   python:
     name: Python ${{ matrix.python-version }} bindings
@@ -54,69 +33,39 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install Zig
-        uses: mlugg/setup-zig@v2
+      - uses: mlugg/setup-zig@v2
         with:
           version: 0.17.0
           use-cache: false
 
-      - name: Install Python
-        uses: actions/setup-python@v5
+      - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
 
-      - name: Build extension
-        run: |
-          py_inc=$(python -c "import sysconfig; print(sysconfig.get_path('include'))")
-          zig build python-bindings \
-            -Dpython-include="$py_inc" \
-            -Doptimize=ReleaseFast
-          cp zig-out/bindings/python/astroz/lib_astroz.so bindings/python/astroz/_astroz.so
-
+      # setup.py runs `zig build python-bindings` against this interpreter
       - name: Install package
-        run: |
-          pip install numpy
-          pip install -e bindings/python
+        run: pip install numpy sgp4 -e bindings/python
 
-      - name: Smoke test - import
+      - name: Smoke test
+        shell: python
         run: |
-          python -c "
-          from astroz import Tle, Constellation, propagate, __version__
-          print('astroz', __version__)
-          "
-
-      - name: Smoke test - TLE parsing and propagation
-        run: |
-          python -c "
           import numpy as np
           import astroz
-
-          tle_text = '\n'.join([
-              '1 25544U 98067A   24127.82853009  .00015698  00000+0  27310-3 0  9995',
-              '2 25544  51.6393 160.4574 0003580 140.6673 205.7250 15.50957674452123',
-          ])
-          tle = astroz.Tle(tle_text)
-          print('satellite number:', tle.satellite_number)
-
-          minutes = np.arange(100, dtype=np.float64)
-          out = astroz.propagate(tle_text, minutes)
-          print('propagate shape:', out.shape)
-          "
-
-      - name: Smoke test - python-sgp4 compatibility
-        run: |
-          pip install sgp4
-          python -c "
-          import numpy as np
           from astroz.api import Satrec, SatrecArray, jday, WGS72
           from sgp4.api import Satrec as RefSatrec, WGS72 as REF_WGS72
 
-          l1 = '1 25544U 98067A   24127.82853009  .00015698  00000+0  27310-3 0  9995'
-          l2 = '2 25544  51.6393 160.4574 0003580 140.6673 205.7250 15.50957674452123'
+          print("astroz", astroz.__version__)
+
+          l1 = "1 25544U 98067A   24127.82853009  .00015698  00000+0  27310-3 0  9995"
+          l2 = "2 25544  51.6393 160.4574 0003580 140.6673 205.7250 15.50957674452123"
+
+          tle = astroz.Tle(l1 + "\n" + l2)
+          assert tle.satellite_number == 25544
+          out = astroz.propagate(l1 + "\n" + l2, np.arange(100, dtype=np.float64))
+          print("propagate shape:", out.shape)
 
           sat = Satrec.twoline2rv(l1, l2, WGS72)
           jd, fr = jday(2024, 5, 6, 12, 0, 0.0)
-
           err, r, v = sat.sgp4(jd, fr)
           assert err == 0, err
 
@@ -125,14 +74,11 @@ jobs:
           sat.sgp4_array(jds, frs)
           SatrecArray([sat]).sgp4(jds, frs)
 
-          ref = RefSatrec.twoline2rv(l1, l2, REF_WGS72)
-          ref_err, ref_r, ref_v = ref.sgp4(jd, fr)
+          ref_err, ref_r, _ = RefSatrec.twoline2rv(l1, l2, REF_WGS72).sgp4(jd, fr)
           assert ref_err == 0, ref_err
-
           diff_km = float(np.linalg.norm(np.array(r) - np.array(ref_r)))
-          print('position difference vs python-sgp4: %.3e km' % diff_km)
+          print("position difference vs python-sgp4: %.3e km" % diff_km)
           assert diff_km < 1e-3, diff_km  # 1 m
-          "
 
       - name: Run python_sgp4 example
         run: python examples/python_sgp4.py

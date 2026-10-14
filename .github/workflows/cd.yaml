@@ -12,40 +12,31 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install Zig
-        uses: mlugg/setup-zig@v2
+      - uses: mlugg/setup-zig@v2
         with:
           version: 0.17.0
           use-cache: false
 
-      - name: Install Python
-        uses: actions/setup-python@v5
+      - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
 
       - name: Install pdoc and the Python package
-        run: |
-          pip install pdoc
-          cd bindings/python && pip install -e .
+        run: pip install pdoc -e bindings/python
 
-      - name: Generate Zig docs
+      # Published layout: / (landing page), /zig/ (Zig autodocs), /python/ (pdoc)
+      - name: Build site
         run: |
-          mkdir -p zig-out/doc/zig zig-out/doc/python
           zig build doc
-          # Relocate the Zig docs so Python docs can live alongside them.
-          find zig-out/doc -maxdepth 1 -type f -exec mv -t zig-out/doc/zig {} + || true
-          if [ -d zig-out/doc/src ]; then mv zig-out/doc/src zig-out/doc/zig/ || true; fi
-
-      - name: Generate Python docs
-        run: pdoc bindings/python/astroz -o zig-out/doc/python
-
-      - name: Add landing page
-        run: cp .github/landing_page.html zig-out/doc/index.html
+          mkdir site
+          mv zig-out/doc site/zig
+          pdoc bindings/python/astroz -o site/python
+          cp .github/landing_page.html site/index.html
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: zig-out/doc/
+          path: site/
 
   deploy:
     name: Deploy to GitHub Pages

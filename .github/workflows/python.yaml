@@ -89,8 +89,5 @@ jobs:
           path: dist
           merge-multiple: true
 
-      - name: List dist contents
-        run: ls -la dist/
-
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
