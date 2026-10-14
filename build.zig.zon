@@ -13,7 +13,7 @@
             .hash = "translate_c-2.0.1-Q_BUWmpOBwCIhy--up1q6cl3OlIQE86iJU8R-bZ01aPj",
         },
         .oma = .{
-            .url = "git+https://github.com/ATTron/oma#cddc0008623b08566619df31e33c9b8009abb478",
+            .url = "https://github.com/ATTron/oma/archive/refs/tags/v0.1.0.tar.gz",
             .hash = "oma-0.0.1-lqmw5R0tAACCEcWnuvvNwDuvCvhjVfSQrVXEjiCIELdr",
         },
         .cfitsio = .{
