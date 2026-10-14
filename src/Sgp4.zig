@@ -91,7 +91,6 @@ pub const Elements = struct {
 
 elements: Elements,
 
-/// initialize from tle
 pub fn init(tle: Tle, grav: constants.Sgp4GravityModel) Error!Sgp4 {
     return .{ .elements = try initElements(tle, grav) };
 }
@@ -797,8 +796,8 @@ pub fn propagateN(self: *const Sgp4, comptime N: usize, times: [N]f64) Error!Pos
     const secular = updateSecularN(N, el, timeVec);
 
     // Vallado error 1: mean eccentricity out of range (em is clamped; check the raw value)
-    const em_bad = (secular.emRaw >= @as(Vec, @splat(1.0))) | (secular.emRaw < @as(Vec, @splat(-0.001)));
-    if (@reduce(.Or, em_bad)) return Error.InvalidEccentricity;
+    const emBad = (secular.emRaw >= @as(Vec, @splat(1.0))) | (secular.emRaw < @as(Vec, @splat(-0.001)));
+    if (@reduce(.Or, emBad)) return Error.InvalidEccentricity;
 
     return aboveSurfaceN(N, keplerAndPosVel(
         N,
@@ -967,12 +966,9 @@ test "sgp4 vallado reference ISS" {
     const v = result[1];
 
     // reference from python-sgp4:
-    // r = [-5887.061832, 3151.888264, -1263.887271]
-    // v = [-3.250642, -3.745001, 5.837125]
     const refR = [3]f64{ -5887.061832, 3151.888264, -1263.887271 };
     const refV = [3]f64{ -3.250642, -3.745001, 5.837125 };
 
-    // Check position error (should be < 1 meter = 0.001 km)
     const posErr = @sqrt((r[0] - refR[0]) * (r[0] - refR[0]) +
         (r[1] - refR[1]) * (r[1] - refR[1]) +
         (r[2] - refR[2]) * (r[2] - refR[2]));

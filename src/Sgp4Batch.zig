@@ -81,7 +81,6 @@ pub fn initBatchElements(comptime N: usize, tles: [N]Tle, grav: constants.Sgp4Gr
 
     var result: BatchElements(N) = undefined;
 
-    // Transpose matching fields automatically
     inline for (@typeInfo(BatchElements(N)).@"struct".field_names) |name| {
         if (@hasField(Elements, name)) {
             var arr: [N]f64 = undefined;
@@ -92,14 +91,13 @@ pub fn initBatchElements(comptime N: usize, tles: [N]Tle, grav: constants.Sgp4Gr
         }
     }
 
-    // Special handling for isimp boolean -> mask
+    // isimp becomes a 1.0/0.0 lane mask
     var isimpArr: [N]f64 = undefined;
     inline for (0..N) |i| {
         isimpArr[i] = if (els[i].isimp) 1.0 else 0.0;
     }
     simdMath.storeArray(N, &result.isimpMask, isimpArr);
 
-    // Splat gravity constants
     simdMath.fillScalar(N, &result.xke, grav.xke);
     simdMath.fillScalar(N, &result.j2, grav.j2);
     simdMath.fillScalar(N, &result.radiusEarthKm, grav.radiusEarthKm);
@@ -284,9 +282,7 @@ test "Vallado AIAA 2006-6753 near-earth vectors" {
     const tles: [4]Tle = .{ t1, t2, t1, t2 };
     const els = try initBatchElements(4, tles, constants.wgs72);
 
-    // Vallado reference: sat 00005 at t=0
-    // r = (7022.46529266, -1400.08296755, 0.03995155) km
-    // v = (1.893841015, 6.405893759, 4.534807250) km/s
+    // sat 00005 at t=0
     {
         const result = try testPropagateSatellites(4, &els, 0.0);
         try std.testing.expectApproxEqAbs(@as(f64, 7022.46529266), result[0][0][0], 0.01);
@@ -297,9 +293,7 @@ test "Vallado AIAA 2006-6753 near-earth vectors" {
         try std.testing.expectApproxEqAbs(@as(f64, 4.534807250), result[0][1][2], 1e-6);
     }
 
-    // Vallado reference: sat 00005 at t=360 min
-    // r = (-7154.03120202, -3783.17682504, -3536.19412294) km
-    // v = (4.741887409, -4.151817765, -2.093935425) km/s
+    // sat 00005 at t=360 min
     {
         const result = try testPropagateSatellites(4, &els, 360.0);
         try std.testing.expectApproxEqAbs(@as(f64, -7154.03120202), result[0][0][0], 0.01);
@@ -310,9 +304,7 @@ test "Vallado AIAA 2006-6753 near-earth vectors" {
         try std.testing.expectApproxEqAbs(@as(f64, -2.093935425), result[0][1][2], 1e-6);
     }
 
-    // Vallado reference: sat 06251 at t=0
-    // r = (3988.31022699, 5498.96657235, 0.90055879) km
-    // v = (-3.290032738, 2.357652820, 6.496623475) km/s
+    // sat 06251 at t=0
     {
         const result = try testPropagateSatellites(4, &els, 0.0);
         try std.testing.expectApproxEqAbs(@as(f64, 3988.31022699), result[1][0][0], 0.01);

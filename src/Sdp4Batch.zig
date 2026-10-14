@@ -132,7 +132,6 @@ pub fn ResonanceCarryBatch(comptime N: usize) type {
     };
 }
 
-/// Initialize carry state from batch elements
 pub fn initCarry(comptime N: usize, el: *const Sdp4BatchElements(N)) ResonanceCarryBatch(N) {
     var result: ResonanceCarryBatch(N) = undefined;
     simdMath.fillScalar(N, &result.atime, 0.0);
@@ -170,17 +169,16 @@ pub fn initFromElements(comptime N: usize, els: [N]Sdp4.Elements, grav: constant
         }
     }
 
-    // Derived: resonance masks from irez
-    var hasRes_arr: [N]f64 = undefined;
-    var isHalf_arr: [N]f64 = undefined;
+    // Resonance masks from irez
+    var hasResArr: [N]f64 = undefined;
+    var isHalfArr: [N]f64 = undefined;
     inline for (0..N) |i| {
-        hasRes_arr[i] = if (els[i].irez != 0) 1.0 else 0.0;
-        isHalf_arr[i] = if (els[i].irez == 2) 1.0 else 0.0;
+        hasResArr[i] = if (els[i].irez != 0) 1.0 else 0.0;
+        isHalfArr[i] = if (els[i].irez == 2) 1.0 else 0.0;
     }
-    simdMath.storeArray(N, &result.hasResonance, hasRes_arr);
-    simdMath.storeArray(N, &result.isHalfDay, isHalf_arr);
+    simdMath.storeArray(N, &result.hasResonance, hasResArr);
+    simdMath.storeArray(N, &result.isHalfDay, isHalfArr);
 
-    // Splat gravity constants
     simdMath.fillScalar(N, &result.xke, grav.xke);
     simdMath.fillScalar(N, &result.j2, grav.j2);
     simdMath.fillScalar(N, &result.j3oj2, grav.j3oj2);
@@ -205,7 +203,7 @@ pub fn propagateBatchDirect(comptime N: usize, el: *const Sdp4BatchElements(N), 
     const five: Vec = @splat(5.0);
     const seven: Vec = @splat(7.0);
 
-    // Step 1: Simplified secular update (isimp=true always for deep space)
+    // Secular update (deep space always uses the simplified drag model)
     const t2 = tsince * tsince;
 
     const tempa = one - el.cc1 * tsince;
@@ -215,14 +213,14 @@ pub fn propagateBatchDirect(comptime N: usize, el: *const Sdp4BatchElements(N), 
     const xmdf = el.mo + el.mdot * tsince;
     const argpdf = el.argpo + el.argpdot * tsince;
     const nodedf = el.nodeo + el.nodedot * tsince;
-    const nodem_init = nodedf + el.xnodcf * t2;
+    const nodemInit = nodedf + el.xnodcf * t2;
 
-    // Step 2: Deep space secular + resonance (dspaceBatch)
+    // Deep-space secular rates and resonance
     var em = el.ecco;
     var argpm = argpdf;
     var inclm = el.inclo;
     var mm = xmdf;
-    var nodem = nodem_init;
+    var nodem = nodemInit;
     var nm = el.noUnkozai;
 
     // Apply lunar/solar secular perturbation rates
@@ -239,7 +237,6 @@ pub fn propagateBatchDirect(comptime N: usize, el: *const Sdp4BatchElements(N), 
         const needsRestart = (carry.atime == zero) |
             ((tsince * carry.atime) <= zero) |
             (@abs(tsince) < @abs(carry.atime));
-        // Restart lanes that need it (and have resonance)
         const doRestart = needsRestart & hasRes;
         carry.atime = @select(f64, doRestart, zero, carry.atime);
         carry.xni = @select(f64, doRestart, el.noUnkozai, carry.xni);
@@ -254,12 +251,12 @@ pub fn propagateBatchDirect(comptime N: usize, el: *const Sdp4BatchElements(N), 
         var active = hasRes & (@abs(tsince - carry.atime) >= steppV);
         while (@reduce(.Or, active)) {
             const accel = computeResonanceAccelBatch(N, el, carry.xli, carry.xni, carry.atime);
-            const new_xli = carry.xli + accel.xldot * delt + accel.xndt * step2V;
-            const new_xni = carry.xni + accel.xndt * delt + accel.xnddt * step2V;
-            const new_atime = carry.atime + delt;
-            carry.xli = @select(f64, active, new_xli, carry.xli);
-            carry.xni = @select(f64, active, new_xni, carry.xni);
-            carry.atime = @select(f64, active, new_atime, carry.atime);
+            const newXli = carry.xli + accel.xldot * delt + accel.xndt * step2V;
+            const newXni = carry.xni + accel.xndt * delt + accel.xnddt * step2V;
+            const newAtime = carry.atime + delt;
+            carry.xli = @select(f64, active, newXli, carry.xli);
+            carry.xni = @select(f64, active, newXni, carry.xni);
+            carry.atime = @select(f64, active, newAtime, carry.atime);
             active = hasRes & (@abs(tsince - carry.atime) >= steppV);
         }
 
@@ -267,25 +264,21 @@ pub fn propagateBatchDirect(comptime N: usize, el: *const Sdp4BatchElements(N), 
         const ft = tsince - carry.atime;
         const accel = computeResonanceAccelBatch(N, el, carry.xli, carry.xni, carry.atime);
 
-        const nm_res = carry.xni + accel.xndt * ft + accel.xnddt * ft * ft * half;
+        const nmRes = carry.xni + accel.xndt * ft + accel.xnddt * ft * ft * half;
         const xl = carry.xli + accel.xldot * ft + accel.xndt * ft * ft * half;
         const rptimV: Vec = @splat(Sdp4.rptim);
         const theta = simdMath.modTwoPiN(N, el.gsto + tsince * rptimV);
 
-        // GEO formula: mm = xl - nodem - argpm + theta
-        const mm_geo = xl - nodem - argpm + theta;
-        // Half-day formula: mm = xl - 2*nodem + 2*theta
-        const mm_half = xl - two * nodem + two * theta;
+        const mmGeo = xl - nodem - argpm + theta;
+        const mmHalf = xl - two * nodem + two * theta;
 
         const isHalf = el.isHalfDay != zero;
-        const mm_res = @select(f64, isHalf, mm_half, mm_geo);
+        const mmRes = @select(f64, isHalf, mmHalf, mmGeo);
 
-        // For resonant lanes, use resonance nm and mm
-        nm = @select(f64, hasRes, el.noUnkozai + (nm_res - el.noUnkozai), nm);
-        mm = @select(f64, hasRes, mm_res, mm);
+        nm = @select(f64, hasRes, el.noUnkozai + (nmRes - el.noUnkozai), nm);
+        mm = @select(f64, hasRes, mmRes, mm);
     }
 
-    // Step 3: Compute semi major axis and mean motion
     // Failures are flagged per lane (NaN output) so one bad satellite never affects its batch
     var bad = nm <= zero;
     nm = @select(f64, bad, el.noUnkozai, nm);
@@ -304,21 +297,20 @@ pub fn propagateBatchDirect(comptime N: usize, el: *const Sdp4BatchElements(N), 
     argpm = simdMath.fmodTwoPiN(N, argpm);
     mm = simdMath.fmodTwoPiN(N, simdMath.fmodTwoPiN(N, xlm) - argpm - nodem);
 
-    // Step 4: Deep space periodic perturbations (dpperBatch)
     dpperBatch(N, el, tsince, &em, &inclm, &nodem, &argpm, &mm);
 
     // Negative inclination fix
-    const neg_incl = inclm < zero;
-    inclm = @select(f64, neg_incl, -inclm, inclm);
+    const negIncl = inclm < zero;
+    inclm = @select(f64, negIncl, -inclm, inclm);
     const piV: Vec = @splat(std.math.pi);
-    nodem = @select(f64, neg_incl, nodem + piV, nodem);
-    argpm = @select(f64, neg_incl, argpm - piV, argpm);
+    nodem = @select(f64, negIncl, nodem + piV, nodem);
+    argpm = @select(f64, negIncl, argpm - piV, argpm);
 
     // Vallado error 3: perturbed eccentricity out of [0, 1] (check before flooring)
     bad = bad | (em > one) | (em < zero);
     em = @select(f64, bad, eccFloor, @max(em, eccFloor));
 
-    // Step 5: Recompute inclination dependent terms (per lane, dpper modifies inclination)
+    // dpper moved the inclination, so recompute the terms that depend on it
     const sinip = simdMath.sinN(N, inclm);
     const cosip = simdMath.cosN(N, inclm);
     const cosip2 = cosip * cosip;
@@ -326,14 +318,13 @@ pub fn propagateBatchDirect(comptime N: usize, el: *const Sdp4BatchElements(N), 
     const aycof = -half * el.j3oj2 * sinip;
     const singTol: Vec = @splat(Sgp4.singularityTolerance);
     const denom = cosip + one;
-    const safe_denom = @select(f64, @abs(denom) > singTol, denom, singTol);
-    const xlcof = -quarter * el.j3oj2 * sinip * (three + five * cosip) / safe_denom;
+    const safeDenom = @select(f64, @abs(denom) > singTol, denom, singTol);
+    const xlcof = -quarter * el.j3oj2 * sinip * (three + five * cosip) / safeDenom;
 
     const x1mth2 = one - cosip2;
     const con41 = three * cosip2 - one;
     const x7thm1 = seven * cosip2 - one;
 
-    // Steps 6-8: Kepler solver + short-period corrections + position/velocity (shared with SGP4)
     const pv = Sgp4.keplerAndPosVel(N, am, em, mm, argpm, nodem, inclm, aycof, xlcof, con41, x1mth2, x7thm1, sinip, cosip, el.xke, el.j2, el.radiusEarthKm, el.vkmpersec);
     return Sgp4.maskInvalid(N, pv, bad, el.radiusEarthKm);
 }
@@ -468,7 +459,6 @@ fn dpperBatch(
     const sghl = el.lunar_gh2 * f2 + el.lunar_gh3 * f3 + el.lunar_gh4 * sinzf;
     const shl = el.lunar_h2 * f2 + el.lunar_h3 * f3;
 
-    // Combined
     const pe = ses + sel;
     const pinc = sis + sil;
     const pl = sls + sll;
@@ -482,11 +472,11 @@ fn dpperBatch(
     const cosip = simdMath.cosN(N, inclp.*);
 
     // Normal path (inclp >= 0.2)
-    const ph_norm = ph / sinip;
-    const pgh_norm = pgh - cosip * ph_norm;
-    const argpp_norm = argpp.* + pgh_norm;
-    const nodep_norm = nodep.* + ph_norm;
-    const mp_norm = mp.* + pl;
+    const phNorm = ph / sinip;
+    const pghNorm = pgh - cosip * phNorm;
+    const argppNorm = argpp.* + pghNorm;
+    const nodepNorm = nodep.* + phNorm;
+    const mpNorm = mp.* + pl;
 
     // Lyddane path (inclp < 0.2)
     const sinop = simdMath.sinN(N, nodep.*);
@@ -497,34 +487,33 @@ fn dpperBatch(
     const dbet = -ph * sinop + pinc * cosip * cosop;
     alfdp = alfdp + dalf;
     betdp = betdp + dbet;
-    const nodep_mod = simdMath.fmodTwoPiN(N, nodep.*);
-    const xls = mp.* + argpp.* + cosip * nodep_mod;
-    const dls = pl + pgh - pinc * nodep_mod * sinip;
-    const xnoh = nodep_mod;
-    var nodep_lyd = simdMath.atan2N(N, alfdp, betdp);
+    const nodepMod = simdMath.fmodTwoPiN(N, nodep.*);
+    const xls = mp.* + argpp.* + cosip * nodepMod;
+    const dls = pl + pgh - pinc * nodepMod * sinip;
+    const xnoh = nodepMod;
+    var nodepLyd = simdMath.atan2N(N, alfdp, betdp);
 
     // Continuity fix
-    const diff_abs = @abs(xnoh - nodep_lyd);
+    const diffAbs = @abs(xnoh - nodepLyd);
     const piV: Vec = @splat(std.math.pi);
     const twoPiV: Vec = @splat(constants.twoPi);
-    const need_adjust = diff_abs > piV;
-    const adjust_sign = @select(f64, nodep_lyd < xnoh, twoPiV, -twoPiV);
-    nodep_lyd = @select(f64, need_adjust, nodep_lyd + adjust_sign, nodep_lyd);
-    const mp_lyd = mp.* + pl;
-    const argpp_lyd = xls + dls - mp_lyd - cosip * nodep_lyd;
+    const needAdjust = diffAbs > piV;
+    const adjustSign = @select(f64, nodepLyd < xnoh, twoPiV, -twoPiV);
+    nodepLyd = @select(f64, needAdjust, nodepLyd + adjustSign, nodepLyd);
+    const mpLyd = mp.* + pl;
+    const argppLyd = xls + dls - mpLyd - cosip * nodepLyd;
 
-    // Merge with @select
     const thresh: Vec = @splat(0.2);
     const useNormal = inclp.* >= thresh;
-    argpp.* = @select(f64, useNormal, argpp_norm, argpp_lyd);
-    nodep.* = @select(f64, useNormal, nodep_norm, nodep_lyd);
-    mp.* = @select(f64, useNormal, mp_norm, mp_lyd);
+    argpp.* = @select(f64, useNormal, argppNorm, argppLyd);
+    nodep.* = @select(f64, useNormal, nodepNorm, nodepLyd);
+    mp.* = @select(f64, useNormal, mpNorm, mpLyd);
 }
 
 const testing = std.testing;
 
-fn expectBatchMatchesScalar(tle_str: []const u8) !void {
-    var tle = try Tle.parse(tle_str, testing.allocator);
+fn expectBatchMatchesScalar(tleStr: []const u8) !void {
+    var tle = try Tle.parse(tleStr, testing.allocator);
     defer tle.deinit();
     const sdp4 = try Sdp4.init(tle, constants.wgs72);
 
@@ -599,13 +588,13 @@ test "Sdp4Batch mixed irez batch" {
     for (0..4) |i| tles[i] = try Tle.parse(tleStrs[i], testing.allocator);
 
     var sdp4s: [4]Sdp4 = undefined;
-    var batch_els: [4]Sdp4.Elements = undefined;
+    var batchEls: [4]Sdp4.Elements = undefined;
     for (0..4) |i| {
         sdp4s[i] = try Sdp4.init(tles[i], constants.wgs72);
-        batch_els[i] = sdp4s[i].elements;
+        batchEls[i] = sdp4s[i].elements;
     }
 
-    const batch = initFromElements(4, batch_els, constants.wgs72);
+    const batch = initFromElements(4, batchEls, constants.wgs72);
 
     for ([_]f64{ 0.0, 720.0, 1440.0 }) |t| {
         var carry = initCarry(4, &batch);
@@ -626,35 +615,33 @@ test "Sdp4Batch mixed irez batch" {
 
 test "Sdp4Batch carry convergence" {
     // Test that sequential carry matches non-carry
-    const tle_str = "1 28626U 05004A   24186.00000000 -.00000098  00000+0  00000+0 0  9998\n2 28626   0.0163 279.8379 0003069  20.3251 343.1766  1.00270142 70992";
-    var tle = try Tle.parse(tle_str, testing.allocator);
+    const tleStr = "1 28626U 05004A   24186.00000000 -.00000098  00000+0  00000+0 0  9998\n2 28626   0.0163 279.8379 0003069  20.3251 343.1766  1.00270142 70992";
+    var tle = try Tle.parse(tleStr, testing.allocator);
     defer tle.deinit();
     const sdp4 = try Sdp4.init(tle, constants.wgs72);
 
     const els = [4]Sdp4.Elements{ sdp4.elements, sdp4.elements, sdp4.elements, sdp4.elements };
     const batch = initFromElements(4, els, constants.wgs72);
 
-    // Propagate sequentially with carry
     var carry = initCarry(4, &batch);
     const times = [_]f64{ 0.0, 360.0, 720.0, 1080.0, 1440.0 };
 
     for (times) |t| {
         const tsince: simdMath.VecN(4) = @splat(t);
-        const pv_carry = try propagateBatchDirect(4, &batch, tsince, &carry);
+        const pvCarry = try propagateBatchDirect(4, &batch, tsince, &carry);
 
-        // Fresh propagation (no carry)
-        var fresh_carry = initCarry(4, &batch);
-        const pv_fresh = try propagateBatchDirect(4, &batch, tsince, &fresh_carry);
+        var freshCarry = initCarry(4, &batch);
+        const pvFresh = try propagateBatchDirect(4, &batch, tsince, &freshCarry);
 
-        try testing.expectApproxEqAbs(pv_fresh.rx[0], pv_carry.rx[0], 1e-6);
-        try testing.expectApproxEqAbs(pv_fresh.ry[0], pv_carry.ry[0], 1e-6);
-        try testing.expectApproxEqAbs(pv_fresh.rz[0], pv_carry.rz[0], 1e-6);
+        try testing.expectApproxEqAbs(pvFresh.rx[0], pvCarry.rx[0], 1e-6);
+        try testing.expectApproxEqAbs(pvFresh.ry[0], pvCarry.ry[0], 1e-6);
+        try testing.expectApproxEqAbs(pvFresh.rz[0], pvCarry.rz[0], 1e-6);
     }
 }
 
 test "Sdp4Batch Vec8 matches Vec4" {
-    const tle_str = "1 20413U 90005A   24186.00000000  .00000012  00000+0  10000-3 0  9992\n2 20413  55.4408  61.4858 0112981 129.5765 231.5553  2.00561730104446";
-    var tle = try Tle.parse(tle_str, testing.allocator);
+    const tleStr = "1 20413U 90005A   24186.00000000  .00000012  00000+0  10000-3 0  9992\n2 20413  55.4408  61.4858 0112981 129.5765 231.5553  2.00561730104446";
+    var tle = try Tle.parse(tleStr, testing.allocator);
     defer tle.deinit();
     const sdp4 = try Sdp4.init(tle, constants.wgs72);
 

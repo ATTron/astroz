@@ -6,17 +6,14 @@ const constants = @import("constants.zig");
 
 pub const batchSize: usize = 8;
 
-/// Generic N-wide f64 vector type
 pub fn VecN(comptime N: usize) type {
     return @Vector(N, f64);
 }
 
-/// Generic N-wide i64 vector type
 pub fn VecNi(comptime N: usize) type {
     return @Vector(N, i64);
 }
 
-/// Generic sin/cos result type
 pub fn SinCosN(comptime N: usize) type {
     return struct {
         sin: VecN(N),
@@ -30,7 +27,6 @@ pub fn sincosN(comptime N: usize, angle: VecN(N)) SinCosN(N) {
     const Vec = VecN(N);
     const VecI = VecNi(N);
 
-    // Constants
     const twoOverPi: Vec = @splat(2.0 / std.math.pi);
     const piOver2Hi: Vec = @splat(1.5707963267948966);
     const piOver2Lo: Vec = @splat(6.123233995736766e-17);
@@ -47,14 +43,14 @@ pub fn sincosN(comptime N: usize, angle: VecN(N)) SinCosN(N) {
     const sinC6: Vec = @splat(1.6058936490373178302326e-10);
 
     // Polynomial coefficients for cos
-    const cos_c1: Vec = @splat(-4.9999999999999999999583e-01);
-    const cos_c2: Vec = @splat(4.1666666666666665319411e-02);
-    const cos_c3: Vec = @splat(-1.3888888888888872762458e-03);
-    const cos_c4: Vec = @splat(2.4801587301587286645498e-05);
-    const cos_c5: Vec = @splat(-2.7557319223933824788682e-07);
-    const cos_c6: Vec = @splat(2.0876756987868089233269e-09);
+    const cosC1: Vec = @splat(-4.9999999999999999999583e-01);
+    const cosC2: Vec = @splat(4.1666666666666665319411e-02);
+    const cosC3: Vec = @splat(-1.3888888888888872762458e-03);
+    const cosC4: Vec = @splat(2.4801587301587286645498e-05);
+    const cosC5: Vec = @splat(-2.7557319223933824788682e-07);
+    const cosC6: Vec = @splat(2.0876756987868089233269e-09);
 
-    // Step 1: Range reduction
+    // Range reduction
     const kFloat = angle * twoOverPi;
     const roundMagic: Vec = @splat(6755399441055744.0);
     const kRounded = kFloat + roundMagic - roundMagic;
@@ -63,7 +59,6 @@ pub fn sincosN(comptime N: usize, angle: VecN(N)) SinCosN(N) {
     reduced = @mulAdd(Vec, -piOver2Lo, kRounded, reduced);
     const k: VecI = @trunc(kRounded);
 
-    // Step 2: Polynomial approximation
     const r2 = reduced * reduced;
 
     // Sin polynomial: sin(r) ~= r + r^3*P(r^2)
@@ -75,14 +70,14 @@ pub fn sincosN(comptime N: usize, angle: VecN(N)) SinCosN(N) {
     const sinReduced = @mulAdd(Vec, sinP, r2 * reduced, reduced);
 
     // Cos polynomial: cos(r) ~= 1 + r^2*P(r^2)
-    var cosP = @mulAdd(Vec, cos_c6, r2, cos_c5);
-    cosP = @mulAdd(Vec, cosP, r2, cos_c4);
-    cosP = @mulAdd(Vec, cosP, r2, cos_c3);
-    cosP = @mulAdd(Vec, cosP, r2, cos_c2);
-    cosP = @mulAdd(Vec, cosP, r2, cos_c1);
+    var cosP = @mulAdd(Vec, cosC6, r2, cosC5);
+    cosP = @mulAdd(Vec, cosP, r2, cosC4);
+    cosP = @mulAdd(Vec, cosP, r2, cosC3);
+    cosP = @mulAdd(Vec, cosP, r2, cosC2);
+    cosP = @mulAdd(Vec, cosP, r2, cosC1);
     const cosReduced = @mulAdd(Vec, cosP, r2, one);
 
-    // Step 3: Quadrant correction
+    // Quadrant correction
     const swap = (k & oneI) != @as(VecI, @splat(0));
     var s = @select(f64, swap, cosReduced, sinReduced);
     var c = @select(f64, swap, sinReduced, cosReduced);
@@ -96,12 +91,10 @@ pub fn sincosN(comptime N: usize, angle: VecN(N)) SinCosN(N) {
     return .{ .sin = s, .cos = c };
 }
 
-/// Generic vectorized sin
 pub inline fn sinN(comptime N: usize, x: VecN(N)) VecN(N) {
     return sincosN(N, x).sin;
 }
 
-/// Generic vectorized cos
 pub inline fn cosN(comptime N: usize, x: VecN(N)) VecN(N) {
     return sincosN(N, x).cos;
 }
@@ -137,18 +130,17 @@ pub fn atan2N(comptime N: usize, y: VecN(N), x: VecN(N)) VecN(N) {
     const piVec: Vec = @splat(std.math.pi);
     const halfPiVec: Vec = @splat(std.math.pi / 2.0);
 
-    const abs_x = @abs(x);
-    const abs_y = @abs(y);
+    const absX = @abs(x);
+    const absY = @abs(y);
 
-    const max_xy = @max(abs_x, abs_y);
-    const min_xy = @min(abs_x, abs_y);
+    const maxXy = @max(absX, absY);
+    const minXy = @min(absX, absY);
 
     const tiny: Vec = @splat(1.0e-30);
-    const safe_max = @max(max_xy, tiny);
-    const t = min_xy / safe_max;
+    const safeMax = @max(maxXy, tiny);
+    const t = minXy / safeMax;
     const t2 = t * t;
 
-    // Polynomial coefficients
     const c1: Vec = @splat(1.0);
     const c3: Vec = @splat(-0.3333314528);
     const c5: Vec = @splat(0.1999355085);
@@ -159,27 +151,26 @@ pub fn atan2N(comptime N: usize, y: VecN(N), x: VecN(N)) VecN(N) {
     const c15: Vec = @splat(-0.0161657367);
     const c17: Vec = @splat(0.0028662257);
 
-    // Horner's method
-    var atan_t = c17;
-    atan_t = @mulAdd(Vec, atan_t, t2, c15);
-    atan_t = @mulAdd(Vec, atan_t, t2, c13);
-    atan_t = @mulAdd(Vec, atan_t, t2, c11);
-    atan_t = @mulAdd(Vec, atan_t, t2, c9);
-    atan_t = @mulAdd(Vec, atan_t, t2, c7);
-    atan_t = @mulAdd(Vec, atan_t, t2, c5);
-    atan_t = @mulAdd(Vec, atan_t, t2, c3);
-    atan_t = @mulAdd(Vec, atan_t, t2, c1);
-    atan_t = atan_t * t;
+    var atanT = c17;
+    atanT = @mulAdd(Vec, atanT, t2, c15);
+    atanT = @mulAdd(Vec, atanT, t2, c13);
+    atanT = @mulAdd(Vec, atanT, t2, c11);
+    atanT = @mulAdd(Vec, atanT, t2, c9);
+    atanT = @mulAdd(Vec, atanT, t2, c7);
+    atanT = @mulAdd(Vec, atanT, t2, c5);
+    atanT = @mulAdd(Vec, atanT, t2, c3);
+    atanT = @mulAdd(Vec, atanT, t2, c1);
+    atanT = atanT * t;
 
-    const swap_mask = abs_y > abs_x;
-    atan_t = @select(f64, swap_mask, halfPiVec - atan_t, atan_t);
+    const swapMask = absY > absX;
+    atanT = @select(f64, swapMask, halfPiVec - atanT, atanT);
 
-    const x_neg = x < zero;
-    const y_neg = y < zero;
+    const xNeg = x < zero;
+    const yNeg = y < zero;
 
-    var result = atan_t;
-    result = @select(f64, x_neg, piVec - result, result);
-    result = @select(f64, y_neg, -result, result);
+    var result = atanT;
+    result = @select(f64, xNeg, piVec - result, result);
+    result = @select(f64, yNeg, -result, result);
 
     return result;
 }
@@ -211,10 +202,10 @@ pub fn pow23N(comptime N: usize, x: VecN(N)) VecN(N) {
     const x2 = x * x;
     var y = @sqrt(x); // x^0.5, reasonable initial guess for x^0.667
     const third: Vec = @splat(1.0 / 3.0);
-    const two_third: Vec = @splat(2.0 / 3.0);
+    const twoThird: Vec = @splat(2.0 / 3.0);
     // Newton: y^3 = x^2 → y_{n+1} = (2y + x²/y²) / 3
     inline for (0..6) |_| {
-        y = two_third * y + third * x2 / (y * y);
+        y = twoThird * y + third * x2 / (y * y);
     }
     return y;
 }
@@ -278,8 +269,8 @@ test "modTwoPiN(8)" {
 
     inline for (0..8) |i| {
         const expected = @mod(x[i], constants.twoPi);
-        const exp_pos = if (expected < 0) expected + constants.twoPi else expected;
-        try std.testing.expectApproxEqAbs(exp_pos, result[i], 1e-10);
+        const expPos = if (expected < 0) expected + constants.twoPi else expected;
+        try std.testing.expectApproxEqAbs(expPos, result[i], 1e-10);
     }
 }
 

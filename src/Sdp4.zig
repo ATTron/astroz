@@ -234,7 +234,6 @@ fn gstime(jdut1: f64) f64 {
     return temp;
 }
 
-// dscom
 const DscomResult = struct {
     solar: PerturbCoeffs,
     lunar: PerturbCoeffs,
@@ -507,11 +506,11 @@ fn dsinit(
         var f330 = 1.0 + trig.cosio;
         f330 = 1.875 * f330 * f330 * f330;
         const aonv = 1.0 / rec.a;
-        const temp1_geo = 3.0 * dc.nm * dc.nm * aonv * aonv;
+        const temp1Geo = 3.0 * dc.nm * dc.nm * aonv * aonv;
         // Vallado cascading: del1 uses temp*aonv, del2 uses temp, del3 uses temp*aonv
-        di.del2 = 2.0 * temp1_geo * f220 * g200 * q22;
-        di.del3 = 3.0 * temp1_geo * f330 * g300 * q33 * aonv;
-        di.del1 = temp1_geo * f311 * g310 * q31 * aonv;
+        di.del2 = 2.0 * temp1Geo * f220 * g200 * q22;
+        di.del3 = 3.0 * temp1Geo * f330 * g300 * q33 * aonv;
+        di.del1 = temp1Geo * f311 * g310 * q31 * aonv;
         di.xlamo = @mod(el.mo + el.nodeo + el.argpo - gsto, constants.twoPi);
         di.xfact = secRates.mdot + xpidot - rptim + di.dmdt + di.domdt + di.dnodt - rec.noUnkozai;
     } else if (di.irez == 2) {
@@ -631,7 +630,6 @@ fn dpper(
     const sghl = el.lunar.gh2 * f2 + el.lunar.gh3 * f3 + el.lunar.gh4 * sinzf;
     const shl = el.lunar.h2 * f2 + el.lunar.h3 * f3;
 
-    // Combined
     const pe = ses + sel;
     const pinc = sis + sil;
     const pl = sls + sll;
@@ -808,14 +806,14 @@ fn propagateElementsCarry(el: *const Elements, tsince: f64, carry: *ResonanceCar
     const xmdf = sgp4El.mo + sgp4El.mdot * tsince;
     const argpdf = sgp4El.argpo + sgp4El.argpdot * tsince;
     const nodedf = sgp4El.nodeo + sgp4El.nodedot * tsince;
-    const nodem_init = nodedf + sgp4El.xnodcf * t2;
+    const nodemInit = nodedf + sgp4El.xnodcf * t2;
 
     var ds = DspaceState{
         .em = sgp4El.ecco,
         .argpm = argpdf,
         .inclm = sgp4El.inclo,
         .mm = xmdf,
-        .nodem = nodem_init,
+        .nodem = nodemInit,
         .nm = sgp4El.noUnkozai,
         .xli = carry.xli,
         .xni = carry.xni,
@@ -828,7 +826,6 @@ fn propagateElementsCarry(el: *const Elements, tsince: f64, carry: *ResonanceCar
     carry.xli = ds.xli;
     carry.xni = ds.xni;
 
-    // Steps 3-6 identical to propagateElements
     var nm = ds.nm;
     if (nm <= 0.0) return Error.SatelliteDecayed;
     const am = std.math.pow(f64, sgp4El.grav.xke / nm, 2.0 / 3.0) * tempa * tempa;
@@ -1039,12 +1036,12 @@ fn dspaceN(comptime N: usize, el: *const Elements, tsince: simdMath.VecN(N), s: 
     var active = @abs(tsince - s.atime) >= steppV;
     while (@reduce(.Or, active)) {
         const accel = computeResonanceAccelN(N, el, s.xli, s.xni, s.atime);
-        const new_xli = s.xli + accel.xldot * delt + accel.xndt * step2V;
-        const new_xni = s.xni + accel.xndt * delt + accel.xnddt * step2V;
-        const new_atime = s.atime + delt;
-        s.xli = @select(f64, active, new_xli, s.xli);
-        s.xni = @select(f64, active, new_xni, s.xni);
-        s.atime = @select(f64, active, new_atime, s.atime);
+        const newXli = s.xli + accel.xldot * delt + accel.xndt * step2V;
+        const newXni = s.xni + accel.xndt * delt + accel.xnddt * step2V;
+        const newAtime = s.atime + delt;
+        s.xli = @select(f64, active, newXli, s.xli);
+        s.xni = @select(f64, active, newXni, s.xni);
+        s.atime = @select(f64, active, newAtime, s.atime);
         active = @abs(tsince - s.atime) >= steppV;
     }
 
@@ -1127,26 +1124,25 @@ fn dpperN(
     f2 = half * sinzf * sinzf - quarter;
     f3 = -half * sinzf * simdMath.cosN(N, zf);
 
-    const ee2V: Vec = @splat(el.lunar.e2);
-    const e3V: Vec = @splat(el.lunar.e3);
-    const xi2V: Vec = @splat(el.lunar.i2);
-    const xi3V: Vec = @splat(el.lunar.i3);
-    const xl2V: Vec = @splat(el.lunar.l2);
-    const xl3V: Vec = @splat(el.lunar.l3);
-    const xl4V: Vec = @splat(el.lunar.l4);
-    const xgh2V: Vec = @splat(el.lunar.gh2);
-    const xgh3V: Vec = @splat(el.lunar.gh3);
-    const xgh4V: Vec = @splat(el.lunar.gh4);
-    const xh2V: Vec = @splat(el.lunar.h2);
-    const xh3V: Vec = @splat(el.lunar.h3);
+    const le2V: Vec = @splat(el.lunar.e2);
+    const le3V: Vec = @splat(el.lunar.e3);
+    const li2V: Vec = @splat(el.lunar.i2);
+    const li3V: Vec = @splat(el.lunar.i3);
+    const ll2V: Vec = @splat(el.lunar.l2);
+    const ll3V: Vec = @splat(el.lunar.l3);
+    const ll4V: Vec = @splat(el.lunar.l4);
+    const lgh2V: Vec = @splat(el.lunar.gh2);
+    const lgh3V: Vec = @splat(el.lunar.gh3);
+    const lgh4V: Vec = @splat(el.lunar.gh4);
+    const lh2V: Vec = @splat(el.lunar.h2);
+    const lh3V: Vec = @splat(el.lunar.h3);
 
-    const sel = ee2V * f2 + e3V * f3;
-    const sil = xi2V * f2 + xi3V * f3;
-    const sll = xl2V * f2 + xl3V * f3 + xl4V * sinzf;
-    const sghl = xgh2V * f2 + xgh3V * f3 + xgh4V * sinzf;
-    const shl = xh2V * f2 + xh3V * f3;
+    const sel = le2V * f2 + le3V * f3;
+    const sil = li2V * f2 + li3V * f3;
+    const sll = ll2V * f2 + ll3V * f3 + ll4V * sinzf;
+    const sghl = lgh2V * f2 + lgh3V * f3 + lgh4V * sinzf;
+    const shl = lh2V * f2 + lh3V * f3;
 
-    // Combined
     const pe = ses + sel;
     const pinc = sis + sil;
     const pl = sls + sll;
@@ -1160,11 +1156,11 @@ fn dpperN(
     const cosip = simdMath.cosN(N, inclp.*);
 
     // Normal path (inclp >= 0.2)
-    const ph_norm = ph / sinip;
-    const pgh_norm = pgh - cosip * ph_norm;
-    const argpp_norm = argpp.* + pgh_norm;
-    const nodep_norm = nodep.* + ph_norm;
-    const mp_norm = mp.* + pl;
+    const phNorm = ph / sinip;
+    const pghNorm = pgh - cosip * phNorm;
+    const argppNorm = argpp.* + pghNorm;
+    const nodepNorm = nodep.* + phNorm;
+    const mpNorm = mp.* + pl;
 
     // Lyddane path (inclp < 0.2)
     const sinop = simdMath.sinN(N, nodep.*);
@@ -1175,27 +1171,26 @@ fn dpperN(
     const dbet = -ph * sinop + pinc * cosip * cosop;
     alfdp = alfdp + dalf;
     betdp = betdp + dbet;
-    const nodep_mod = simdMath.fmodTwoPiN(N, nodep.*);
-    const xls = mp.* + argpp.* + cosip * nodep_mod;
-    const dls = pl + pgh - pinc * nodep_mod * sinip;
-    const xnoh = nodep_mod;
-    var nodep_lyd = simdMath.atan2N(N, alfdp, betdp);
-    // Continuity fix: if |xnoh - nodep_lyd| > pi, adjust
-    const diff_abs = @abs(xnoh - nodep_lyd);
+    const nodepMod = simdMath.fmodTwoPiN(N, nodep.*);
+    const xls = mp.* + argpp.* + cosip * nodepMod;
+    const dls = pl + pgh - pinc * nodepMod * sinip;
+    const xnoh = nodepMod;
+    var nodepLyd = simdMath.atan2N(N, alfdp, betdp);
+    // Continuity fix
+    const diffAbs = @abs(xnoh - nodepLyd);
     const piV: Vec = @splat(std.math.pi);
     const twoPiV: Vec = @splat(constants.twoPi);
-    const need_adjust = diff_abs > piV;
-    const adjust_sign = @select(f64, nodep_lyd < xnoh, twoPiV, -twoPiV);
-    nodep_lyd = @select(f64, need_adjust, nodep_lyd + adjust_sign, nodep_lyd);
-    const mp_lyd = mp.* + pl;
-    const argpp_lyd = xls + dls - mp_lyd - cosip * nodep_lyd;
+    const needAdjust = diffAbs > piV;
+    const adjustSign = @select(f64, nodepLyd < xnoh, twoPiV, -twoPiV);
+    nodepLyd = @select(f64, needAdjust, nodepLyd + adjustSign, nodepLyd);
+    const mpLyd = mp.* + pl;
+    const argppLyd = xls + dls - mpLyd - cosip * nodepLyd;
 
-    // Merge with @select
     const thresh: Vec = @splat(0.2);
     const useNormal = inclp.* >= thresh;
-    argpp.* = @select(f64, useNormal, argpp_norm, argpp_lyd);
-    nodep.* = @select(f64, useNormal, nodep_norm, nodep_lyd);
-    mp.* = @select(f64, useNormal, mp_norm, mp_lyd);
+    argpp.* = @select(f64, useNormal, argppNorm, argppLyd);
+    nodep.* = @select(f64, useNormal, nodepNorm, nodepLyd);
+    mp.* = @select(f64, useNormal, mpNorm, mpLyd);
 }
 
 /// Propagate one satellite at N times simultaneously (time major SIMD)
@@ -1213,7 +1208,7 @@ pub fn propagateN(self: *const Sdp4, comptime N: usize, times: [N]f64) Error!Sgp
     const five: Vec = @splat(5.0);
     const seven: Vec = @splat(7.0);
 
-    // Step 1: Simplified secular update (isimp=true always for deep space)
+    // Secular update (deep space always uses the simplified drag model)
     const t2 = tsince * tsince;
     const cc1V: Vec = @splat(sgp4El.cc1);
     const cc4V: Vec = @splat(sgp4El.cc4);
@@ -1235,9 +1230,9 @@ pub fn propagateN(self: *const Sdp4, comptime N: usize, times: [N]f64) Error!Sgp
     const xmdf = moV + mdotV * tsince;
     const argpdf = argpoV + argpdotV * tsince;
     const nodedf = nodeoV + nodedotV * tsince;
-    const nodem_init = nodedf + xnodcfV * t2;
+    const nodemInit = nodedf + xnodcfV * t2;
 
-    // Step 2: Deep space secular + resonance
+    // Deep-space secular rates and resonance
     const eccoV: Vec = @splat(sgp4El.ecco);
     const incloV: Vec = @splat(sgp4El.inclo);
     const noUnkozaiV: Vec = @splat(sgp4El.noUnkozai);
@@ -1247,7 +1242,7 @@ pub fn propagateN(self: *const Sdp4, comptime N: usize, times: [N]f64) Error!Sgp
         .argpm = argpdf,
         .inclm = incloV,
         .mm = xmdf,
-        .nodem = nodem_init,
+        .nodem = nodemInit,
         .nm = noUnkozaiV,
         .xli = @splat(el.xlamo),
         .xni = noUnkozaiV,
@@ -1255,10 +1250,9 @@ pub fn propagateN(self: *const Sdp4, comptime N: usize, times: [N]f64) Error!Sgp
     };
     dspaceN(N, el, tsince, &ds);
 
-    // Step 3: Compute semi major axis and mean motion
     var nm = ds.nm;
-    const nm_bad = nm <= zero;
-    if (@reduce(.Or, nm_bad)) return Error.SatelliteDecayed;
+    const nmBad = nm <= zero;
+    if (@reduce(.Or, nmBad)) return Error.SatelliteDecayed;
 
     const xkeV: Vec = @splat(sgp4El.grav.xke);
     const am = simdMath.pow23N(N, xkeV / nm) * tempa * tempa;
@@ -1266,11 +1260,11 @@ pub fn propagateN(self: *const Sdp4, comptime N: usize, times: [N]f64) Error!Sgp
     var em = ds.em - tempe;
 
     const eccFloor: Vec = @splat(Sgp4.eccentricityFloor);
-    const em_bad = (em >= one) | (em < @as(Vec, @splat(-0.001)));
-    if (@reduce(.Or, em_bad)) return Error.InvalidEccentricity;
+    const emBad = (em >= one) | (em < @as(Vec, @splat(-0.001)));
+    if (@reduce(.Or, emBad)) return Error.InvalidEccentricity;
     em = @max(em, eccFloor);
-    const am_bad = am < @as(Vec, @splat(0.95));
-    if (@reduce(.Or, am_bad)) return Error.SatelliteDecayed;
+    const amBad = am < @as(Vec, @splat(0.95));
+    if (@reduce(.Or, amBad)) return Error.SatelliteDecayed;
 
     var mm = ds.mm + noUnkozaiV * templ;
     const xlm = mm + ds.argpm + ds.nodem;
@@ -1279,22 +1273,21 @@ pub fn propagateN(self: *const Sdp4, comptime N: usize, times: [N]f64) Error!Sgp
     mm = simdMath.fmodTwoPiN(N, simdMath.fmodTwoPiN(N, xlm) - argpm - nodem);
     var inclm = ds.inclm;
 
-    // Step 4: Deep space periodic perturbations
     dpperN(N, el, tsince, &em, &inclm, &nodem, &argpm, &mm);
 
     // Negative inclination fix
-    const neg_incl = inclm < zero;
-    inclm = @select(f64, neg_incl, -inclm, inclm);
+    const negIncl = inclm < zero;
+    inclm = @select(f64, negIncl, -inclm, inclm);
     const piV: Vec = @splat(std.math.pi);
-    nodem = @select(f64, neg_incl, nodem + piV, nodem);
-    argpm = @select(f64, neg_incl, argpm - piV, argpm);
+    nodem = @select(f64, negIncl, nodem + piV, nodem);
+    argpm = @select(f64, negIncl, argpm - piV, argpm);
 
     // Vallado error 3: perturbed eccentricity out of [0, 1] (check before flooring)
-    const em_bad2 = (em > one) | (em < zero);
-    if (@reduce(.Or, em_bad2)) return Error.InvalidEccentricity;
+    const emBad2 = (em > one) | (em < zero);
+    if (@reduce(.Or, emBad2)) return Error.InvalidEccentricity;
     em = @max(em, eccFloor);
 
-    // Step 5: Recompute inclination-dependent terms (per-lane)
+    // dpper moved the inclination, so recompute the terms that depend on it
     const sinip = simdMath.sinN(N, inclm);
     const cosip = simdMath.cosN(N, inclm);
     const cosip2 = cosip * cosip;
@@ -1303,14 +1296,13 @@ pub fn propagateN(self: *const Sdp4, comptime N: usize, times: [N]f64) Error!Sgp
     const aycof = -half * j3oj2V * sinip;
     const singTol: Vec = @splat(Sgp4.singularityTolerance);
     const denom = cosip + one;
-    const safe_denom = @select(f64, @abs(denom) > singTol, denom, singTol);
-    const xlcof = -quarter * j3oj2V * sinip * (three + five * cosip) / safe_denom;
+    const safeDenom = @select(f64, @abs(denom) > singTol, denom, singTol);
+    const xlcof = -quarter * j3oj2V * sinip * (three + five * cosip) / safeDenom;
 
     const x1mth2 = one - cosip2;
     const con41 = three * cosip2 - one;
     const x7thm1 = seven * cosip2 - one;
 
-    // Steps 6-8: Kepler solver + short-period corrections + position/velocity (shared with SGP4)
     return Sgp4.aboveSurfaceN(N, Sgp4.keplerAndPosVel(
         N,
         am,
@@ -1342,11 +1334,11 @@ test "gstime J2000" {
 }
 
 test "sdp4 init coefficients GPS 20413" {
-    const tle_str =
+    const tleStr =
         \\1 20413U 90005A   24186.00000000  .00000012  00000+0  10000-3 0  9992
         \\2 20413  55.4408  61.4858 0112981 129.5765 231.5553  2.00561730104446
     ;
-    var tle = try Tle.parse(tle_str, testing.allocator);
+    var tle = try Tle.parse(tleStr, testing.allocator);
     defer tle.deinit();
     const sdp4 = try Sdp4.init(tle, constants.wgs72);
     const el = &sdp4.elements;
@@ -1359,21 +1351,19 @@ test "sdp4 init coefficients GPS 20413" {
     try testing.expectApproxEqAbs(@as(f64, 3.1269253661), el.zmos, 1e-6);
     try testing.expectApproxEqAbs(@as(f64, 1.2769002197), el.zmol, 1e-6);
 
-    // Solar coefficients
     try testing.expectApproxEqAbs(@as(f64, 7.4611141471e-05), el.solar.e2, 1e-12);
     try testing.expectApproxEqAbs(@as(f64, -2.6550152994e-05), el.solar.e3, 1e-12);
 
-    // Secular rates
     try testing.expectApproxEqAbs(@as(f64, -1.3083083111e-10), el.dedt, 1e-17);
     try testing.expectApproxEqAbs(@as(f64, -1.9461479899e-08), el.dnodt, 1e-15);
 }
 
 test "sdp4 init coefficients GEO 28626" {
-    const tle_str =
+    const tleStr =
         \\1 28626U 05004A   24186.00000000 -.00000098  00000+0  00000+0 0  9998
         \\2 28626   0.0163 279.8379 0003069  20.3251 343.1766  1.00270142 70992
     ;
-    var tle = try Tle.parse(tle_str, testing.allocator);
+    var tle = try Tle.parse(tleStr, testing.allocator);
     defer tle.deinit();
     const sdp4 = try Sdp4.init(tle, constants.wgs72);
     const el = &sdp4.elements;
@@ -1386,11 +1376,11 @@ test "sdp4 init coefficients GEO 28626" {
 }
 
 test "sdp4 init coefficients HEO 09880" {
-    const tle_str =
+    const tleStr =
         \\1 09880U 77021B   24186.00000000  .00000023  00000+0  00000+0 0  9999
         \\2 09880  63.4300  75.8891 7318036 269.8735  16.7549  2.00611684 54321
     ;
-    var tle = try Tle.parse(tle_str, testing.allocator);
+    var tle = try Tle.parse(tleStr, testing.allocator);
     defer tle.deinit();
     const sdp4 = try Sdp4.init(tle, constants.wgs72);
     const el = &sdp4.elements;
@@ -1402,16 +1392,15 @@ test "sdp4 init coefficients HEO 09880" {
 }
 
 test "sdp4 propagate GPS 20413" {
-    const tle_str =
+    const tleStr =
         \\1 20413U 90005A   24186.00000000  .00000012  00000+0  10000-3 0  9992
         \\2 20413  55.4408  61.4858 0112981 129.5765 231.5553  2.00561730104446
     ;
-    var tle = try Tle.parse(tle_str, testing.allocator);
+    var tle = try Tle.parse(tleStr, testing.allocator);
     defer tle.deinit();
     const sdp4 = try Sdp4.init(tle, constants.wgs72);
 
-    // t=0 reference: R=[12743.39105131, 23518.44806062, 28.23195962]
-    //                V=[-1.93584727, 1.00575086, 3.16821707]
+    // Reference: python-sgp4, WGS72
     const r0 = try sdp4.propagate(0.0);
     try testing.expectApproxEqAbs(@as(f64, 12743.39105131), r0[0][0], 0.01);
     try testing.expectApproxEqAbs(@as(f64, 23518.44806062), r0[0][1], 0.01);
@@ -1420,15 +1409,11 @@ test "sdp4 propagate GPS 20413" {
     try testing.expectApproxEqAbs(@as(f64, 1.00575086), r0[1][1], 1e-5);
     try testing.expectApproxEqAbs(@as(f64, 3.16821707), r0[1][2], 1e-5);
 
-    // t=720 reference: R=[12513.21380970, 23633.30126287, 414.75154681]
-    //                  V=[-1.96762329, 0.94648802, 3.16764596]
     const r720 = try sdp4.propagate(720.0);
     try testing.expectApproxEqAbs(@as(f64, 12513.21380970), r720[0][0], 0.01);
     try testing.expectApproxEqAbs(@as(f64, 23633.30126287), r720[0][1], 0.01);
     try testing.expectApproxEqAbs(@as(f64, 414.75154681), r720[0][2], 0.01);
 
-    // t=1440 reference: R=[12279.27857794, 23740.96214221, 801.15912584]
-    //                   V=[-1.99885060, 0.88692941, 3.16608577]
     const r1440 = try sdp4.propagate(1440.0);
     try testing.expectApproxEqAbs(@as(f64, 12279.27857794), r1440[0][0], 0.01);
     try testing.expectApproxEqAbs(@as(f64, 23740.96214221), r1440[0][1], 0.01);
@@ -1436,45 +1421,40 @@ test "sdp4 propagate GPS 20413" {
 }
 
 test "sdp4 propagate GEO 28626" {
-    const tle_str =
+    const tleStr =
         \\1 28626U 05004A   24186.00000000 -.00000098  00000+0  00000+0 0  9998
         \\2 28626   0.0163 279.8379 0003069  20.3251 343.1766  1.00270142 70992
     ;
-    var tle = try Tle.parse(tle_str, testing.allocator);
+    var tle = try Tle.parse(tleStr, testing.allocator);
     defer tle.deinit();
     const sdp4 = try Sdp4.init(tle, constants.wgs72);
 
-    // t=0 reference: R=[9727.65902952, -41014.43193269, -9.39974955]
-    //               V=[2.99252607, 0.71003488, 0.00039212]
+    // Reference: python-sgp4, WGS72
     const r0 = try sdp4.propagate(0.0);
     try testing.expectApproxEqAbs(@as(f64, 9727.65902952), r0[0][0], 0.01);
     try testing.expectApproxEqAbs(@as(f64, -41014.43193269), r0[0][1], 0.01);
     try testing.expectApproxEqAbs(@as(f64, -9.39974955), r0[0][2], 0.01);
 
-    // t=1440 reference: R=[10430.11028794, -40841.32649665, -6.90212577]
-    //                   V=[2.97990947, 0.76127679, 0.00014975]
     const r1440 = try sdp4.propagate(1440.0);
     try testing.expectApproxEqAbs(@as(f64, 10430.11028794), r1440[0][0], 0.01);
     try testing.expectApproxEqAbs(@as(f64, -40841.32649665), r1440[0][1], 0.01);
 }
 
 test "sdp4 propagate HEO 09880" {
-    const tle_str =
+    const tleStr =
         \\1 09880U 77021B   24186.00000000  .00000023  00000+0  00000+0 0  9999
         \\2 09880  63.4300  75.8891 7318036 269.8735  16.7549  2.00611684 54321
     ;
-    var tle = try Tle.parse(tle_str, testing.allocator);
+    var tle = try Tle.parse(tleStr, testing.allocator);
     defer tle.deinit();
     const sdp4 = try Sdp4.init(tle, constants.wgs72);
 
-    // t=0 reference: R=[2575.93297901, 13237.27540045, 1419.07364030]
-    //               V=[-1.59368245, 3.99224937, 5.03078896]
+    // Reference: python-sgp4, WGS72
     const r0 = try sdp4.propagate(0.0);
     try testing.expectApproxEqAbs(@as(f64, 2575.93297901), r0[0][0], 0.01);
     try testing.expectApproxEqAbs(@as(f64, 13237.27540045), r0[0][1], 0.01);
     try testing.expectApproxEqAbs(@as(f64, 1419.07364030), r0[0][2], 0.01);
 
-    // t=1440 reference: R=[2175.00194988, 14214.96552375, 2741.44350110]
     const r1440 = try sdp4.propagate(1440.0);
     try testing.expectApproxEqAbs(@as(f64, 2175.00194988), r1440[0][0], 0.01);
     try testing.expectApproxEqAbs(@as(f64, 14214.96552375), r1440[0][1], 0.01);

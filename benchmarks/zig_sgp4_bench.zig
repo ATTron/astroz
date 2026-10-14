@@ -8,7 +8,7 @@ const line1 = "1 25544U 98067A   24127.82853009  .00015698  00000+0  27310-3 0  
 const line2 = "2 25544  51.6393 160.4574 0003580 140.6673 205.7250 15.50957674452123";
 
 const iterations = 10;
-const warmup_count = 100;
+const warmupCount = 100;
 
 const Scenario = struct {
     name: []const u8,
@@ -67,11 +67,11 @@ fn simdWorker(sgp4: *const Sgp4, s: Scenario, start: usize, end: usize) void {
     runSimd(sgp4, s, start, end) catch |err| std.debug.panic("propagation failed: {t}", .{err});
 }
 
-fn runThreaded(sgp4: *const Sgp4, s: Scenario, n_threads: usize, pool: []std.Thread) !void {
-    const chunk = @divCeil(s.points, n_threads);
+fn runThreaded(sgp4: *const Sgp4, s: Scenario, nThreads: usize, pool: []std.Thread) !void {
+    const chunk = @divCeil(s.points, nThreads);
     var spawned: usize = 0;
     defer for (pool[0..spawned]) |t| t.join();
-    for (0..n_threads) |t| {
+    for (0..nThreads) |t| {
         const start = @min(t * chunk, s.points);
         const end = @min(start + chunk, s.points);
         pool[t] = try std.Thread.spawn(.{}, simdWorker, .{ sgp4, s, start, end });
@@ -91,19 +91,19 @@ fn section(ctx: Ctx, title: []const u8, mode: Mode, scenarios: []const Scenario,
     try ctx.out.print("\n--- {s} ---\n", .{title});
     try ctx.out.flush();
 
-    var rate_sum: f64 = 0;
+    var rateSum: f64 = 0;
     for (scenarios) |s| {
         const begin = std.Io.Timestamp.now(ctx.io, .awake);
         for (0..iterations) |_| try runOnce(ctx, mode, s, pool);
-        const elapsed_ns: f64 = @floatFromInt(begin.untilNow(ctx.io, .awake).toNanoseconds());
+        const elapsedNs: f64 = @floatFromInt(begin.untilNow(ctx.io, .awake).toNanoseconds());
 
-        const avg_s = elapsed_ns / iterations / 1e9;
-        const rate = @as(f64, @floatFromInt(s.points)) / avg_s;
-        rate_sum += rate;
-        try ctx.out.print("{s:<25} {d:>10.3} ms  ({d:.2} prop/s)\n", .{ s.name, avg_s * 1e3, rate });
+        const avgS = elapsedNs / iterations / 1e9;
+        const rate = @as(f64, @floatFromInt(s.points)) / avgS;
+        rateSum += rate;
+        try ctx.out.print("{s:<25} {d:>10.3} ms  ({d:.2} prop/s)\n", .{ s.name, avgS * 1e3, rate });
         try ctx.out.flush();
     }
-    const mean = rate_sum / @as(f64, @floatFromInt(scenarios.len));
+    const mean = rateSum / @as(f64, @floatFromInt(scenarios.len));
     try ctx.out.print("{s:<25} {d:>17.2} prop/s\n", .{ "Average", mean });
     try ctx.out.flush();
 }
@@ -120,13 +120,13 @@ pub fn main(init: std.process.Init) !void {
     defer tle.deinit();
     const sgp4 = try Sgp4.init(tle, astroz.constants.wgs72);
 
-    const n_threads = std.Thread.getCpuCount() catch 1;
-    const pool = try gpa.alloc(std.Thread, n_threads);
+    const nThreads = std.Thread.getCpuCount() catch 1;
+    const pool = try gpa.alloc(std.Thread, nThreads);
     defer gpa.free(pool);
 
-    const ctx: Ctx = .{ .io = io, .out = out, .sgp4 = &sgp4, .threads = n_threads };
+    const ctx: Ctx = .{ .io = io, .out = out, .sgp4 = &sgp4, .threads = nThreads };
 
-    const warm: Scenario = .{ .name = "warmup", .points = warmup_count, .step = 1.0 };
+    const warm: Scenario = .{ .name = "warmup", .points = warmupCount, .step = 1.0 };
     try runScalar(&sgp4, warm, 0, warm.points);
     try runSimd(&sgp4, warm, 0, warm.points);
 
@@ -137,6 +137,6 @@ pub fn main(init: std.process.Init) !void {
     try section(ctx, "Scalar Propagation", .scalar, &standard, pool);
     try section(ctx, std.fmt.comptimePrint("SIMD Batch{d} Propagation", .{lanes}), .simd, &standard, pool);
 
-    try out.print("\nThreads: {d}\n", .{n_threads});
+    try out.print("\nThreads: {d}\n", .{nThreads});
     try section(ctx, std.fmt.comptimePrint("Multithreaded SIMD Batch{d} Propagation", .{lanes}), .threaded, &large, pool);
 }

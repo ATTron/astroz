@@ -119,7 +119,6 @@ numSdp4: usize,
 // Reference epoch for SGP4 tsince computation
 referenceEpochJd: f64,
 
-// Totals
 numSatellites: usize,
 allocator: Allocator,
 
@@ -129,7 +128,6 @@ allocator: Allocator,
 pub fn init(allocator: Allocator, tles: []const Tle, grav: constants.Sgp4GravityModel) Error!Constellation {
     const n = tles.len;
 
-    // Temp arrays for classification
     const sgp4Idx = allocator.alloc(u32, n) catch return Error.OutOfMemory;
     defer allocator.free(sgp4Idx);
     const sdp4Idx = allocator.alloc(u32, n) catch return Error.OutOfMemory;
