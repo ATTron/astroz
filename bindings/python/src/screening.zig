@@ -9,21 +9,6 @@ const satrec_mod = @import("satrec.zig");
 
 const allocator = shared.allocator;
 
-/// Gets a C-contiguous buffer whose items are `itemsize` bytes with one of the
-/// struct format codes in `codes` (byte-order prefixes are allowed). Raises
-/// TypeError naming `what` otherwise. float64 arrays use shared.getF64Buffer.
-fn getTypedBuffer(obj: [*c]c.PyObject, buf: *c.Py_buffer, comptime codes: []const u8, itemsize: usize, comptime what: [:0]const u8) bool {
-    if (c.PyObject_GetBuffer(obj, buf, c.PyBUF_C_CONTIGUOUS | c.PyBUF_FORMAT) < 0) return false;
-    const format: []const u8 = if (buf.format) |f| std.mem.span(f) else "B";
-    const code = if (format.len > 0) format[format.len - 1] else 0;
-    if (@as(usize, @intCast(buf.itemsize)) != itemsize or std.mem.indexOfScalar(u8, codes, code) == null) {
-        c.PyBuffer_Release(buf);
-        py.raiseType(what);
-        return false;
-    }
-    return true;
-}
-
 /// screen_candidates(positions, velocities, num_sats, dt, threshold, primary=None) -> bytes
 pub fn pyScreenCandidates(_: [*c]c.PyObject, args: [*c]c.PyObject, kwds: [*c]c.PyObject) callconv(.c) [*c]c.PyObject {
     var pos_obj: [*c]c.PyObject = null;
@@ -43,10 +28,10 @@ pub fn pyScreenCandidates(_: [*c]c.PyObject, args: [*c]c.PyObject, kwds: [*c]c.P
     const n: usize = @intCast(num_sats);
 
     var pos_buf = std.mem.zeroes(c.Py_buffer);
-    const pos_flat = shared.getF64Buffer(pos_obj, &pos_buf, false) orelse return null;
+    const pos_flat = shared.getBuffer(f64, "positions", pos_obj, &pos_buf, false) orelse return null;
     defer c.PyBuffer_Release(&pos_buf);
     var vel_buf = std.mem.zeroes(c.Py_buffer);
-    const vel_flat = shared.getF64Buffer(vel_obj, &vel_buf, false) orelse return null;
+    const vel_flat = shared.getBuffer(f64, "velocities", vel_obj, &vel_buf, false) orelse return null;
     defer c.PyBuffer_Release(&vel_buf);
 
     if (pos_flat.len != vel_flat.len or pos_flat.len % (3 * @max(n, 1)) != 0) {
@@ -59,13 +44,13 @@ pub fn pyScreenCandidates(_: [*c]c.PyObject, args: [*c]c.PyObject, kwds: [*c]c.P
     var primary_buf = std.mem.zeroes(c.Py_buffer);
     var primary: ?[]const bool = null;
     if (primary_obj != null and !py.isNone(primary_obj)) {
-        if (!getTypedBuffer(primary_obj, &primary_buf, "?", 1, "primary must be a contiguous bool array")) return null;
-        if (@as(usize, @intCast(primary_buf.len)) != n) {
+        const mask = shared.getBuffer(bool, "primary", primary_obj, &primary_buf, false) orelse return null;
+        if (mask.len != n) {
             c.PyBuffer_Release(&primary_buf);
             py.raiseValue("primary must have length num_sats");
             return null;
         }
-        primary = @as([*]const bool, @ptrCast(primary_buf.buf))[0..n];
+        primary = mask;
     }
     defer if (primary != null) c.PyBuffer_Release(&primary_buf);
 
@@ -142,14 +127,13 @@ pub fn pyRefineCandidates(_: [*c]c.PyObject, args: [*c]c.PyObject, kwds: [*c]c.P
     }
 
     var cand_buf = std.mem.zeroes(c.Py_buffer);
-    if (!getTypedBuffer(cand_obj, &cand_buf, "IL", 4, "candidates must be a contiguous uint32 array of shape (n, 3)")) return null;
+    const words = shared.getBuffer(u32, "candidates", cand_obj, &cand_buf, false) orelse return null;
     defer c.PyBuffer_Release(&cand_buf);
-    const cand_len: usize = @intCast(cand_buf.len);
-    if (cand_len % @sizeOf(astroz.Screening.Candidate) != 0) {
+    if (words.len % 3 != 0) {
         py.raiseValue("candidates must have shape (n, 3)");
         return null;
     }
-    const cands: []const astroz.Screening.Candidate = @as([*]const astroz.Screening.Candidate, @ptrCast(@alignCast(cand_buf.buf)))[0 .. cand_len / @sizeOf(astroz.Screening.Candidate)];
+    const cands: []const astroz.Screening.Candidate = @ptrCast(words);
     for (cands) |cand| {
         if (cand.i >= num_sats or cand.j >= num_sats or !usable[cand.i] or !usable[cand.j]) {
             py.raiseValue("candidate refers to a missing or uninitialized satellite");

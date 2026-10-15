@@ -27,8 +27,8 @@ accelerated = True
 
 def _time_arrays(jd, fr):
     """jd and fr as equal-length, contiguous float64 arrays (either may be a scalar)."""
-    jd, fr = np.broadcast_arrays(np.atleast_1d(np.asarray(jd, dtype=np.float64)), np.atleast_1d(np.asarray(fr, dtype=np.float64)))
-    return np.ascontiguousarray(jd), np.ascontiguousarray(fr)
+    jd, fr = np.broadcast_arrays(np.asarray(jd, dtype=np.float64), np.asarray(fr, dtype=np.float64))
+    return np.ascontiguousarray(np.atleast_1d(jd)), np.ascontiguousarray(np.atleast_1d(fr))
 
 
 class Satrec:

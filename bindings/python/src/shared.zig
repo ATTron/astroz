@@ -9,26 +9,35 @@ const constants = astroz.constants;
 
 pub const allocator = std.heap.c_allocator;
 
-/// Fills `buf` with a C-contiguous float64 view of `obj` and returns its elements,
-/// or raises (TypeError for any other dtype) and returns null. On success the
-/// caller releases `buf`.
-pub fn getF64Buffer(obj: [*c]c.PyObject, buf: *c.Py_buffer, writable: bool) ?[]f64 {
+/// Fills `buf` with a C-contiguous view of `obj` as a slice of `T` and returns it,
+/// or raises (TypeError naming the `name` argument for the wrong dtype) and returns null. On success the
+/// caller releases `buf`. `T` is f64 (float64), u32 (uint32), bool, or u8 (bool
+/// or uint8, for masks).
+pub fn getBuffer(comptime T: type, comptime name: []const u8, obj: [*c]c.PyObject, buf: *c.Py_buffer, writable: bool) ?[]T {
+    const codes, const dtype = switch (T) {
+        f64 => .{ "d", "float64" },
+        u32 => .{ "IL", "uint32" },
+        bool => .{ "?", "bool" },
+        u8 => .{ "?B", "bool or uint8" },
+        else => @compileError("unsupported buffer element type"),
+    };
     const flags = c.PyBUF_FORMAT | c.PyBUF_C_CONTIGUOUS | @as(c_int, if (writable) c.PyBUF_WRITABLE else 0);
     if (c.PyObject_GetBuffer(obj, buf, flags) < 0) return null;
-    if (buf.itemsize != @sizeOf(f64) or !isF64Format(buf.format)) {
+    if (buf.itemsize != @sizeOf(T) or !formatIs(buf.format, codes)) {
         c.PyBuffer_Release(buf);
-        py.raiseType("expected a C-contiguous float64 array");
+        py.raiseType(name ++ " must be a C-contiguous " ++ dtype ++ " array");
         return null;
     }
-    const ptr: [*]f64 = @ptrCast(@alignCast(buf.buf));
-    return ptr[0..@intCast(@divExact(buf.len, @sizeOf(f64)))];
+    const ptr: [*]T = @ptrCast(@alignCast(buf.buf));
+    return ptr[0..@intCast(@divExact(buf.len, @sizeOf(T)))];
 }
 
-fn isF64Format(format: [*c]const u8) bool {
-    if (format == null) return false;
-    const f = std.mem.span(format);
-    const native = std.mem.eql(u8, f, "d") or std.mem.eql(u8, f, "=d") or std.mem.eql(u8, f, "@d");
-    return native or (@import("builtin").target.cpu.arch.endian() == .little and std.mem.eql(u8, f, "<d"));
+/// Struct format string is one of `codes`, in native byte order.
+fn formatIs(format: [*c]const u8, codes: []const u8) bool {
+    var f: []const u8 = if (format == null) "B" else std.mem.span(format);
+    const littleEndian = @import("builtin").target.cpu.arch.endian() == .little;
+    if (f.len == 2 and (f[0] == '@' or f[0] == '=' or (f[0] == '<' and littleEndian))) f = f[1..];
+    return f.len == 1 and std.mem.indexOfScalar(u8, codes, f[0]) != null;
 }
 
 pub const BatchSize = astroz.Constellation.batchSize;
@@ -189,7 +198,7 @@ pub fn prepareOffsets(obj: [*c]c.PyObject, buf: *c.Py_buffer, num_sats: usize, p
         return .{ .data = zeros, .owned = true };
     }
 
-    const offsets = getF64Buffer(obj, buf, false) orelse return null;
+    const offsets = getBuffer(f64, "epoch_offsets", obj, buf, false) orelse return null;
     if (offsets.len >= padded_count) return .{ .data = offsets[0..padded_count], .owned = false };
 
     // Too short to use in place: copy into a padded array and let the buffer go
@@ -222,18 +231,11 @@ const Mask = struct {
 fn prepareMask(obj: [*c]c.PyObject, buf: *c.Py_buffer, num_sats: usize, padded_count: usize) ?Mask {
     if (py.isNone(obj)) return .{};
 
-    if (c.PyObject_GetBuffer(obj, buf, c.PyBUF_FORMAT | c.PyBUF_C_CONTIGUOUS) < 0) return null;
-    if (buf.itemsize != 1) {
-        c.PyBuffer_Release(buf);
-        py.raiseType("satellite_mask must be a bool or uint8 array");
-        return null;
-    }
-    const ptr: [*]const u8 = @ptrCast(buf.buf);
-    const len: usize = @intCast(buf.len);
-    if (len >= padded_count) return .{ .data = ptr[0..padded_count] };
+    const mask = getBuffer(u8, "satellite_mask", obj, buf, false) orelse return null;
+    if (mask.len >= padded_count) return .{ .data = mask[0..padded_count] };
 
     defer c.PyBuffer_Release(buf);
-    if (len < num_sats) {
+    if (mask.len < num_sats) {
         py.raiseValue("satellite_mask must have at least num_satellites elements");
         return null;
     }
@@ -241,7 +243,7 @@ fn prepareMask(obj: [*c]c.PyObject, buf: *c.Py_buffer, num_sats: usize, padded_c
         py.raiseRuntime("Out of memory");
         return null;
     };
-    @memcpy(padded[0..num_sats], ptr[0..num_sats]);
+    @memcpy(padded[0..num_sats], mask[0..num_sats]);
     @memset(padded[num_sats..padded_count], 0);
     return .{ .data = padded, .owned = padded };
 }
@@ -271,10 +273,10 @@ pub fn propagateInto(
     var offsets_buf = std.mem.zeroes(c.Py_buffer);
     var mask_buf = std.mem.zeroes(c.Py_buffer);
 
-    const times = getF64Buffer(times_obj, &times_buf, false) orelse return null;
+    const times = getBuffer(f64, "times", times_obj, &times_buf, false) orelse return null;
     defer c.PyBuffer_Release(&times_buf);
 
-    const pos = getF64Buffer(pos_obj, &pos_buf, true) orelse return null;
+    const pos = getBuffer(f64, "positions", pos_obj, &pos_buf, true) orelse return null;
     defer c.PyBuffer_Release(&pos_buf);
 
     const stride_sats = if (opts.output_stride > 0) opts.output_stride else self.num_satellites;
@@ -286,7 +288,7 @@ pub fn propagateInto(
 
     var vel: ?[]f64 = null;
     if (!py.isNone(vel_obj)) {
-        vel = getF64Buffer(vel_obj, &vel_buf, true) orelse return null;
+        vel = getBuffer(f64, "velocities", vel_obj, &vel_buf, true) orelse return null;
         if (vel.?.len < out_len) {
             c.PyBuffer_Release(&vel_buf);
             py.raiseValue("velocities array too small");

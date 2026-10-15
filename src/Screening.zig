@@ -87,13 +87,7 @@ pub fn candidates(gpa: Allocator, pos: []const [3]f64, vel: []const [3]f64, nSat
     for (workers, 0..) |*w, t| w.* = .{ .grid = &grid, .gpa = gpa, .start = @min(t * per, nTimes), .end = @min((t + 1) * per, nTimes) };
     defer for (workers) |*w| w.found.deinit(gpa);
 
-    var threads: [Constellation.MaxThreads]?std.Thread = @splat(null);
-    for (workers[1..], 1..) |*w, t| threads[t] = std.Thread.spawn(.{}, Worker.run, .{w}) catch blk: {
-        w.run();
-        break :blk null;
-    };
-    workers[0].run();
-    for (threads[1..nt]) |th| if (th) |t| t.join();
+    runParallel(Worker.run, workers);
 
     var total: usize = 0;
     for (workers) |w| {
@@ -114,6 +108,18 @@ pub fn candidates(gpa: Allocator, pos: []const [3]f64, vel: []const [3]f64, nSat
         unique += 1;
     }
     return gpa.realloc(out, unique);
+}
+
+/// Calls `run(&jobs[k])` for every job, each on its own thread except the first,
+/// which runs here. A job whose thread can't be spawned runs here too.
+fn runParallel(comptime run: anytype, jobs: anytype) void {
+    var threads: [Constellation.MaxThreads]?std.Thread = @splat(null);
+    for (jobs[1..], 1..) |*job, t| threads[t] = std.Thread.spawn(.{}, run, .{job}) catch blk: {
+        run(job);
+        break :blk null;
+    };
+    run(&jobs[0]);
+    for (threads[1..jobs.len]) |th| if (th) |t| t.join();
 }
 
 /// Usable state: finite, above the surface, and bound (v^2 < 2 mu / r). SGP4
@@ -328,20 +334,17 @@ pub fn refine(gpa: Allocator, propagators: []const Propagator, cands: []const Ca
     const events = try gpa.alloc(Event, cands.len);
     if (cands.len == 0) return events;
 
+    var jobs: [Constellation.MaxThreads]RefineJob = undefined;
     const nt = @max(@min(Constellation.getMaxThreads(), cands.len), 1);
     const per = @divCeil(cands.len, nt);
-    const job: RefineJob = .{ .propagators = propagators, .cands = cands, .events = events, .jd0 = jd0, .dt = dt };
-    var threads: [Constellation.MaxThreads]?std.Thread = @splat(null);
-    for (1..nt) |t| {
-        const start = @min(t * per, cands.len);
-        const end = @min(start + per, cands.len);
-        threads[t] = std.Thread.spawn(.{}, RefineJob.run, .{ job, start, end }) catch blk: {
-            job.run(start, end);
-            break :blk null;
-        };
-    }
-    job.run(0, @min(per, cands.len));
-    for (threads[1..nt]) |th| if (th) |t| t.join();
+    for (jobs[0..nt], 0..) |*job, t| job.* = .{
+        .propagators = propagators,
+        .cands = cands[@min(t * per, cands.len)..@min((t + 1) * per, cands.len)],
+        .events = events[@min(t * per, cands.len)..@min((t + 1) * per, cands.len)],
+        .jd0 = jd0,
+        .dt = dt,
+    };
+    runParallel(RefineJob.run, jobs[0..nt]);
     return events;
 }
 
@@ -352,8 +355,8 @@ const RefineJob = struct {
     jd0: f64,
     dt: f64,
 
-    fn run(job: RefineJob, start: usize, end: usize) void {
-        for (job.cands[start..end], job.events[start..end]) |c, *ev| {
+    fn run(job: *RefineJob) void {
+        for (job.cands, job.events) |c, *ev| {
             ev.* = refineOne(job.propagators[c.i], job.propagators[c.j], c, job.jd0, job.dt);
         }
     }

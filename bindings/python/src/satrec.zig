@@ -253,19 +253,17 @@ const TimeBuffers = struct {
     fn get(jd_obj: [*c]c.PyObject, fr_obj: [*c]c.PyObject, pos_obj: [*c]c.PyObject, vel_obj: [*c]c.PyObject, columns: usize) ?TimeBuffers {
         var t: TimeBuffers = undefined;
         t.bufs = @splat(std.mem.zeroes(c.Py_buffer));
-        t.jd = shared.getF64Buffer(jd_obj, &t.bufs[0], false) orelse return null;
-        t.fr = shared.getF64Buffer(fr_obj, &t.bufs[1], false) orelse {
-            c.PyBuffer_Release(&t.bufs[0]);
-            return null;
-        };
-        t.pos = shared.getF64Buffer(pos_obj, &t.bufs[2], true) orelse {
-            for (t.bufs[0..2]) |*b| c.PyBuffer_Release(b);
-            return null;
-        };
-        t.vel = shared.getF64Buffer(vel_obj, &t.bufs[3], true) orelse {
-            for (t.bufs[0..3]) |*b| c.PyBuffer_Release(b);
-            return null;
-        };
+        const objs = [_][*c]c.PyObject{ jd_obj, fr_obj, pos_obj, vel_obj };
+        var slices: [4][]f64 = undefined;
+        const names = .{ "jd", "fr", "positions", "velocities" };
+        inline for (objs, &slices, names, 0..) |obj, *slice, name, k| {
+            // positions and velocities are written to
+            slice.* = shared.getBuffer(f64, name, obj, &t.bufs[k], k >= 2) orelse {
+                for (t.bufs[0..k]) |*b| c.PyBuffer_Release(b);
+                return null;
+            };
+        }
+        t.jd, t.fr, t.pos, t.vel = slices;
         const need = t.jd.len * columns * 3;
         if (t.fr.len != t.jd.len or t.pos.len < need or t.vel.len < need) {
             t.release();
