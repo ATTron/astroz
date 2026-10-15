@@ -573,7 +573,10 @@ pub fn pySdp4BatchPropagateInto(_: [*c]c.PyObject, args: [*c]c.PyObject, kwds: [
     const stride: usize = if (time_major) @intCast(output_stride_arg) else num_sats;
     const offset: usize = @intCast(sat_offset_arg);
     const layout: astroz.Constellation.Layout = if (time_major) .timeMajor else .satelliteMajor;
-    sdp4BatchPropagate(sdp4_ptrs, epochs, n_times, stride, offset, layout, bufs.jd.ptr, bufs.fr.ptr, bufs.pos.ptr, bufs.vel.ptr);
+    sdp4BatchPropagate(sdp4_ptrs, epochs, n_times, stride, offset, layout, bufs.jd.ptr, bufs.fr.ptr, bufs.pos.ptr, bufs.vel.ptr) catch |e| {
+        py.raiseRuntime(shared.sgp4ErrorMsg(e));
+        return null;
+    };
 
     return py.none();
 }
@@ -591,13 +594,13 @@ fn sdp4BatchPropagate(
     fr_ptr: [*]const f64,
     pos_ptr: [*]f64,
     vel_ptr: [*]f64,
-) void {
+) Sgp4.Error!void {
     const num_sats = sdp4_ptrs.len;
     const num_simd_batches = @divCeil(num_sats, SdpSimdN);
 
-    const batch_els = allocator.alloc(Sdp4Batch.Sdp4BatchElements(SdpSimdN), num_simd_batches) catch return;
+    const batch_els = try allocator.alloc(Sdp4Batch.Sdp4BatchElements(SdpSimdN), num_simd_batches);
     defer allocator.free(batch_els);
-    const batch_epochs = allocator.alloc([SdpSimdN]f64, num_simd_batches) catch return;
+    const batch_epochs = try allocator.alloc([SdpSimdN]f64, num_simd_batches);
     defer allocator.free(batch_epochs);
 
     const grav = sdp4_ptrs[0].elements.sgp4.grav;
@@ -615,12 +618,12 @@ fn sdp4BatchPropagate(
     }
 
     const padded = num_simd_batches * SdpSimdN;
-    const origIndices = allocator.alloc(u32, padded) catch return;
+    const origIndices = try allocator.alloc(u32, padded);
     defer allocator.free(origIndices);
     for (origIndices, 0..) |*v, i| v.* = @intCast(sat_offset + i);
 
     const out_size = output_stride * n_times * 3;
-    astroz.Constellation.propagateSdp4Constellation(
+    try astroz.Constellation.propagateSdp4Constellation(
         batch_els,
         batch_epochs,
         num_sats,
@@ -632,7 +635,7 @@ fn sdp4BatchPropagate(
         vel_ptr[0..out_size],
         .teme,
         layout,
-    ) catch return;
+    );
 }
 
 /// Scalar SDP4 over many times. Carrying the resonance state between calls
