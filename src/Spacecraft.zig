@@ -493,7 +493,7 @@ test "plane change lands on the target plane at the node" {
     defer still.deinit();
     try sc.propagate(tle.epoch, 0.1, 1, &.{.{ .time = scheduled, .maneuver = .{ .planeChange = .{ .deltaInclination = 0, .deltaRaan = 0 } } }});
     try still.propagate(tle.epoch, 0.1, 1, null);
-    try std.testing.expectEqual(still.orbitPredictions.getLast().state, sc.orbitPredictions.getLast().state);
+    try std.testing.expectEqual(still.orbitPredictions.last().?.state, sc.orbitPredictions.last().?.state);
 }
 
 test "attitude update and propagation" {

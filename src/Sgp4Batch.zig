@@ -84,13 +84,13 @@ pub fn initBatchElements(comptime N: usize, tles: [N]Tle, grav: constants.Sgp4Gr
     var result: BatchElements(N) = undefined;
 
     // Transpose matching fields automatically
-    inline for (@typeInfo(BatchElements(N)).@"struct".fields) |field| {
-        if (@hasField(Elements, field.name)) {
+    inline for (@typeInfo(BatchElements(N)).@"struct".field_names) |name| {
+        if (@hasField(Elements, name)) {
             var arr: [N]f64 = undefined;
             inline for (0..N) |i| {
-                arr[i] = @field(els[i], field.name);
+                arr[i] = @field(els[i], name);
             }
-            simdMath.storeArray(N, &@field(result, field.name), arr);
+            simdMath.storeArray(N, &@field(result, name), arr);
         }
     }
 

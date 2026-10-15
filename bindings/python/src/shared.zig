@@ -61,7 +61,7 @@ pub const BatchResult = struct {
 /// Group TLEs into SIMD batches of BatchSize, pad last batch, and extract epoch JDs.
 pub fn buildBatches(tles: []const astroz.Tle, grav: constants.Sgp4GravityModel) ?BatchResult {
     const num_tles = tles.len;
-    const padded_count = ((num_tles + BatchSize - 1) / BatchSize) * BatchSize;
+    const padded_count = @divCeil(num_tles, BatchSize) * BatchSize;
     const num_batches = padded_count / BatchSize;
 
     const batches = allocator.alloc(BatchElements, num_batches) catch {

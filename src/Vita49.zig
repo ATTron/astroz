@@ -184,11 +184,11 @@ pub const Header = packed struct {
         const tsf = @as(u2, @truncate((littleEndianStream >> 8) & 0x3));
 
         return .{
-            .packetType = @enumFromInt(packetAsUint),
+            .packetType = @fromBackingInt(@intCast(packetAsUint)),
             .classId = ((littleEndianStream >> 5) & 1) == 1,
             .trailer = ((littleEndianStream >> 6) & 1) == 1,
-            .tsi = @enumFromInt(tsi),
-            .tsf = @enumFromInt(tsf),
+            .tsi = @fromBackingInt(@intCast(tsi)),
+            .tsf = @fromBackingInt(@intCast(tsf)),
             .packetCount = @as(u4, @truncate((littleEndianStream >> 16) & 0xF)),
             .packetSize = @truncate((littleEndianStream >> 16) & 0xFFFF),
         };

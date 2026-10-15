@@ -645,7 +645,7 @@ fn sdp4BatchPropagate(
     vel_ptr: [*]f64,
 ) void {
     const num_sats = sdp4_ptrs.len;
-    const num_simd_batches = (num_sats + SdpSimdN - 1) / SdpSimdN;
+    const num_simd_batches = @divCeil(num_sats, SdpSimdN);
 
     // Build SIMD batch elements by transposing groups of N Sdp4.Elements
     const batch_els = allocator.alloc(Sdp4Batch.Sdp4BatchElements(SdpSimdN), num_simd_batches) catch return;

@@ -73,7 +73,7 @@ fn simdWorker(sgp4: *const Sgp4, s: Scenario, start: usize, end: usize) void {
 }
 
 fn runThreaded(sgp4: *const Sgp4, s: Scenario, n_threads: usize, pool: []std.Thread) !void {
-    const chunk = (s.points + n_threads - 1) / n_threads;
+    const chunk = @divCeil(s.points, n_threads);
     var spawned: usize = 0;
     defer for (pool[0..spawned]) |t| t.join();
     for (0..n_threads) |t| {
@@ -136,7 +136,7 @@ pub fn main(init: std.process.Init) !void {
     try runSimd(&sgp4, warm, 0, warm.points);
 
     try out.print("\nastroz SGP4 Benchmark\n", .{});
-    try out.print("{s}\n", .{"=" ** 50});
+    try out.print("==================================================\n", .{});
     try out.print("SIMD Batch Size: {d} (oma runtime dispatch)\n", .{lanes});
 
     try section(ctx, "Scalar Propagation", .scalar, &standard, pool);

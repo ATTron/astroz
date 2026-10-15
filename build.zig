@@ -1,5 +1,6 @@
 const std = @import("std");
 const oma = @import("oma");
+const Translator = @import("translate_c").Translator;
 
 const examples = [_][]const u8{
     "maneuver_planning",
@@ -57,7 +58,32 @@ pub fn build(b: *std.Build) void {
     const cfitsio_mod = b.dependency("cfitsio", .{ .target = target, .optimize = optimize }).module("cfitsio");
     const oma_dep = b.dependency("oma", .{});
     const oma_mod = oma_dep.module("oma");
+    const translate_c_dep = b.dependency("translate_c", .{});
     const kernels_src = b.path("src/simdKernels.zig");
+
+    // CSPICE bindings: translated from SpiceUsr.h when enabled, otherwise a stub
+    // providing just the types Spice.zig references.
+    const cspice_mod = if (enable_cspice) blk: {
+        const translator: Translator = .init(translate_c_dep, .{
+            .name = "cspice",
+            .c_source_file = b.addWriteFiles().add("cspice.h", "#include <SpiceUsr.h>\n"),
+            .target = target,
+            .optimize = optimize,
+        });
+        if (cspice_include) |dir| {
+            translator.addIncludePath(.{ .cwd_relative = dir });
+        } else for (cspice_include_fallbacks) |dir| {
+            translator.addIncludePath(.{ .cwd_relative = dir });
+        }
+        translator.mod.addObjectFile(.{ .cwd_relative = cspice_lib orelse "/usr/lib/cspice.a" });
+        break :blk translator.mod;
+    } else b.createModule(.{
+        .root_source_file = b.addWriteFiles().add("cspice_stub.zig",
+            \\pub const SpiceInt = c_int;
+            \\pub const SpiceBoolean = c_int;
+            \\
+        ),
+    });
 
     // Core library module
     const astroz = b.addModule("astroz", .{
@@ -69,18 +95,9 @@ pub fn build(b: *std.Build) void {
             .{ .name = "cfitsio", .module = cfitsio_mod },
             .{ .name = "oma", .module = oma_mod },
             .{ .name = "build_options", .module = build_options_mod },
+            .{ .name = "cspice", .module = cspice_mod },
         },
     });
-
-    if (enable_cspice) {
-        if (cspice_include) |dir| {
-            astroz.addIncludePath(.{ .cwd_relative = dir });
-        } else for (cspice_include_fallbacks) |dir| {
-            astroz.addIncludePath(.{ .cwd_relative = dir });
-        }
-        astroz.addObjectFile(.{ .cwd_relative = cspice_lib orelse "/usr/lib/cspice.a" });
-        astroz.link_libc = true;
-    }
 
     // Static library
     const lib = b.addLibrary(.{
@@ -151,21 +168,35 @@ pub fn build(b: *std.Build) void {
             .{ .name = "zignal", .module = zignal_mod },
             .{ .name = "oma", .module = oma_mod },
             .{ .name = "build_options", .module = build_options_mod },
+            .{ .name = "cspice", .module = cspice_mod },
         },
     });
+    const python_c: Translator = .init(translate_c_dep, .{
+        .name = "python",
+        .c_source_file = b.addWriteFiles().add("python.h",
+            \\#define PY_SSIZE_T_CLEAN
+            \\#include <Python.h>
+            \\
+        ),
+        .target = target,
+        .optimize = optimize,
+    });
+    if (python_include) |dir| {
+        python_c.addIncludePath(.{ .cwd_relative = dir });
+    } else {
+        python_c.addIncludePath(.{ .cwd_relative = "/usr/include/python3.12" });
+        python_c.addIncludePath(.{ .cwd_relative = "/usr/include/python3" });
+    }
     const py_mod = b.createModule(.{
         .root_source_file = b.path("bindings/python/src/main.zig"),
         .target = target,
         .optimize = optimize,
         .link_libc = true,
-        .imports = &.{.{ .name = "astroz", .module = astroz_python }},
+        .imports = &.{
+            .{ .name = "astroz", .module = astroz_python },
+            .{ .name = "c", .module = python_c.mod },
+        },
     });
-    if (python_include) |dir| {
-        py_mod.addIncludePath(.{ .cwd_relative = dir });
-    } else {
-        py_mod.addIncludePath(.{ .cwd_relative = "/usr/include/python3.12" });
-        py_mod.addIncludePath(.{ .cwd_relative = "/usr/include/python3" });
-    }
     const py_lib = b.addLibrary(.{
         .linkage = .dynamic,
         .name = "_astroz",
@@ -187,7 +218,7 @@ pub fn build(b: *std.Build) void {
         .root_module = b.createModule(.{
             .root_source_file = b.path("benchmarks/zig_sgp4_bench.zig"),
             .target = target,
-            .optimize = .ReleaseFast,
+            .optimize = .fast,
             .imports = &.{.{ .name = "astroz", .module = astroz }},
         }),
     });
@@ -195,7 +226,7 @@ pub fn build(b: *std.Build) void {
     bench_step.dependOn(&b.addRunArtifact(bench).step);
 
     // Formatting check
-    const fmt = b.addFmt(.{ .paths = &.{ "src", "examples", "build.zig" }, .check = true });
+    const fmt = b.addFmt(.{ .paths = b.pathList(&.{ "src", "examples", "build.zig" }), .check = true });
     const fmt_step = b.step("fmt", "Check source formatting");
     fmt_step.dependOn(&fmt.step);
 
