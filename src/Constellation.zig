@@ -3,7 +3,6 @@
 //! APIs:
 //! - `Constellation` struct — init from mixed TLEs, auto-classifies SGP4/SDP4, single `propagate()` call
 //! - `propagateConstellation` — stateless SGP4-only batch propagation from pre-built batch elements
-//! - `screenConstellation` — fused propagate+screen for conjunction assessment
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
@@ -644,74 +643,6 @@ pub fn propagateSdp4Constellation(
     };
 
     dispatchImpl(layout, outputMode, resultsVel != null, ctx);
-}
-
-/// Fused propagate + screen: propagate SGP4 constellation and screen against target.
-/// Returns min_distances and min_t_indices per satellite (excluding target).
-pub fn screenConstellation(
-    batches: []const Sgp4Bels,
-    numSatellites: usize,
-    times: []const f64,
-    epochOffsets: []const f64,
-    targetIdx: usize,
-    targetEpochOffset: f64,
-    threshold: f64,
-    referenceJd: f64,
-    outMinDists: []f64,
-    outMinTIndices: []u32,
-) Error!void {
-    if (outMinDists.len < numSatellites or outMinTIndices.len < numSatellites)
-        return Error.SatelliteDecayed;
-
-    const thresholdSq = threshold * threshold;
-    const targetBatchIdx = targetIdx / batchSize;
-    const targetLane = targetIdx % batchSize;
-    const targetBatch = &batches[targetBatchIdx];
-
-    for (0..numSatellites) |i| {
-        outMinDists[i] = thresholdSq;
-        outMinTIndices[i] = 0;
-    }
-
-    const gmst: GmstTable = try .init(times, referenceJd, 1440.0);
-    defer gmst.deinit();
-
-    for (times, 0..) |time, timeIdx| {
-        var targetTimeArr: [batchSize]f64 = undefined;
-        @memset(&targetTimeArr, time + targetEpochOffset);
-        const targetResults = dispatch.sgp4Batch8(targetBatch, targetTimeArr) catch continue;
-        const targetPos = eciToEcef(targetResults[targetLane][0], gmst.sin[timeIdx], gmst.cos[timeIdx]);
-
-        for (batches, 0..) |*batch, batchIdx| {
-            const satBase = batchIdx * batchSize;
-            var batchTimes: [batchSize]f64 = undefined;
-            inline for (0..batchSize) |i| {
-                batchTimes[i] = time + epochOffsets[satBase + i];
-            }
-
-            const batchResults = dispatch.sgp4Batch8(batch, batchTimes) catch continue;
-
-            for (0..batchSize) |lane| {
-                const satIdx = satBase + lane;
-                if (satIdx >= numSatellites or satIdx == targetIdx) continue;
-
-                const pos = eciToEcef(batchResults[lane][0], gmst.sin[timeIdx], gmst.cos[timeIdx]);
-                const dx = targetPos[0] - pos[0];
-                const dy = targetPos[1] - pos[1];
-                const dz = targetPos[2] - pos[2];
-                const distSq = dx * dx + dy * dy + dz * dz;
-
-                if (distSq < outMinDists[satIdx]) {
-                    outMinDists[satIdx] = distSq;
-                    outMinTIndices[satIdx] = @intCast(timeIdx);
-                }
-            }
-        }
-    }
-
-    for (0..numSatellites) |i| {
-        outMinDists[i] = @sqrt(outMinDists[i]);
-    }
 }
 
 const testing = std.testing;

@@ -17,6 +17,9 @@ OMM JSON is detected automatically.
 Docs: https://attron.github.io/astroz/
 """
 
+import math
+from typing import NamedTuple
+
 import numpy as np
 from datetime import datetime, timezone
 from pathlib import Path
@@ -25,7 +28,7 @@ from ._astroz import (
     Satrec as _Satrec,
     Sgp4Constellation as _Sgp4Constellation,
     WGS72 as _WGS72,
-    coarse_screen as _coarse_screen,
+    screen_candidates as _screen_candidates,
     sdp4_batch_propagate_into as _sdp4_batch_propagate_into,
     hohmann_transfer,
     bi_elliptic_transfer,
@@ -156,13 +159,6 @@ def _ecef_to_geodetic_into(pos, sats):
     p[..., 2] = r / np.cos(lat) - n
 
 
-def _compute_epoch_offsets(constellation, start_time):
-    """Compute epoch offsets from start_time."""
-    start = _start_jd(start_time)
-    epochs = np.array(constellation.epochs, dtype=np.float64)
-    return (start - epochs) * 1440.0, start
-
-
 class Constellation:
     """Satellites parsed once, for repeated ``propagate`` / ``screen`` calls.
 
@@ -236,6 +232,7 @@ class Constellation:
         sgp4 = [s for s in sats if not s.is_deep_space and s.error == 0]
         self._sdp4_satrecs = [s for s in sats if s.is_deep_space]
         self._failed_satrecs = [s for s in sats if not s.is_deep_space and s.error != 0]
+        self._satrecs = sgp4 + self._sdp4_satrecs + self._failed_satrecs  # by output column
         self._n_sgp4 = len(sgp4)
         self._total_sats = len(sats)
         self._zig = _Sgp4Constellation(sgp4, gravity_model=_WGS72) if sgp4 else None
@@ -391,116 +388,192 @@ def propagate(
     return (pos, vel) if velocities else pos
 
 
-def screen(
-    source, times, threshold=10.0, *, target=None, start_time=None, norad_id=None
-):
-    """Find close approaches within ``threshold`` km.
+class Conjunctions(NamedTuple):
+    """Close approaches found by ``screen``, one entry per encounter.
 
-    With ``target`` set, screens every satellite against that one (fast,
-    fused propagate+screen). Without it, screens all pairs.
+    ``i`` and ``j`` are satellite indices (``i < j``) in the constellation's
+    output order, ``time`` is the time of closest approach in minutes from
+    ``start_time``, ``distance`` the miss distance in km and ``speed`` the
+    relative speed in km/s at that moment.
+    """
+
+    i: np.ndarray
+    j: np.ndarray
+    time: np.ndarray
+    distance: np.ndarray
+    speed: np.ndarray
+
+
+def screen(
+    source,
+    duration,
+    *,
+    threshold=5.0,
+    step=1.0,
+    target=None,
+    start_time=None,
+    norad_id=None,
+):
+    """Find every close approach within ``threshold`` km over a time window.
+
+    Satellites are propagated on a grid ``step`` minutes apart and every pair is
+    checked with a bound that accounts for the motion between grid points, so an
+    encounter that falls between samples is still found. Each candidate is then
+    refined to the exact time of closest approach. A coarser ``step`` is faster
+    but sends more candidates to refinement; it never misses encounters.
 
     Parameters
     ----------
     source : Constellation, str, or None
-        Orbital element data source. Can be:
-
-        - ``Constellation`` object (most efficient for repeated calls)
-        - CelesTrak group name (e.g., ``"starlink"``, ``"gps"``)
-        - URL to TLE or OMM JSON data
-        - Local file path (TLE or OMM JSON, auto-detected)
-        - Raw TLE text string or OMM JSON string
-        - ``None`` if using ``norad_id``
-
-    times : array-like
-        Times at which to check for conjunctions, in minutes from ``start_time``.
-    threshold : float, default 10.0
-        Distance threshold in kilometers. Pairs closer than this are reported.
-    target : int, optional
-        Satellite index for single-target screening.
+        Anything ``Constellation`` accepts, or ``None`` with ``norad_id``.
+    duration : float
+        Length of the window in minutes, starting at ``start_time``.
+    threshold : float, default 5.0
+        Miss distance in km.
+    step : float, default 1.0
+        Grid spacing in minutes.
+    target : int or sequence of int, optional
+        Only report encounters involving these satellite indices.
     start_time : datetime, optional
-        Reference time for the ``times`` array. Defaults to current UTC time.
+        Start of the window. Defaults to now (UTC).
     norad_id : int or list of int, optional
-        NORAD catalog ID(s) to fetch from CelesTrak. If provided, ``source``
-        is ignored.
+        NORAD catalog ID(s) to fetch from CelesTrak instead of ``source``.
 
     Returns
     -------
-    With ``target``:
-        min_distances : ndarray, shape ``(n_satellites,)``
-            Minimum distance to the target over all times.
-        min_t_indices : ndarray, shape ``(n_satellites,)``
-            Time index of that minimum.
-
-    Without ``target``:
-        pairs : list of (int, int)
-            Satellite index pairs that came within ``threshold``.
-        t_indices : list of int
-            Time index of each pair's approach.
+    Conjunctions
+        Arrays ``i``, ``j``, ``time``, ``distance`` and ``speed``, sorted by time.
 
     Examples
     --------
-    Single-target screening (fastest):
+    >>> c = Constellation("stations")
+    >>> events = screen(c, 1440, threshold=10.0)
+    >>> for i, j, t, d in zip(events.i, events.j, events.time, events.distance):
+    ...     print(f"{i} and {j} pass {d:.2f} km apart at t+{t:.1f} min")
 
-    >>> min_dist, min_t = screen("starlink", range(1440), threshold=5.0, target=0)
-    >>> # Find satellites that came within 5km of satellite 0
-    >>> close = np.where(min_dist < 5.0)[0]
-
-    All-vs-all screening:
-
-    >>> pairs, times = screen("starlink", range(1440), threshold=10.0)
-    >>> print(f"Found {len(pairs)} conjunction events")
-
-    Screen ISS against all active satellites:
-
-    >>> c = Constellation("active")
-    >>> # Find ISS index in constellation, then screen
-    >>> min_dist, min_t = screen(c, range(1440), threshold=10.0, target=iss_idx)
-
-    See Also
-    --------
-    propagate : Propagate satellites to get full position data.
-    Constellation : Pre-parsed TLE data for efficient reuse.
+    Notes
+    -----
+    The search assumes at most one range minimum per grid interval, which only
+    fails for co-moving pairs (docked or formation-flying objects closing at
+    well under 10 m/s).
     """
-    if isinstance(source, Constellation):
-        const = source
-    else:
-        const = Constellation(source, norad_id=norad_id)
+    const = source if isinstance(source, Constellation) else Constellation(source, norad_id=norad_id)
+    n = const.num_satellites
+    dt = step * 60.0
+    n_steps = max(int(math.ceil(duration * 60.0 / dt)), 1)
+    primary = None
+    if target is not None:
+        primary = np.zeros(n, dtype=bool)
+        primary[np.atleast_1d(target)] = True
 
-    times_arr = np.ascontiguousarray(times, dtype=np.float64)
+    # Propagate in chunks that share their end step, so no interval is skipped;
+    # duplicates from the shared step are removed below.
+    chunk = int(np.clip(_SCREEN_STATE_BUDGET // max(n * 48, 1), 2, 480))
+    found = []
+    start = 0
+    while start < n_steps:
+        stop = min(start + chunk, n_steps)
+        times = np.arange(start, stop + 1) * step
+        pos, vel = propagate(const, times, start_time=start_time, output="teme", velocities=True)
+        cand = np.frombuffer(_screen_candidates(pos, vel, n, dt, threshold, primary), dtype=np.uint32)
+        cand = cand.reshape(-1, 3).astype(np.int64)
+        cand[:, 2] += start
+        found.append(cand)
+        start = stop
 
-    # Every satellite in the SGP4 batch: use the native screening paths
-    if const._zig is not None and const._n_sgp4 == const.num_satellites:
-        constellation = const._zig
-        epoch_offsets, start_jd = _compute_epoch_offsets(constellation, start_time)
+    cand = np.unique(np.concatenate(found), axis=0)
+    jd0 = _start_jd(start_time)
+    ev = _refine_tca(const._satrecs, jd0, cand, dt)
+    keep = ev["converged"] & (ev["distance"] <= threshold)
+    order = np.argsort(ev["t_sec"][keep], kind="stable")
+    return Conjunctions(
+        i=ev["i"][keep][order],
+        j=ev["j"][keep][order],
+        time=ev["t_sec"][keep][order] / 60.0,
+        distance=ev["distance"][keep][order],
+        speed=ev["speed"][keep][order],
+    )
 
-        if target is not None:
-            result = constellation.screen_conjunction(
-                times_arr,
-                target,
-                threshold,
-                epoch_offsets=epoch_offsets,
-                reference_jd=start_jd,
-            )
-            return np.array(result[0]), np.array(result[1], dtype=np.uint32)
-        else:
-            n_sats, n_times = constellation.num_satellites, len(times_arr)
-            pos = np.empty((n_times, n_sats, 3), dtype=np.float64)
-            constellation.propagate_into(
-                times_arr,
-                pos,
-                None,
-                epoch_offsets=epoch_offsets,
-                satellite_mask=None,
-                output="teme",
-                reference_jd=start_jd,
-                time_major=True,
-            )
-            return _coarse_screen(pos, n_sats, threshold, None)
 
-    # Mixed SGP4/SDP4: propagate everything, then screen
-    pos = propagate(const, times_arr, start_time=start_time, output="teme")
-    n_sats = const.num_satellites
-    return _coarse_screen(pos, n_sats, threshold, None)
+_SCREEN_STATE_BUDGET = 256 * 1024 * 1024  # bytes of positions + velocities per chunk
+_MU_WGS72 = 398600.8
+_TCA_TOL_SEC = 1e-4
+_TCA_MAX_ITER = 60
+
+
+def _states_at(satrecs, jd0, sat_idx, t_sec):
+    """States of satellite ``sat_idx[k]`` at ``jd0 + t_sec[k]``; NaN on failure."""
+    pos = np.empty((len(sat_idx), 3))
+    vel = np.empty((len(sat_idx), 3))
+    jd_base = math.floor(jd0)
+    fr_base = jd0 - jd_base
+    order = np.argsort(sat_idx, kind="stable")
+    for grp in np.split(order, np.flatnonzero(np.diff(sat_idx[order])) + 1):
+        if len(grp) == 0:
+            continue
+        r = np.empty((len(grp), 3))
+        v = np.empty((len(grp), 3))
+        jd = np.full(len(grp), float(jd_base))
+        fr = np.ascontiguousarray(fr_base + t_sec[grp] / 86400.0)
+        satrecs[sat_idx[grp[0]]].sgp4_array_into(jd, fr, r, v)
+        pos[grp] = r
+        vel[grp] = v
+    return pos, vel
+
+
+def _relative(satrecs, jd0, i, j, t):
+    ri, vi = _states_at(satrecs, jd0, i, t)
+    rj, vj = _states_at(satrecs, jd0, j, t)
+    rho, rho_dot = ri - rj, vi - vj
+    acc = -_MU_WGS72 * (ri / np.linalg.norm(ri, axis=1, keepdims=True) ** 3
+                        - rj / np.linalg.norm(rj, axis=1, keepdims=True) ** 3)
+    f = np.einsum("ij,ij->i", rho, rho_dot)
+    fp = np.einsum("ij,ij->i", rho_dot, rho_dot) + np.einsum("ij,ij->i", rho, acc)
+    return f, fp
+
+
+def _refine_tca(satrecs, jd0, cand, dt):
+    """Root of f = rho . rho_dot in each candidate interval, where f(a) < 0 <= f(b).
+
+    Safeguarded Newton on all candidates at once (f' with a two-body rho_ddot),
+    bisecting whenever a step leaves the bracket or stalls, to ``_TCA_TOL_SEC``.
+    """
+    i, j = cand[:, 0], cand[:, 1]
+    a = cand[:, 2] * dt
+    b = a + dt
+    t = a + 0.5 * dt
+    width = b - a
+    active = np.ones(len(cand), dtype=bool)
+    for _ in range(_TCA_MAX_ITER):
+        idx = np.flatnonzero(active)
+        if len(idx) == 0:
+            break
+        f, fp = _relative(satrecs, jd0, i[idx], j[idx], t[idx])
+        neg = f < 0
+        a[idx] = np.where(neg, t[idx], a[idx])
+        b[idx] = np.where(neg, b[idx], t[idx])
+        with np.errstate(divide="ignore", invalid="ignore"):
+            t_new = t[idx] - f / fp
+        # Bisect when Newton leaves the bracket or stalls (flat f on slow pairs), so
+        # the bracket at least halves every other iteration.
+        stalled = (b[idx] - a[idx]) > 0.5 * width[idx]
+        width[idx] = b[idx] - a[idx]
+        bad = ~np.isfinite(t_new) | (t_new <= a[idx]) | (t_new >= b[idx]) | stalled
+        t_new = np.where(bad, 0.5 * (a[idx] + b[idx]), t_new)
+        step = np.abs(t_new - t[idx])
+        t[idx] = t_new
+        active[idx] = (step > _TCA_TOL_SEC) & (b[idx] - a[idx] > _TCA_TOL_SEC)
+
+    ri, vi = _states_at(satrecs, jd0, i, t)
+    rj, vj = _states_at(satrecs, jd0, j, t)
+    return {
+        "i": i,
+        "j": j,
+        "t_sec": t,
+        "distance": np.linalg.norm(ri - rj, axis=1),
+        "speed": np.linalg.norm(vi - vj, axis=1),
+        "converged": ~active,
+    }
 
 
 __version__ = "0.7.1"
@@ -511,6 +584,7 @@ __all__ = [
     "Constellation",
     "propagate",
     "screen",
+    "Conjunctions",
     "hohmann_transfer",
     "bi_elliptic_transfer",
     "lambert",
