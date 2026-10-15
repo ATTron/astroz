@@ -9,6 +9,28 @@ const constants = astroz.constants;
 
 pub const allocator = std.heap.c_allocator;
 
+/// Fills `buf` with a C-contiguous float64 view of `obj` and returns its elements,
+/// or raises (TypeError for any other dtype) and returns null. On success the
+/// caller releases `buf`.
+pub fn getF64Buffer(obj: [*c]c.PyObject, buf: *c.Py_buffer, writable: bool) ?[]f64 {
+    const flags = c.PyBUF_FORMAT | c.PyBUF_C_CONTIGUOUS | @as(c_int, if (writable) c.PyBUF_WRITABLE else 0);
+    if (c.PyObject_GetBuffer(obj, buf, flags) < 0) return null;
+    if (buf.itemsize != @sizeOf(f64) or !isF64Format(buf.format)) {
+        c.PyBuffer_Release(buf);
+        py.raiseType("expected a C-contiguous float64 array");
+        return null;
+    }
+    const ptr: [*]f64 = @ptrCast(@alignCast(buf.buf));
+    return ptr[0..@intCast(@divExact(buf.len, @sizeOf(f64)))];
+}
+
+fn isF64Format(format: [*c]const u8) bool {
+    if (format == null) return false;
+    const f = std.mem.span(format);
+    const native = std.mem.eql(u8, f, "d") or std.mem.eql(u8, f, "=d") or std.mem.eql(u8, f, "@d");
+    return native or (@import("builtin").target.cpu.arch.endian() == .little and std.mem.eql(u8, f, "<d"));
+}
+
 pub const BatchSize = astroz.Constellation.batchSize;
 
 pub const BatchElements = astroz.Constellation.Sgp4Batch.BatchElements(BatchSize);
@@ -167,46 +189,61 @@ pub fn prepareOffsets(obj: [*c]c.PyObject, buf: *c.Py_buffer, num_sats: usize, p
         return .{ .data = zeros, .owned = true };
     }
 
-    if (c.PyObject_GetBuffer(obj, buf, c.PyBUF_SIMPLE | c.PyBUF_FORMAT) < 0) return null;
-    const ptr: [*]const f64 = @ptrCast(@alignCast(buf.buf));
-    const len = @as(usize, @intCast(buf.len)) / @sizeOf(f64);
+    const offsets = getF64Buffer(obj, buf, false) orelse return null;
+    if (offsets.len >= padded_count) return .{ .data = offsets[0..padded_count], .owned = false };
 
-    if (len >= padded_count) {
-        return .{ .data = @constCast(ptr[0..padded_count]), .owned = false };
-    } else if (len >= num_sats) {
-        const padded = allocator.alloc(f64, padded_count) catch {
-            py.raiseRuntime("Out of memory");
-            return null;
-        };
-        @memcpy(padded[0..num_sats], ptr[0..num_sats]);
-        @memset(padded[num_sats..padded_count], 0.0);
-        return .{ .data = padded, .owned = true };
+    // Too short to use in place: copy into a padded array and let the buffer go
+    defer c.PyBuffer_Release(buf);
+    if (offsets.len < num_sats) {
+        py.raiseValue("epoch_offsets must have at least num_satellites elements");
+        return null;
     }
-    py.raiseValue("epoch_offsets must have at least num_satellites elements");
-    return null;
+    const padded = allocator.alloc(f64, padded_count) catch {
+        py.raiseRuntime("Out of memory");
+        return null;
+    };
+    @memcpy(padded[0..num_sats], offsets[0..num_sats]);
+    @memset(padded[num_sats..padded_count], 0.0);
+    return .{ .data = padded, .owned = true };
 }
 
-/// Satellite mask padded out to padded_count, or null if `obj` is None.
-fn prepareMask(obj: [*c]c.PyObject, buf: *c.Py_buffer, num_sats: usize, padded_count: usize) struct { mask: ?[]const u8, owned: ?[]u8 } {
-    if (py.isNone(obj)) return .{ .mask = null, .owned = null };
+/// Satellite mask (one byte per satellite) padded out to padded_count.
+const Mask = struct {
+    data: ?[]const u8 = null,
+    /// Set when the mask was copied; otherwise `data` views the caller's buffer.
+    owned: ?[]u8 = null,
 
-    if (c.PyObject_GetBuffer(obj, buf, c.PyBUF_SIMPLE | c.PyBUF_FORMAT) < 0) return .{ .mask = null, .owned = null };
-    const ptr: [*]const u8 = @ptrCast(@alignCast(buf.buf));
-    const len = @as(usize, @intCast(buf.len));
-
-    if (len >= padded_count) {
-        return .{ .mask = ptr[0..padded_count], .owned = null };
-    } else if (len >= num_sats) {
-        const padded = allocator.alloc(u8, padded_count) catch {
-            py.raiseRuntime("Out of memory");
-            return .{ .mask = null, .owned = null };
-        };
-        @memcpy(padded[0..num_sats], ptr[0..num_sats]);
-        @memset(padded[num_sats..padded_count], 0);
-        return .{ .mask = padded, .owned = padded };
+    fn release(m: Mask, buf: *c.Py_buffer) void {
+        if (m.owned) |o| allocator.free(o) else if (m.data != null) c.PyBuffer_Release(buf);
     }
-    py.raiseValue("satellite_mask must have at least num_satellites elements");
-    return .{ .mask = null, .owned = null };
+};
+
+/// Empty Mask if `obj` is None; null (with an exception set) on error.
+fn prepareMask(obj: [*c]c.PyObject, buf: *c.Py_buffer, num_sats: usize, padded_count: usize) ?Mask {
+    if (py.isNone(obj)) return .{};
+
+    if (c.PyObject_GetBuffer(obj, buf, c.PyBUF_FORMAT | c.PyBUF_C_CONTIGUOUS) < 0) return null;
+    if (buf.itemsize != 1) {
+        c.PyBuffer_Release(buf);
+        py.raiseType("satellite_mask must be a bool or uint8 array");
+        return null;
+    }
+    const ptr: [*]const u8 = @ptrCast(buf.buf);
+    const len: usize = @intCast(buf.len);
+    if (len >= padded_count) return .{ .data = ptr[0..padded_count] };
+
+    defer c.PyBuffer_Release(buf);
+    if (len < num_sats) {
+        py.raiseValue("satellite_mask must have at least num_satellites elements");
+        return null;
+    }
+    const padded = allocator.alloc(u8, padded_count) catch {
+        py.raiseRuntime("Out of memory");
+        return null;
+    };
+    @memcpy(padded[0..num_sats], ptr[0..num_sats]);
+    @memset(padded[num_sats..padded_count], 0);
+    return .{ .data = padded, .owned = padded };
 }
 
 pub const PropagateOptions = struct {
@@ -234,54 +271,47 @@ pub fn propagateInto(
     var offsets_buf = std.mem.zeroes(c.Py_buffer);
     var mask_buf = std.mem.zeroes(c.Py_buffer);
 
-    if (c.PyObject_GetBuffer(times_obj, &times_buf, c.PyBUF_SIMPLE | c.PyBUF_FORMAT) < 0) return null;
+    const times = getF64Buffer(times_obj, &times_buf, false) orelse return null;
     defer c.PyBuffer_Release(&times_buf);
 
-    if (c.PyObject_GetBuffer(pos_obj, &pos_buf, c.PyBUF_WRITABLE | c.PyBUF_FORMAT) < 0) return null;
+    const pos = getF64Buffer(pos_obj, &pos_buf, true) orelse return null;
     defer c.PyBuffer_Release(&pos_buf);
 
-    const num_times = @as(usize, @intCast(times_buf.len)) / @sizeOf(f64);
     const stride_sats = if (opts.output_stride > 0) opts.output_stride else self.num_satellites;
-    const out_len = stride_sats * num_times * 3;
-
-    if (@as(usize, @intCast(pos_buf.len)) < out_len * @sizeOf(f64)) {
+    const out_len = stride_sats * times.len * 3;
+    if (pos.len < out_len) {
         py.raiseValue("positions array too small");
         return null;
     }
 
-    var have_vel = false;
+    var vel: ?[]f64 = null;
     if (!py.isNone(vel_obj)) {
-        if (c.PyObject_GetBuffer(vel_obj, &vel_buf, c.PyBUF_WRITABLE | c.PyBUF_FORMAT) < 0) return null;
-        have_vel = true;
-        if (@as(usize, @intCast(vel_buf.len)) < out_len * @sizeOf(f64)) {
+        vel = getF64Buffer(vel_obj, &vel_buf, true) orelse return null;
+        if (vel.?.len < out_len) {
             c.PyBuffer_Release(&vel_buf);
             py.raiseValue("velocities array too small");
             return null;
         }
     }
-    defer if (have_vel) c.PyBuffer_Release(&vel_buf);
+    defer if (vel != null) c.PyBuffer_Release(&vel_buf);
 
     var offsets = prepareOffsets(offsets_obj, &offsets_buf, self.num_satellites, self.padded_count) orelse return null;
     defer offsets.deinit();
     defer if (!offsets.owned) c.PyBuffer_Release(&offsets_buf);
 
-    const mask_result = prepareMask(mask_obj, &mask_buf, self.num_satellites, self.padded_count);
-    defer if (mask_result.owned) |m| allocator.free(m);
-    defer if (mask_result.mask != null and mask_result.owned == null) c.PyBuffer_Release(&mask_buf);
-
-    const times: [*]const f64 = @ptrCast(@alignCast(times_buf.buf));
-    const pos_out: [*]f64 = @ptrCast(@alignCast(pos_buf.buf));
+    const mask = prepareMask(mask_obj, &mask_buf, self.num_satellites, self.padded_count) orelse return null;
+    defer mask.release(&mask_buf);
 
     astroz.Constellation.propagateConstellation(
         batches,
         stride_sats,
-        times[0..num_times],
+        times,
         offsets.data,
-        pos_out[0..out_len],
-        if (have_vel) @as([*]f64, @ptrCast(@alignCast(vel_buf.buf)))[0..out_len] else null,
+        pos[0..out_len],
+        if (vel) |v| v[0..out_len] else null,
         opts.output,
         opts.reference_jd,
-        mask_result.mask,
+        mask.data,
         opts.layout,
     ) catch {
         py.raiseValue("Propagation failed");
