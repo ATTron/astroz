@@ -31,6 +31,7 @@ const constants = @import("constants.zig");
 const Constellation = @import("Constellation.zig");
 const Sgp4 = @import("Sgp4.zig");
 const Sdp4 = @import("Sdp4.zig");
+const Satellite = @import("Satellite.zig");
 
 /// WGS72, the gravity model SGP4 element sets are fitted with.
 pub const mu = 398600.8;
@@ -298,6 +299,17 @@ const Worker = struct {
 pub const Propagator = struct {
     model: union(enum) { sgp4: *const Sgp4, sdp4: *const Sdp4 },
     epochJd: f64,
+
+    /// The propagator `sat` already holds. `sat` must outlive the result.
+    pub fn fromSatellite(sat: *const Satellite) Propagator {
+        return .{
+            .model = switch (sat.impl) {
+                .sgp4 => |*m| .{ .sgp4 = m },
+                .sdp4 => |*m| .{ .sdp4 = m },
+            },
+            .epochJd = sat.epochJd(),
+        };
+    }
 
     /// TEME state at `jd0` plus `tSec` seconds; NaN if propagation fails.
     fn state(p: Propagator, jd0: f64, tSec: f64) [2][3]f64 {

@@ -131,37 +131,24 @@ pub fn lambert(self: OrbitalMechanics, r1Vec: Vector3D, r2Vec: Vector3D, timeOfF
     const a = @sin(theta) * @sqrt(r1 * r2 / (1.0 - @cos(theta)));
     if (!std.math.isFinite(a) or @abs(a) < 1e-9) return ValidationError.ValueError;
 
-    const sqrtMu = @sqrt(self.mu);
-    const y = struct {
-        fn at(z: f64, r1_: f64, r2_: f64, a_: f64) f64 {
-            return r1_ + r2_ + a_ * (z * stumpffS(z) - 1.0) / @sqrt(stumpffC(z));
-        }
-    }.at;
-    const timeAt = struct {
-        // Time of flight for universal anomaly parameter z, or null where y < 0
-        fn at(z: f64, r1_: f64, r2_: f64, a_: f64, sqrtMu_: f64) ?f64 {
-            const yz = y(z, r1_, r2_, a_);
-            if (yz < 0) return null;
-            return (std.math.pow(f64, yz / stumpffC(z), 1.5) * stumpffS(z) + a_ * @sqrt(yz)) / sqrtMu_;
-        }
-    }.at;
+    const geo: LambertGeometry = .{ .r1 = r1, .r2 = r2, .a = a, .sqrtMu = @sqrt(self.mu) };
 
     // Time of flight grows monotonically with z, so bracket the root and bisect.
-    // z < 0 is hyperbolic, 0 parabolic, and z < (2 pi)^2 keeps to zero revolutions.
+    // z < 0 is hyperbolic, 0 parabolic, and z < (2 pi)^2 keeps to zero revolutions;
+    // stop just short of that, where C(z) runs out of precision.
     var lo: f64 = -4.0 * std.math.pi * std.math.pi;
-    // Stop short of (2 pi)^2, where C(z) runs out of precision; the time there is already huge
     var hi: f64 = 4.0 * std.math.pi * std.math.pi - 1e-4;
-    while (timeAt(lo, r1, r2, a, sqrtMu)) |t| {
+    // Lower lo until the time there is short enough; null means y < 0, already too low
+    while (geo.time(lo)) |t| : (lo *= 2.0) {
         if (t < timeOfFlight) break;
-        lo *= 2.0;
         if (lo < -1e6) return ValidationError.ValueError;
-    } else {} // y < 0 there: the low end is already below any feasible time
-    const tHi = timeAt(hi, r1, r2, a, sqrtMu) orelse return ValidationError.ValueError;
+    }
+    const tHi = geo.time(hi) orelse return ValidationError.ValueError;
     if (tHi < timeOfFlight) return ValidationError.ValueError; // would need more than one revolution
     var z: f64 = 0.5 * (lo + hi);
     for (0..200) |_| {
         z = 0.5 * (lo + hi);
-        const t = timeAt(z, r1, r2, a, sqrtMu) orelse {
+        const t = geo.time(z) orelse {
             lo = z;
             continue;
         };
@@ -169,7 +156,7 @@ pub fn lambert(self: OrbitalMechanics, r1Vec: Vector3D, r2Vec: Vector3D, timeOfF
         if (hi - lo < 1e-12 * @max(1.0, @abs(z))) break;
     }
 
-    const yz = y(z, r1, r2, a);
+    const yz = geo.y(z);
     const f = 1.0 - yz / r1;
     const g = a * @sqrt(yz / self.mu);
     const gDot = 1.0 - yz / r2;
@@ -185,6 +172,24 @@ pub fn lambert(self: OrbitalMechanics, r1Vec: Vector3D, r2Vec: Vector3D, timeOfF
         .timeOfFlight = timeOfFlight,
     };
 }
+
+const LambertGeometry = struct {
+    r1: f64,
+    r2: f64,
+    a: f64,
+    sqrtMu: f64,
+
+    fn y(g: LambertGeometry, z: f64) f64 {
+        return g.r1 + g.r2 + g.a * (z * stumpffS(z) - 1.0) / @sqrt(stumpffC(z));
+    }
+
+    /// Time of flight for universal-anomaly parameter z, or null where y < 0.
+    fn time(g: LambertGeometry, z: f64) ?f64 {
+        const yz = g.y(z);
+        if (yz < 0) return null;
+        return (std.math.pow(f64, yz / stumpffC(z), 1.5) * stumpffS(z) + g.a * @sqrt(yz)) / g.sqrtMu;
+    }
+};
 
 fn stumpffS(z: f64) f64 {
     if (z > 1e-6) {

@@ -23,7 +23,7 @@ pub fn main(init: std.process.Init) !void {
     std.log.info("CCSDS header: {any}", .{pkt.header});
     std.log.info("  payload: {x}", .{pkt.packets});
 
-    const json = try std.Io.Dir.cwd().readFileAlloc(init.io, "examples/create_ccsds_packet_config.json", gpa, .limited(4096));
+    const json = try std.Io.Dir.cwd().readFileAlloc(init.io, "examples/ccsds_config.json", gpa, .limited(4096));
     defer gpa.free(json);
     const config = try Ccsds.parseConfig(json, gpa);
     var configured = try Ccsds.init(&ccsdsBytes, gpa, config);

@@ -70,13 +70,7 @@ pub fn main(init: std.process.Init) !void {
     var props: [n]Screening.Propagator = undefined;
     for (&sats, &props, parsed) |*sat, *p, t| {
         sat.* = try Satellite.init(t, constants.wgs72);
-        p.* = .{
-            .model = switch (sat.impl) {
-                .sgp4 => |*m| .{ .sgp4 = m },
-                .sdp4 => |*m| .{ .sdp4 = m },
-            },
-            .epochJd = sat.epochJd(),
-        };
+        p.* = .fromSatellite(sat);
     }
     const events = try Screening.refine(gpa, &props, found, jd0, dt);
     defer gpa.free(events);
