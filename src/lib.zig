@@ -1,5 +1,8 @@
 const std = @import("std");
 
+/// The package version from build.zig.zon.
+pub const version = @import("build_options").version;
+
 pub const Tle = @import("Tle.zig");
 pub const Ccsds = @import("Ccsds.zig");
 pub const Vita49 = @import("Vita49.zig");

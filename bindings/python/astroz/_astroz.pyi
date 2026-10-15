@@ -24,6 +24,8 @@ SUN_MU: float
 MOON_MU: float
 """Moon gravitational parameter (km^3/s^2)."""
 
+__version__: str
+
 def jday(
     year: int, month: int, day: int, hour: int, minute: int, second: float
 ) -> Tuple[float, float]:

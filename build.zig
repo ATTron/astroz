@@ -1,6 +1,8 @@
 const std = @import("std");
 const oma = @import("oma");
 const Translator = @import("translate_c").Translator;
+/// The one place the version is written; Zig, the Python extension and the wheel all read it.
+const manifest = @import("build.zig.zon");
 
 const examples = [_][]const u8{
     "maneuver_planning",
@@ -49,6 +51,7 @@ pub fn build(b: *std.Build) void {
 
     const build_options = b.addOptions();
     build_options.addOption(bool, "enable_cspice", enable_cspice);
+    build_options.addOption([]const u8, "version", manifest.version);
     const build_options_mod = build_options.createModule();
 
     const zignal_mod = b.dependency("zignal", .{ .target = target, .optimize = optimize }).module("zignal");

@@ -26,15 +26,15 @@ jobs:
         with:
           version: 0.17.0
 
-      - name: Set version from tag
+      # The version lives only in build.zig.zon; a release tag has to match it
+      - name: Check tag matches build.zig.zon
+        if: startsWith(github.ref, 'refs/tags/v')
         run: |
-          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
-            VERSION=${GITHUB_REF#refs/tags/v}
-          else
-            VERSION="0.0.0.dev"
+          ZON=$(sed -n 's/^ *\.version = "\(.*\)",/\1/p' build.zig.zon)
+          if [ "${GITHUB_REF#refs/tags/v}" != "$ZON" ]; then
+            echo "::error::tag ${GITHUB_REF#refs/tags/} does not match build.zig.zon version $ZON"
+            exit 1
           fi
-          sed -i.bak "s/^version = \".*\"/version = \"$VERSION\"/" bindings/python/pyproject.toml
-          sed -i.bak "s/__version__ = \".*\"/__version__ = \"$VERSION\"/" bindings/python/astroz/__init__.py
 
       - uses: pypa/cibuildwheel@v4.2.1
         with:

@@ -25,6 +25,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from ._astroz import (
     Tle,
+    __version__,
     Satrec as _Satrec,
     Sgp4Constellation as _Sgp4Constellation,
     WGS72 as _WGS72,
@@ -563,8 +564,6 @@ def _refine_tca(satrecs, jd0, cand, dt):
     rj, vj = _states_at(satrecs, jd0, j, t)
     return i, j, t, np.linalg.norm(ri - rj, axis=1), np.linalg.norm(vi - vj, axis=1), ~active
 
-
-__version__ = "0.7.1"
 
 __all__ = [
     "__version__",

@@ -54,6 +54,7 @@ pub export fn PyInit__astroz() ?*c.PyObject {
     py.incref(@as(*c.PyObject, @ptrCast(&satrec.SatrecArrayType)));
     if (c.PyModule_AddObject(m, "SatrecArray", @ptrCast(&satrec.SatrecArrayType)) < 0) return null;
 
+    if (c.PyModule_AddStringConstant(m, "__version__", astroz.version.ptr) < 0) return null;
     if (c.PyModule_AddIntConstant(m, "WGS72", satrec.WGS72) < 0) return null;
     if (c.PyModule_AddIntConstant(m, "WGS84", satrec.WGS84) < 0) return null;
 
