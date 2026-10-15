@@ -30,6 +30,7 @@ from ._astroz import (
     Sgp4Constellation as _Sgp4Constellation,
     WGS72 as _WGS72,
     screen_candidates as _screen_candidates,
+    refine_candidates as _refine_candidates,
     sdp4_batch_propagate_into as _sdp4_batch_propagate_into,
     hohmann_transfer,
     bi_elliptic_transfer,
@@ -390,9 +391,6 @@ def propagate(
 
 
 _SCREEN_STATE_BUDGET = 256 * 1024 * 1024  # bytes of positions + velocities per chunk
-_MU_WGS72 = 398600.8
-_TCA_TOL_SEC = 1e-4
-_TCA_MAX_ITER = 60
 
 
 class Conjunctions(NamedTuple):
@@ -483,86 +481,20 @@ def screen(
         times = np.arange(start, stop + 1) * step
         pos, vel = propagate(const, times, start_time=start_time, output="teme", velocities=True)
         cand = np.frombuffer(_screen_candidates(pos, vel, n, dt, threshold, primary), dtype=np.uint32)
-        cand = cand.reshape(-1, 3).astype(np.int64)
+        cand = cand.reshape(-1, 3).copy()
         cand[:, 2] += start
         found.append(cand)
         start = stop
 
-    cand = np.unique(np.concatenate(found), axis=0)
-    i, j, t_sec, distance, speed, converged = _refine_tca(const._satrecs, _start_jd(start_time), cand, dt)
+    # Exact time of closest approach in each candidate interval (see Screening.refine)
+    cand = np.ascontiguousarray(np.unique(np.concatenate(found), axis=0), dtype=np.uint32)
+    ev = np.frombuffer(_refine_candidates(const._satrecs, cand, _start_jd(start_time), dt)).reshape(-1, 4)
+    t_sec, distance, speed, converged = ev[:, 0], ev[:, 1], ev[:, 2], ev[:, 3] == 1.0
     # The grid is rounded up to whole steps, so drop anything past the window
     keep = np.flatnonzero(converged & (distance <= threshold) & (t_sec <= duration * 60.0))
     keep = keep[np.argsort(t_sec[keep], kind="stable")]
-    return Conjunctions(i[keep], j[keep], t_sec[keep] / 60.0, distance[keep], speed[keep])
-
-
-def _states_at(satrecs, jd0, sat_idx, t_sec):
-    """States of satellite ``sat_idx[k]`` at ``jd0 + t_sec[k]``; NaN on failure."""
-    pos = np.empty((len(sat_idx), 3))
-    vel = np.empty((len(sat_idx), 3))
-    jd_base = math.floor(jd0)
-    fr_base = jd0 - jd_base
-    order = np.argsort(sat_idx, kind="stable")
-    for grp in np.split(order, np.flatnonzero(np.diff(sat_idx[order])) + 1):
-        r = np.empty((len(grp), 3))
-        v = np.empty((len(grp), 3))
-        jd = np.full(len(grp), float(jd_base))
-        fr = np.ascontiguousarray(fr_base + t_sec[grp] / 86400.0)
-        satrecs[sat_idx[grp[0]]].sgp4_array_into(jd, fr, r, v)
-        pos[grp] = r
-        vel[grp] = v
-    return pos, vel
-
-
-def _relative(satrecs, jd0, i, j, t):
-    ri, vi = _states_at(satrecs, jd0, i, t)
-    rj, vj = _states_at(satrecs, jd0, j, t)
-    rho, rho_dot = ri - rj, vi - vj
-    acc = -_MU_WGS72 * (ri / np.linalg.norm(ri, axis=1, keepdims=True) ** 3
-                        - rj / np.linalg.norm(rj, axis=1, keepdims=True) ** 3)
-    f = np.einsum("ij,ij->i", rho, rho_dot)
-    fp = np.einsum("ij,ij->i", rho_dot, rho_dot) + np.einsum("ij,ij->i", rho, acc)
-    return f, fp
-
-
-def _refine_tca(satrecs, jd0, cand, dt):
-    """Root of f = rho . rho_dot in each candidate interval, where f(a) < 0 <= f(b).
-
-    Safeguarded Newton on all candidates at once (f' with a two-body rho_ddot),
-    bisecting whenever a step leaves the bracket or stalls, to ``_TCA_TOL_SEC``.
-    """
-    i, j = cand[:, 0], cand[:, 1]
-    if len(cand) == 0:
-        empty = np.empty(0)
-        return i, j, empty, empty, empty, np.empty(0, dtype=bool)
-    a = cand[:, 2] * dt
-    b = a + dt
-    t = a + 0.5 * dt
-    width = b - a
-    active = np.ones(len(cand), dtype=bool)
-    for _ in range(_TCA_MAX_ITER):
-        idx = np.flatnonzero(active)
-        if len(idx) == 0:
-            break
-        f, fp = _relative(satrecs, jd0, i[idx], j[idx], t[idx])
-        neg = f < 0
-        a[idx] = np.where(neg, t[idx], a[idx])
-        b[idx] = np.where(neg, b[idx], t[idx])
-        with np.errstate(divide="ignore", invalid="ignore"):
-            t_new = t[idx] - f / fp
-        # Bisect when Newton leaves the bracket or stalls (flat f on slow pairs), so
-        # the bracket at least halves every other iteration.
-        stalled = (b[idx] - a[idx]) > 0.5 * width[idx]
-        width[idx] = b[idx] - a[idx]
-        bad = ~np.isfinite(t_new) | (t_new <= a[idx]) | (t_new >= b[idx]) | stalled
-        t_new = np.where(bad, 0.5 * (a[idx] + b[idx]), t_new)
-        step = np.abs(t_new - t[idx])
-        t[idx] = t_new
-        active[idx] = (step > _TCA_TOL_SEC) & (b[idx] - a[idx] > _TCA_TOL_SEC)
-
-    ri, vi = _states_at(satrecs, jd0, i, t)
-    rj, vj = _states_at(satrecs, jd0, j, t)
-    return i, j, t, np.linalg.norm(ri - rj, axis=1), np.linalg.norm(vi - vj, axis=1), ~active
+    i, j = cand[keep, 0].astype(np.int64), cand[keep, 1].astype(np.int64)
+    return Conjunctions(i, j, t_sec[keep] / 60.0, distance[keep], speed[keep])
 
 
 __all__ = [
