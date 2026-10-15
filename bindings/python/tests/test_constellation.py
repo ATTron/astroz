@@ -1,4 +1,5 @@
-"""OMM JSON is read directly, not rewritten as TLE text first.
+"""Constellation loading: OMM JSON is read directly (not rewritten as TLE
+text first), and every record ends up in exactly one place.
 
 The records are CelesTrak data from the gpconf corpus
 (https://github.com/hneogy/gp-omm-conformance). SARAMAGO is catalog number
@@ -74,3 +75,42 @@ def test_omm_matches_tle_for_same_object():
 def test_invalid_omm_raises():
     with pytest.raises(ValueError, match="OMM"):
         astroz.Constellation(json.dumps([{"NORAD_CAT_ID": 1}]))
+
+
+def _near_epoch():
+    return datetime(2026, 7, 14, 21, 45, 21, tzinfo=timezone.utc)
+
+
+def test_period_near_deep_space_boundary_loads():
+    # Mean motion 6.40-6.41 rev/day puts the period right at SGP4's 225-minute
+    # deep-space cutoff, where a raw and a corrected period disagree.
+    recs = [SARAMAGO] + [dict(SARAMAGO, NORAD_CAT_ID=200000 + i, MEAN_MOTION=6.4 + i * 0.0005, ECCENTRICITY=0.001)
+                         for i in range(21)]
+    c = astroz.Constellation(json.dumps(recs))
+    assert c.num_satellites == len(recs)
+    pos = astroz.propagate(c, [0.0], start_time=_near_epoch(), output="teme")
+    assert np.isfinite(pos).all()
+
+
+def test_rejected_record_is_nan_and_does_not_break_the_rest():
+    decayed = dict(SARAMAGO, NORAD_CAT_ID=100001, MEAN_MOTION=17.5, ECCENTRICITY=0.3)  # perigee inside the Earth
+    c = astroz.Constellation(json.dumps([SARAMAGO, decayed]))
+    assert c.num_satellites == 2
+    assert len(c.epochs) == 2
+    pos, vel = astroz.propagate(c, [0.0, 10.0], start_time=_near_epoch(), output="teme", velocities=True)
+    assert np.isfinite(pos[:, 0]).all() and np.isfinite(vel[:, 0]).all()
+    assert np.isnan(pos[:, 1]).all() and np.isnan(vel[:, 1]).all()
+    astroz.screen(c, [0.0, 10.0], start_time=_near_epoch(), threshold=10.0)
+
+
+def test_propagate_matches_python_sgp4_wgs72():
+    sgp4_api = pytest.importorskip("sgp4.api")
+    l1, l2 = TLE_81011.splitlines()
+    ref = sgp4_api.Satrec.twoline2rv(l1, l2, sgp4_api.WGS72)
+    start = datetime(2026, 4, 9, tzinfo=timezone.utc)
+    jd, fr = sgp4_api.jday(2026, 4, 9, 0, 0, 0.0)
+    for minutes in (0.0, 720.0):
+        err, r, _ = ref.sgp4(jd, fr + minutes / 1440.0)
+        assert err == 0
+        got = astroz.propagate(TLE_81011, [minutes], start_time=start, output="teme")[0, 0]
+        assert np.abs(got - np.array(r)).max() < 1e-3  # km

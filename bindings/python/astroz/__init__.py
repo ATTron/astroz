@@ -24,6 +24,7 @@ from ._astroz import (
     Tle,
     Satrec as _Satrec,
     Sgp4Constellation as _Sgp4Constellation,
+    WGS72 as _WGS72,
     coarse_screen as _coarse_screen,
     sdp4_batch_propagate_into as _sdp4_batch_propagate_into,
     hohmann_transfer,
@@ -224,34 +225,20 @@ class Constellation:
 
     def __init__(self, source=None, *, norad_id=None):
         text, fmt = _load_tle_text(source, norad_id)
-
-        # Output order is SGP4 satellites first, then SDP4
-        self._zig = None
         if fmt == "json":
-            sats = _Satrec.from_omm(text)
-            self._sdp4_satrecs = [s for s in sats if s.is_deep_space]
-            self._total_sats = len(sats)
-            self._n_sgp4 = len(sats) - len(self._sdp4_satrecs)
-            if self._n_sgp4:
-                self._zig = _Sgp4Constellation.from_omm(text)
-            return
+            sats = _Satrec.from_omm(text, _WGS72)
+        else:
+            sats = [_Satrec.twoline2rv(l1, l2, _WGS72) for l1, l2 in _parse_tle_pairs(text)]
 
-        pairs = _parse_tle_pairs(text)
-        sgp4_lines = []
-        self._sdp4_satrecs = []
-        self._total_sats = len(pairs)
-
-        for l1, l2 in pairs:
-            sat = _Satrec.twoline2rv(l1, l2)
-            if sat.is_deep_space:
-                self._sdp4_satrecs.append(sat)
-            else:
-                sgp4_lines.append(l1)
-                sgp4_lines.append(l2)
-
-        self._n_sgp4 = len(sgp4_lines) // 2
-        if sgp4_lines:
-            self._zig = _Sgp4Constellation.from_tle_text("\n".join(sgp4_lines))
+        # Output columns: SGP4 satellites, then SDP4, then any whose elements
+        # SGP4/SDP4 rejected (e.g. already decayed), which always come out NaN.
+        # The batch is built from the same Satrecs, so it can't classify differently.
+        sgp4 = [s for s in sats if not s.is_deep_space and s.error == 0]
+        self._sdp4_satrecs = [s for s in sats if s.is_deep_space]
+        self._failed_satrecs = [s for s in sats if not s.is_deep_space and s.error != 0]
+        self._n_sgp4 = len(sgp4)
+        self._total_sats = len(sats)
+        self._zig = _Sgp4Constellation(sgp4, gravity_model=_WGS72) if sgp4 else None
 
     @property
     def num_satellites(self):
@@ -264,7 +251,7 @@ class Constellation:
         epochs = []
         if self._zig is not None:
             epochs.extend(self._zig.epochs)
-        for sat in self._sdp4_satrecs:
+        for sat in self._sdp4_satrecs + self._failed_satrecs:
             epochs.append(sat.jdsatepoch + sat.jdsatepochF)
         return epochs
 
@@ -395,6 +382,12 @@ def propagate(
             if output == "geodetic":
                 _ecef_to_geodetic_into(pos, sdp4)
 
+    if const._failed_satrecs:
+        failed = slice(n_sats - len(const._failed_satrecs), n_sats)
+        pos[:, failed] = np.nan
+        if velocities:
+            vel[:, failed] = np.nan
+
     return (pos, vel) if velocities else pos
 
 
@@ -475,8 +468,8 @@ def screen(
 
     times_arr = np.ascontiguousarray(times, dtype=np.float64)
 
-    # Pure SGP4: use the native screening paths
-    if not const._sdp4_satrecs and const._zig is not None:
+    # Every satellite in the SGP4 batch: use the native screening paths
+    if const._zig is not None and const._n_sgp4 == const.num_satellites:
         constellation = const._zig
         epoch_offsets, start_jd = _compute_epoch_offsets(constellation, start_time)
 

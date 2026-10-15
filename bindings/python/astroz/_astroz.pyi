@@ -139,13 +139,10 @@ class Tle:
 class Sgp4Constellation:
     """SIMD SGP4 batches for many near-earth satellites."""
 
-    def __init__(self, tles: Sequence[Tle], gravity_model: int = WGS84) -> None: ...
+    def __init__(self, tles: Sequence[Tle | Satrec], gravity_model: int = WGS84) -> None: ...
     @classmethod
     def from_tle_text(cls, text: str, gravity_model: int = WGS84) -> "Sgp4Constellation":
         """Parse every TLE in ``text``, skipping deep-space ones."""
-    @classmethod
-    def from_omm(cls, json: str, gravity_model: int = WGS84) -> "Sgp4Constellation":
-        """Build from CCSDS OMM JSON (one object or an array), skipping deep-space records."""
     @property
     def num_satellites(self) -> int: ...
     @property
