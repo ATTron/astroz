@@ -78,8 +78,7 @@ def test_invalid_omm_raises():
         astroz.Constellation(json.dumps([{"NORAD_CAT_ID": 1}]))
 
 
-def _near_epoch():
-    return datetime(2026, 7, 14, 21, 45, 21, tzinfo=timezone.utc)
+NEAR_EPOCH = datetime(2026, 7, 14, 21, 45, 21, tzinfo=timezone.utc)  # SARAMAGO's epoch
 
 
 def test_period_near_deep_space_boundary_loads():
@@ -89,7 +88,7 @@ def test_period_near_deep_space_boundary_loads():
                          for i in range(21)]
     c = astroz.Constellation(json.dumps(recs))
     assert c.num_satellites == len(recs)
-    pos = astroz.propagate(c, [0.0], start_time=_near_epoch(), output="teme")
+    pos = astroz.propagate(c, [0.0], start_time=NEAR_EPOCH, output="teme")
     assert np.isfinite(pos).all()
 
 
@@ -98,10 +97,10 @@ def test_rejected_record_is_nan_and_does_not_break_the_rest():
     c = astroz.Constellation(json.dumps([SARAMAGO, decayed]))
     assert c.num_satellites == 2
     assert len(c.epochs) == 2
-    pos, vel = astroz.propagate(c, [0.0, 10.0], start_time=_near_epoch(), output="teme", velocities=True)
+    pos, vel = astroz.propagate(c, [0.0, 10.0], start_time=NEAR_EPOCH, output="teme", velocities=True)
     assert np.isfinite(pos[:, 0]).all() and np.isfinite(vel[:, 0]).all()
     assert np.isnan(pos[:, 1]).all() and np.isnan(vel[:, 1]).all()
-    events = astroz.screen(c, 10.0, threshold=10.0, start_time=_near_epoch())
+    events = astroz.screen(c, 10.0, threshold=10.0, start_time=NEAR_EPOCH)
     assert not np.isin(1, events.i) and not np.isin(1, events.j)
 
 
@@ -189,3 +188,14 @@ def test_screen_target_limits_pairs():
     involved = (every.i == target) | (every.j == target)
     assert len(some.i) == involved.sum() > 0
     assert np.all((some.i == target) | (some.j == target))
+
+
+def test_screen_stays_inside_the_window():
+    c = astroz.Constellation(json.dumps(_shell(120, 7)))
+    start = datetime(2026, 7, 14, 22, 0, tzinfo=timezone.utc)
+    every = astroz.screen(c, 120, threshold=25.0, start_time=start)
+    cut = float(np.median(every.time))
+    # 7-minute steps don't divide the window, so the grid runs past it
+    part = astroz.screen(c, cut, threshold=25.0, step=7.0, start_time=start)
+    assert len(part.i) == np.sum(every.time <= cut) > 0
+    assert np.all(part.time <= cut)

@@ -388,6 +388,12 @@ def propagate(
     return (pos, vel) if velocities else pos
 
 
+_SCREEN_STATE_BUDGET = 256 * 1024 * 1024  # bytes of positions + velocities per chunk
+_MU_WGS72 = 398600.8
+_TCA_TOL_SEC = 1e-4
+_TCA_MAX_ITER = 60
+
+
 class Conjunctions(NamedTuple):
     """Close approaches found by ``screen``, one entry per encounter.
 
@@ -482,23 +488,11 @@ def screen(
         start = stop
 
     cand = np.unique(np.concatenate(found), axis=0)
-    jd0 = _start_jd(start_time)
-    ev = _refine_tca(const._satrecs, jd0, cand, dt)
-    keep = ev["converged"] & (ev["distance"] <= threshold)
-    order = np.argsort(ev["t_sec"][keep], kind="stable")
-    return Conjunctions(
-        i=ev["i"][keep][order],
-        j=ev["j"][keep][order],
-        time=ev["t_sec"][keep][order] / 60.0,
-        distance=ev["distance"][keep][order],
-        speed=ev["speed"][keep][order],
-    )
-
-
-_SCREEN_STATE_BUDGET = 256 * 1024 * 1024  # bytes of positions + velocities per chunk
-_MU_WGS72 = 398600.8
-_TCA_TOL_SEC = 1e-4
-_TCA_MAX_ITER = 60
+    i, j, t_sec, distance, speed, converged = _refine_tca(const._satrecs, _start_jd(start_time), cand, dt)
+    # The grid is rounded up to whole steps, so drop anything past the window
+    keep = np.flatnonzero(converged & (distance <= threshold) & (t_sec <= duration * 60.0))
+    keep = keep[np.argsort(t_sec[keep], kind="stable")]
+    return Conjunctions(i[keep], j[keep], t_sec[keep] / 60.0, distance[keep], speed[keep])
 
 
 def _states_at(satrecs, jd0, sat_idx, t_sec):
@@ -509,8 +503,6 @@ def _states_at(satrecs, jd0, sat_idx, t_sec):
     fr_base = jd0 - jd_base
     order = np.argsort(sat_idx, kind="stable")
     for grp in np.split(order, np.flatnonzero(np.diff(sat_idx[order])) + 1):
-        if len(grp) == 0:
-            continue
         r = np.empty((len(grp), 3))
         v = np.empty((len(grp), 3))
         jd = np.full(len(grp), float(jd_base))
@@ -539,6 +531,9 @@ def _refine_tca(satrecs, jd0, cand, dt):
     bisecting whenever a step leaves the bracket or stalls, to ``_TCA_TOL_SEC``.
     """
     i, j = cand[:, 0], cand[:, 1]
+    if len(cand) == 0:
+        empty = np.empty(0)
+        return i, j, empty, empty, empty, np.empty(0, dtype=bool)
     a = cand[:, 2] * dt
     b = a + dt
     t = a + 0.5 * dt
@@ -566,14 +561,7 @@ def _refine_tca(satrecs, jd0, cand, dt):
 
     ri, vi = _states_at(satrecs, jd0, i, t)
     rj, vj = _states_at(satrecs, jd0, j, t)
-    return {
-        "i": i,
-        "j": j,
-        "t_sec": t,
-        "distance": np.linalg.norm(ri - rj, axis=1),
-        "speed": np.linalg.norm(vi - vj, axis=1),
-        "converged": ~active,
-    }
+    return i, j, t, np.linalg.norm(ri - rj, axis=1), np.linalg.norm(vi - vj, axis=1), ~active
 
 
 __version__ = "0.7.1"

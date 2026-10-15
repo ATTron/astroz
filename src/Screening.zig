@@ -162,7 +162,8 @@ const Grid = struct {
 fn linearMin(r: [3]f64, v: [3]f64, span: f64) f64 {
     const vv = dot(v, v);
     const tau = if (vv > 0.0) std.math.clamp(-dot(r, v) / vv, 0.0, span) else 0.0;
-    return @sqrt(dot(.{ r[0] + v[0] * tau, r[1] + v[1] * tau, r[2] + v[2] * tau }, .{ r[0] + v[0] * tau, r[1] + v[1] * tau, r[2] + v[2] * tau }));
+    const p: [3]f64 = .{ r[0] + v[0] * tau, r[1] + v[1] * tau, r[2] + v[2] * tau };
+    return @sqrt(dot(p, p));
 }
 
 const gridOff: i64 = 1 << 20;
@@ -271,14 +272,15 @@ const Worker = struct {
     fn checkPair(w: *Worker, k: usize, a: u32, b: u32, half: f64, accelTerm: f64) !void {
         const g = w.grid;
         if (g.opts.primary) |p| if (!(p[a] or p[b])) return;
-        const d = @sqrt(dot2(sub(g.pos[g.at(k, b)], g.pos[g.at(k, a)])));
-        const sv = @sqrt(dot2(sub(g.vel[g.at(k, b)], g.vel[g.at(k, a)])));
+        const dr = sub(g.pos[g.at(k, b)], g.pos[g.at(k, a)]);
+        const dv = sub(g.vel[g.at(k, b)], g.vel[g.at(k, a)]);
+        const d = @sqrt(dot(dr, dr));
+        const sv = @sqrt(dot(dv, dv));
         if (d > g.opts.threshold + sv * half + accelTerm) return;
         const lo = @min(a, b);
         const hi = @max(a, b);
-        for ([_]usize{ k -% 1, k }) |kk| {
-            if (k == 0 and kk != k) continue;
-            if (kk + 1 >= g.nTimes) continue;
+        // The minimum may lie in the interval before or after step k
+        for (k -| 1..@min(k + 1, g.nTimes - 1)) |kk| {
             if (g.intervalHit(lo, hi, kk)) try w.found.append(w.gpa, .{ .i = lo, .j = hi, .step = @intCast(kk) });
         }
     }
@@ -304,10 +306,6 @@ fn neg(a: [3]f64) [3]f64 {
 
 fn dot(a: [3]f64, b: [3]f64) f64 {
     return a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
-}
-
-fn dot2(a: [3]f64) f64 {
-    return dot(a, a);
 }
 
 /// Two-body states on a circular orbit, for tests.
@@ -352,8 +350,8 @@ test "finds a crossing that falls between grid points" {
     defer gpa.free(st.pos);
     defer gpa.free(st.vel);
     // At the samples the pair is ~200 km apart, nowhere near the 5 km threshold.
-    try std.testing.expect(@sqrt(dot2(sub(st.pos[0], st.pos[1]))) > 100.0);
-    try std.testing.expect(@sqrt(dot2(sub(st.pos[3], st.pos[4]))) > 100.0);
+    try std.testing.expect(@sqrt(dot(sub(st.pos[0], st.pos[1]), sub(st.pos[0], st.pos[1]))) > 100.0);
+    try std.testing.expect(@sqrt(dot(sub(st.pos[3], st.pos[4]), sub(st.pos[3], st.pos[4]))) > 100.0);
 
     const found = try candidates(gpa, st.pos, st.vel, orbits.len, .{ .dt = dt, .threshold = 5.0 });
     defer gpa.free(found);
