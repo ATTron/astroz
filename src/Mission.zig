@@ -88,35 +88,36 @@ pub fn deinit(self: *Mission) void {
     self.trajectoryPredictions.deinit(self.allocator);
 }
 
-pub fn printWaypoints(self: *Mission, limit: ?u8) void {
-    var count: usize = 0;
+/// Prints up to `limit` waypoints (all if null) to stderr.
+pub fn printWaypoints(self: *const Mission, limit: ?u8) void {
+    var buffer: [256]u8 = undefined;
+    const stderr = std.debug.lockStderr(&buffer);
+    defer std.debug.unlockStderr();
+    self.writeWaypoints(&stderr.file_writer.interface, limit) catch {};
+}
+
+/// Prints up to `limit` trajectory points (all if null) to stderr.
+pub fn printTrajectories(self: *const Mission, limit: ?u8) void {
+    var buffer: [256]u8 = undefined;
+    const stderr = std.debug.lockStderr(&buffer);
+    defer std.debug.unlockStderr();
+    self.writeTrajectories(&stderr.file_writer.interface, limit) catch {};
+}
+
+fn writeWaypoints(self: *const Mission, w: *std.Io.Writer, limit: ?u8) std.Io.Writer.Error!void {
+    var printed: usize = 0;
     for (self.trajectoryPredictions.items) |point| {
-        if (std.mem.eql(u8, point.label, "waypoint")) {
-            std.debug.print("Day {d:>6.1}: {s} at ({d:>8.0}, {d:>8.0}) km\n", .{
-                point.time,
-                point.body,
-                point.position.x(),
-                point.position.y(),
-            });
-        }
-        if (limit != null and count < limit.?) {
-            count += 1;
-        }
+        if (limit) |l| if (printed >= l) break;
+        if (!std.mem.eql(u8, point.label, "waypoint")) continue;
+        try w.print("Day {d:>6.1}: {s} at ({d:>8.0}, {d:>8.0}) km\n", .{ point.time, point.body, point.position.x(), point.position.y() });
+        printed += 1;
     }
 }
 
-// TODO: probably want a sane limit of like 100 or something but for now this will just dump everything
-pub fn printTrajectories(self: *Mission, limit: ?u8) void {
-    var count: usize = 0;
-    for (self.trajectoryPredictions.items) |point| {
-        std.debug.print("Day {d:>6.1}: Transfer at ({d:>8.0}, {d:>8.0}) km\n", .{
-            point.time,
-            point.position.x(),
-            point.position.y(),
-        });
-        if (limit != null and count < limit.?) {
-            count += 1;
-        }
+fn writeTrajectories(self: *const Mission, w: *std.Io.Writer, limit: ?u8) std.Io.Writer.Error!void {
+    const points = self.trajectoryPredictions.items;
+    for (points[0..if (limit) |l| @min(l, points.len) else points.len]) |point| {
+        try w.print("Day {d:>6.1}: Transfer at ({d:>8.0}, {d:>8.0}) km\n", .{ point.time, point.position.x(), point.position.y() });
     }
 }
 
@@ -403,6 +404,27 @@ test "propagate transfer generates correct trajectory types" {
     try testing.expectEqual(@as(usize, 2), waypointCount);
     try testing.expect(planetCount > 0);
     try testing.expect(transferCount > 0);
+}
+
+test "print limits" {
+    const ta = std.testing.allocator;
+    const params = try MissionParameters.init(constants.earth, constants.mars, 0.0, null, "hohmann");
+    var mission = Mission.init(ta, params, OrbitalMechanics.init(constants.sun.mu));
+    defer mission.deinit();
+    try mission.propagateTransfer(520.0, 5.0);
+
+    var buf: [64 * 1024]u8 = undefined;
+    var w: std.Io.Writer = .fixed(&buf);
+    try mission.writeTrajectories(&w, 5);
+    try std.testing.expectEqual(5, std.mem.count(u8, w.buffered(), "\n"));
+
+    w = .fixed(&buf);
+    try mission.writeWaypoints(&w, 1);
+    try std.testing.expectEqual(1, std.mem.count(u8, w.buffered(), "\n"));
+
+    w = .fixed(&buf);
+    try mission.writeWaypoints(&w, null);
+    try std.testing.expectEqual(2, std.mem.count(u8, w.buffered(), "\n"));
 }
 
 test "propagate transfer trajectory validation" {
