@@ -70,19 +70,21 @@ fn satrec_twoline2rv(cls: [*c]c.PyObject, args: [*c]c.PyObject, kwds: [*c]c.PyOb
     if (c.PyArg_ParseTupleAndKeywords(args, kwds, "ss|i", @ptrCast(@constCast(&kwlist)), &line1_ptr, &line2_ptr, &whichconst) == 0)
         return null;
 
-    const line1 = std.mem.span(line1_ptr);
-    const line2 = std.mem.span(line2_ptr);
-
-    const self: *SatrecObject = @ptrCast(@alignCast(
-        c.PyType_GenericAlloc(&SatrecType, 0) orelse return null,
-    ));
-    self.whichconst = whichconst;
-
-    const tle = Tle.parseLines(line1, line2, allocator) catch |err| {
+    const tle = Tle.parseLines(std.mem.span(line1_ptr), std.mem.span(line2_ptr), allocator) catch |err| {
         py.raiseValue(if (err == error.CatalogNumberMismatch) "TLE lines 1 and 2 have different catalog numbers" else "Failed to parse TLE lines");
-        py.decref(@as(*c.PyObject, @ptrCast(self)));
         return null;
     };
+    return satrecFromTle(tle, whichconst);
+}
+
+/// Builds a Satrec that takes ownership of `tle`.
+fn satrecFromTle(tle: Tle, whichconst: c_int) [*c]c.PyObject {
+    const self: *SatrecObject = @ptrCast(@alignCast(c.PyType_GenericAlloc(&SatrecType, 0) orelse {
+        var tle_copy = tle;
+        tle_copy.deinit();
+        return null;
+    }));
+    self.whichconst = whichconst;
 
     const tle_ptr = allocator.create(Tle) catch {
         py.raiseRuntime("Out of memory");
@@ -129,6 +131,34 @@ fn satrec_twoline2rv(cls: [*c]c.PyObject, args: [*c]c.PyObject, kwds: [*c]c.PyOb
     self.sgp4 = sgp4_ptr;
 
     return @ptrCast(self);
+}
+
+fn satrec_from_omm(cls: [*c]c.PyObject, args: [*c]c.PyObject, kwds: [*c]c.PyObject) callconv(.c) [*c]c.PyObject {
+    _ = cls;
+    var text_ptr: [*c]const u8 = null;
+    var text_len: c.Py_ssize_t = 0;
+    var whichconst: c_int = WGS72;
+
+    const kwlist = [_:null]?[*:0]const u8{ "json", "whichconst", null };
+    if (c.PyArg_ParseTupleAndKeywords(args, kwds, "s#|i", @ptrCast(@constCast(&kwlist)), &text_ptr, &text_len, &whichconst) == 0)
+        return null;
+
+    const tles = shared.parseOmm(text_ptr[0..@intCast(text_len)]) orelse return null;
+    defer allocator.free(tles);
+
+    const list = c.PyList_New(@intCast(tles.len)) orelse {
+        for (tles) |*t| t.deinit();
+        return null;
+    };
+    for (tles, 0..) |tle, i| {
+        const sat = satrecFromTle(tle, whichconst) orelse {
+            for (tles[i + 1 ..]) |*t| t.deinit();
+            py.decref(list);
+            return null;
+        };
+        _ = c.PyList_SetItem(list, @intCast(i), sat);
+    }
+    return list;
 }
 
 fn satrec_sgp4(self_obj: [*c]c.PyObject, args: [*c]c.PyObject) callconv(.c) [*c]c.PyObject {
@@ -259,6 +289,12 @@ const satrec_methods = [_]c.PyMethodDef{
         .ml_meth = @ptrCast(&satrec_twoline2rv),
         .ml_flags = c.METH_CLASS | c.METH_VARARGS | c.METH_KEYWORDS,
         .ml_doc = "twoline2rv(line1, line2, whichconst=WGS72) -> Satrec\n\nCreate Satrec from TLE lines.",
+    },
+    .{
+        .ml_name = "from_omm",
+        .ml_meth = @ptrCast(&satrec_from_omm),
+        .ml_flags = c.METH_CLASS | c.METH_VARARGS | c.METH_KEYWORDS,
+        .ml_doc = "from_omm(json, whichconst=WGS72) -> list[Satrec]\n\nOne Satrec per record in CCSDS OMM JSON (a single object or an array).",
     },
     .{
         .ml_name = "sgp4",

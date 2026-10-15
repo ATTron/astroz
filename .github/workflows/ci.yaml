@@ -44,7 +44,10 @@ jobs:
 
       # setup.py runs `zig build python-bindings` against this interpreter
       - name: Install package
-        run: pip install numpy sgp4 -e bindings/python
+        run: pip install numpy sgp4 pytest -e bindings/python
+
+      - name: Tests
+        run: python -m pytest -q bindings/python/tests
 
       - name: Smoke test
         shell: python

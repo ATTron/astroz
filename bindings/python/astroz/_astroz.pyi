@@ -143,6 +143,9 @@ class Sgp4Constellation:
     @classmethod
     def from_tle_text(cls, text: str, gravity_model: int = WGS84) -> "Sgp4Constellation":
         """Parse every TLE in ``text``, skipping deep-space ones."""
+    @classmethod
+    def from_omm(cls, json: str, gravity_model: int = WGS84) -> "Sgp4Constellation":
+        """Build from CCSDS OMM JSON (one object or an array), skipping deep-space records."""
     @property
     def num_satellites(self) -> int: ...
     @property
@@ -187,6 +190,9 @@ class Satrec:
 
     @classmethod
     def twoline2rv(cls, line1: str, line2: str, whichconst: int = WGS72) -> "Satrec": ...
+    @classmethod
+    def from_omm(cls, json: str, whichconst: int = WGS72) -> list["Satrec"]:
+        """One Satrec per record in CCSDS OMM JSON (one object or an array)."""
     def sgp4(
         self, jd: float, fr: float
     ) -> Tuple[int, Tuple[float, float, float], Tuple[float, float, float]]:
