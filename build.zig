@@ -5,20 +5,13 @@ const Translator = @import("translate_c").Translator;
 const manifest = @import("build.zig.zon");
 
 const examples = [_][]const u8{
-    "maneuver_planning",
-    "constellation_phasing",
-    "create_ccsds_packet",
-    "orbit_maneuvers",
-    "parse_ccsds",
-    "parse_fits_file",
-    "parse_vita49",
-    "precess_star",
-    "propagation",
-    "simple_monte_carlo",
-    "simple_spacecraft_orientation",
-    "spice_propagation",
-    "transfer_propagation",
-    "wcs",
+    "sgp4",
+    "constellation",
+    "numerical_propagation",
+    "spacecraft",
+    "mission_design",
+    "packets",
+    "astronomy",
 };
 
 const Kernel = struct { remote: []const u8, local: []const u8 };
