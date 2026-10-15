@@ -256,13 +256,12 @@ fn applyImpulse(self: *Spacecraft, state: [6]f64, impulse: Impulse, t: *f64, h: 
         },
         .phase => |phase| {
             const r = calculations.posMag(y);
-            const dvMag = self.calculatePhaseChange(r, phase.angle, phase.orbits);
-            const dv = progradeVec(y, dvMag);
+            const transfer = self.calculatePhaseChange(r, phase.angle, phase.orbits);
+            const dv = progradeVec(y, transfer.dv);
             y = calculations.impulse(y, dv);
 
-            // Propagate through transfer orbit(s)
-            const period = calculations.orbitalPeriod(self.orbitingObject.mu, r);
-            const tEnd = t.* + period * phase.orbits;
+            // Coast around the transfer orbit (not the original one) back to the burn point
+            const tEnd = t.* + transfer.period * phase.orbits;
             if (tEnd > tf) return error.ImpulseOutOfRange;
             while (t.* < tEnd) {
                 const step = @min(h, tEnd - t.*);
@@ -356,8 +355,9 @@ fn rotateAbout(v: [3]f64, axis: [3]f64, angle: f64) [3]f64 {
     };
 }
 
-/// calculate delta-V for a phasing maneuver
-fn calculatePhaseChange(self: Spacecraft, radius: f64, phaseAngle: f64, transferOrbits: f64) f64 {
+/// Prograde delta-v onto a phasing orbit that drifts `phaseAngle` over
+/// `transferOrbits` revolutions, and that orbit's period.
+fn calculatePhaseChange(self: Spacecraft, radius: f64, phaseAngle: f64, transferOrbits: f64) struct { dv: f64, period: f64 } {
     const mu = self.orbitingObject.mu;
     const vCircular = calculations.orbitalVelocity(mu, radius, null);
     const period = calculations.orbitalPeriod(mu, radius);
@@ -369,7 +369,7 @@ fn calculatePhaseChange(self: Spacecraft, radius: f64, phaseAngle: f64, transfer
 
     const vTransfer = calculations.orbitalVelocity(mu, radius, aTransfer);
 
-    return vTransfer - vCircular;
+    return .{ .dv = vTransfer - vCircular, .period = transferPeriod };
 }
 
 const testTle =
@@ -513,4 +513,37 @@ test "attitude update and propagation" {
     }
     const q = sc.quaternion;
     try std.testing.expectApproxEqAbs(1.0, @sqrt(q[0] * q[0] + q[1] * q[1] + q[2] * q[2] + q[3] * q[3]), 1e-9);
+}
+
+test "phase change returns to the original orbit, shifted along it" {
+    const tle = try Tle.parse(testTle, std.testing.allocator);
+    defer @constCast(&tle).deinit();
+    const days = 0.5;
+    var base = testSpacecraft(tle);
+    defer base.deinit();
+    try base.propagate(tle.epoch, days, 1, null);
+    var shifted = testSpacecraft(tle);
+    defer shifted.deinit();
+    const quarter = [_]Impulse{.{ .time = 3600.0, .maneuver = .{ .phase = .{ .angle = std.math.pi / 2.0, .orbits = 1.0 } } }};
+    try shifted.propagate(tle.epoch, days, 1, &quarter);
+
+    // Mean radius over the last orbit; J2 makes the instantaneous semi-major axis
+    // swing by several km around the orbit, so compare averages
+    const meanRadius = struct {
+        fn over(points: []const calculations.StateTime) f64 {
+            const last = points[points.len - 1].time;
+            var sum: f64 = 0;
+            var n: f64 = 0;
+            for (points) |pt| if (pt.time > last - 5700.0) {
+                sum += calculations.posMag(pt.state);
+                n += 1;
+            };
+            return sum / n;
+        }
+    }.over;
+    try std.testing.expectApproxEqAbs(meanRadius(base.orbitPredictions.items), meanRadius(shifted.orbitPredictions.items), 2.0); // km
+    const b = base.orbitPredictions.items[base.orbitPredictions.items.len - 1].state;
+    const p = shifted.orbitPredictions.items[shifted.orbitPredictions.items.len - 1].state;
+    const cosSep = (b[0] * p[0] + b[1] * p[1] + b[2] * p[2]) / (calculations.posMag(b) * calculations.posMag(p));
+    try std.testing.expectApproxEqAbs(90.0, std.math.acos(cosSep) * constants.rad2deg, 5.0);
 }
