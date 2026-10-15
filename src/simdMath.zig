@@ -196,18 +196,21 @@ pub inline fn readArray(comptime N: usize, src: *const VecN(N)) [N]f64 {
     return @as(*const [N]f64, @ptrCast(src)).*;
 }
 
-/// x^(2/3) via Newton iteration for cube root: y^3 = x^2
+/// x^(2/3) for x > 0. A fixed number of Newton steps for the cube root only
+/// converged for x up to a few hundred, which put long-period deep-space orbits
+/// (mean motions of a fraction of a rev/day) hundreds of km off.
 pub fn pow23N(comptime N: usize, x: VecN(N)) VecN(N) {
-    const Vec = VecN(N);
-    const x2 = x * x;
-    var y = @sqrt(x); // x^0.5, reasonable initial guess for x^0.667
-    const third: Vec = @splat(1.0 / 3.0);
-    const twoThird: Vec = @splat(2.0 / 3.0);
-    // Newton: y^3 = x^2 → y_{n+1} = (2y + x²/y²) / 3
-    inline for (0..6) |_| {
-        y = twoThird * y + third * x2 / (y * y);
+    const twoThirds: VecN(N) = @splat(2.0 / 3.0);
+    return @exp(@log(x) * twoThirds);
+}
+
+test "pow23N matches std.math.pow across orbit sizes" {
+    // xke/nm runs from ~1 (low LEO) past 5000 (beyond the Moon)
+    const xs = [_]f64{ 1e-3, 1.0, 17.0, 300.0, 798.0, 5000.0, 1e6 };
+    for (xs) |x| {
+        const got = pow23N(4, @splat(x))[0];
+        try std.testing.expectApproxEqRel(std.math.pow(f64, x, 2.0 / 3.0), got, 1e-14);
     }
-    return y;
 }
 
 test "sincosN(4) accuracy" {

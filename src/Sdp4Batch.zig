@@ -525,13 +525,27 @@ fn expectBatchMatchesScalar(tleStr: []const u8) !void {
         const tsince: simdMath.VecN(4) = @splat(t);
         const pv = try propagateBatchDirect(4, &batch, tsince, &carry);
         const scalar = try sdp4.propagate(t);
-        try testing.expectApproxEqAbs(scalar[0][0], pv.rx[0], 1e-3);
-        try testing.expectApproxEqAbs(scalar[0][1], pv.ry[0], 1e-3);
-        try testing.expectApproxEqAbs(scalar[0][2], pv.rz[0], 1e-3);
+        // 1 m, or a few parts per billion for orbits out near the Moon, where the
+        // SIMD trig approximations add up to metres
+        const r = scalar[0];
+        const tol = @max(1e-3, 1e-8 * @sqrt(r[0] * r[0] + r[1] * r[1] + r[2] * r[2]));
+        try testing.expectApproxEqAbs(scalar[0][0], pv.rx[0], tol);
+        try testing.expectApproxEqAbs(scalar[0][1], pv.ry[0], tol);
+        try testing.expectApproxEqAbs(scalar[0][2], pv.rz[0], tol);
         try testing.expectApproxEqAbs(scalar[1][0], pv.vx[0], 1e-6);
         try testing.expectApproxEqAbs(scalar[1][1], pv.vy[0], 1e-6);
         try testing.expectApproxEqAbs(scalar[1][2], pv.vz[0], 1e-6);
     }
+}
+
+test "Sdp4Batch matches scalar - long-period HEO near lunar distance" {
+    // DRO-A: 47-day period, e=0.40. A truncated x^(2/3) put it 220 km off at epoch.
+    try expectBatchMatchesScalar("1 59228U 24048A   26285.79633102 -.00040017  00000+0  00000+0 0  9999\n2 59228  26.9730 350.4279 3970441 265.4764 332.6336  0.02134971   178");
+}
+
+test "Sdp4Batch matches scalar - long-period, very eccentric" {
+    // CZ-3B R/B: 15.6-day period, e=0.81
+    try expectBatchMatchesScalar("1 39459U 13070B   26286.75369089 -.00003117  00000+0  00000+0 0  9993\n2 39459  76.2497 358.7405 8127006 143.1698  17.6111  0.06412139 37301");
 }
 
 test "Sdp4Batch matches scalar - GPS (irez=0)" {
