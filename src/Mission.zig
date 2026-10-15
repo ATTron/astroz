@@ -506,7 +506,7 @@ test "Lambert solver integration" {
     // approximate transfer time for Hohmann transfer to Mars (~259 days)
     const transferTime = 259.0 * constants.secondsPerDay;
 
-    const lambertResult = try orbitalMechanics.lambertSolverSimple(earthPos, marsPos, transferTime);
+    const lambertResult = try orbitalMechanics.lambert(earthPos, marsPos, transferTime);
 
     const depVelMag = lambertResult.departureVelocity.magnitude();
     const arrVelMag = lambertResult.arrivalVelocity.magnitude();
