@@ -296,7 +296,6 @@ pub const ImprovedDrag = struct {
     }
 
     fn getDensity(altitude: f64, f107Val: f64) f64 {
-        // Find appropriate layer
         var layerIdx: usize = 0;
         for (densityLayers, 0..) |layer, i| {
             if (altitude >= layer.baseAlt) {
@@ -305,18 +304,9 @@ pub const ImprovedDrag = struct {
         }
 
         const layer = densityLayers[layerIdx];
-        const baseRho = layer.baseDensity;
-        const H = layer.scaleHeight;
-        const deltaH = altitude - layer.baseAlt;
-
-        // Exponential decay from base
-        var rho = baseRho * @exp(-deltaH / H);
-
+        const rho = layer.baseDensity * @exp(-(altitude - layer.baseAlt) / layer.scaleHeight);
         // F10.7 scaling: nominal is 150, scale linearly
-        const f107Scale = f107Val / 150.0;
-        rho *= f107Scale;
-
-        return rho;
+        return rho * (f107Val / 150.0);
     }
 
     pub fn acceleration(self: *const ImprovedDrag, state: [6]f64, t: f64) [3]f64 {
@@ -477,11 +467,8 @@ test "improved drag uses relative velocity" {
     const state = [6]f64{ 6778.137, 0, 0, 0, 7.67, 0 };
     const accel = fm.acceleration(state, 0);
 
-    // Drag should oppose relative velocity direction (primarily -Y)
+    // drag opposes the velocity relative to the atmosphere (mostly -Y)
     try std.testing.expect(accel[1] < 0);
-    // Should have magnitude > 0
-    const mag = @sqrt(accel[0] * accel[0] + accel[1] * accel[1] + accel[2] * accel[2]);
-    try std.testing.expect(mag > 0);
 }
 
 test "improved drag outside altitude range" {

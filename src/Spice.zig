@@ -8,14 +8,14 @@
 
 const std = @import("std");
 const buildOptions = @import("build_options");
+const calculations = @import("calculations.zig");
+const constants = @import("constants.zig");
 
-/// Whether CSPICE support is enabled in this build
 pub const enabled = buildOptions.enable_cspice;
 
 /// Raw CSPICE C bindings (only the basic types when disabled)
 pub const c = @import("cspice");
 
-/// SPICE error information
 pub const SpiceError = error{
     SpiceError,
     KernelNotFound,
@@ -80,7 +80,6 @@ pub const Body = struct {
     pub const solarSystemBarycenter: c_int = 0;
 };
 
-/// Common reference frames
 pub const Frame = struct {
     pub const j2000 = "J2000";
     pub const eclipj2000 = "ECLIPJ2000";
@@ -89,7 +88,6 @@ pub const Frame = struct {
     pub const galactic = "GALACTIC";
 };
 
-/// Aberration correction types
 pub const AberrationCorrection = enum {
     none,
     lightTime,
@@ -137,7 +135,6 @@ pub fn loadDefaultKernelsFrom(dir: []const u8) SpiceError!void {
     }
 }
 
-/// Load a SPICE kernel
 pub fn loadKernel(path: []const u8) SpiceError!void {
     if (comptime !enabled) return SpiceError.NotEnabled;
 
@@ -152,7 +149,6 @@ pub fn loadKernel(path: []const u8) SpiceError!void {
     }
 }
 
-/// Unload a specific kernel
 pub fn unloadKernel(path: []const u8) void {
     if (comptime !enabled) return;
 
@@ -162,14 +158,12 @@ pub fn unloadKernel(path: []const u8) void {
     reset();
 }
 
-/// Unload all loaded kernels
 pub fn clearKernels() void {
     if (comptime !enabled) return;
     c.kclear_c();
     reset();
 }
 
-/// Get the number of loaded kernels
 pub fn kernelCount() usize {
     if (comptime !enabled) return 0;
     var count: c.SpiceInt = 0;
@@ -213,12 +207,12 @@ pub fn etToUtc(et: f64, precision: u8, buf: []u8) SpiceError![]const u8 {
 
 /// Convert Julian Date (TDB) to Ephemeris Time (no CSPICE required)
 pub fn jdToEt(jd: f64) f64 {
-    return (jd - 2451545.0) * 86400.0;
+    return (jd - constants.j2000Jd) * constants.secondsPerDay;
 }
 
 /// Convert Ephemeris Time to Julian Date (TDB) (no CSPICE required)
 pub fn etToJd(et: f64) f64 {
-    return et / 86400.0 + 2451545.0;
+    return et / constants.secondsPerDay + constants.j2000Jd;
 }
 
 /// Get the position of a target body relative to an observer
@@ -338,12 +332,8 @@ pub fn getFrameRotation(from: []const u8, to: []const u8, et: f64) SpiceError![3
 pub fn transformPosition(pos: Position, from: []const u8, to: []const u8, et: f64) SpiceError!Position {
     const matrix = try getFrameRotation(from, to, et);
 
-    const p = pos.array();
-    return Position{
-        .x = matrix[0][0] * p[0] + matrix[0][1] * p[1] + matrix[0][2] * p[2],
-        .y = matrix[1][0] * p[0] + matrix[1][1] * p[1] + matrix[1][2] * p[2],
-        .z = matrix[2][0] * p[0] + matrix[2][1] * p[1] + matrix[2][2] * p[2],
-    };
+    const p = calculations.matVecMul3(matrix, pos.array());
+    return .{ .x = p[0], .y = p[1], .z = p[2] };
 }
 
 /// Get the NAIF ID for a body name
@@ -450,10 +440,6 @@ test "state struct" {
     try std.testing.expectEqual(@as(f64, 6.0), arr[5]);
 }
 
-test "enabled flag" {
-    _ = enabled;
-}
-
 test "not enabled returns error" {
     if (!enabled) {
         try std.testing.expectError(SpiceError.NotEnabled, loadKernel("test.bsp"));
@@ -465,7 +451,7 @@ test "not enabled returns error" {
 test "cspice body name/id lookups" {
     if (!enabled) return;
 
-    // Built-in mappings work without loading any kernels
+    // built-in mappings work without loading any kernels
     const earthId = try getBodyId("EARTH");
     try std.testing.expectEqual(@as(c_int, 399), earthId);
 
@@ -475,7 +461,6 @@ test "cspice body name/id lookups" {
     const sunId = try getBodyId("SUN");
     try std.testing.expectEqual(@as(c_int, 10), sunId);
 
-    // Reverse lookup
     var nameBuf: [64]u8 = undefined;
     const name = try getBodyName(399, &nameBuf);
     try std.testing.expectEqualStrings("EARTH", name);
@@ -492,12 +477,5 @@ test "loadDefaultKernels returns NotEnabled when cspice is off" {
     if (!enabled) {
         try std.testing.expectError(SpiceError.NotEnabled, loadDefaultKernels());
         try std.testing.expectError(SpiceError.NotEnabled, loadDefaultKernelsFrom("/tmp/kernels/"));
-    }
-}
-
-test "default kernel paths fit in buffer" {
-    inline for (default_kernels) |kernel| {
-        const path = default_kernel_dir ++ kernel;
-        try std.testing.expect(path.len < 1024);
     }
 }

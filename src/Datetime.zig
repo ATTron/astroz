@@ -8,54 +8,27 @@ const Datetime = @This();
 const daysInMonth = [_]u8{ 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31 };
 const daysPerYear = 365;
 
-instant: ?std.Io.Timestamp,
-doy: ?u16,
-daysInYear: u16,
-year: ?u16,
-month: ?u8,
-day: ?u8,
-hours: ?u8,
-minutes: ?u8,
-seconds: ?f64,
+doy: ?u16 = null,
+daysInYear: u16 = daysPerYear,
+year: ?u16 = null,
+month: ?u8 = null,
+day: ?u8 = null,
+hours: ?u8 = null,
+minutes: ?u8 = null,
+seconds: ?f64 = null,
 
-/// for dates only
 pub fn initDate(year: u16, month: u8, day: u8) Datetime {
-    var dt = Datetime{
-        .instant = null,
-        .doy = null,
-        .daysInYear = daysPerYear,
-        .year = year,
-        .month = month,
-        .day = day,
-        .hours = null,
-        .minutes = null,
-        .seconds = null,
-    };
+    var dt: Datetime = .{ .year = year, .month = month, .day = day };
     dt.calculateDoy();
     return dt;
 }
 
-/// for times only
 pub fn initTime(hours: u8, minutes: u8, seconds: f64) Datetime {
-    return .{
-        .instant = null,
-        .doy = null,
-        .daysInYear = daysPerYear,
-        .year = null,
-        .month = null,
-        .day = null,
-        .hours = hours,
-        .minutes = minutes,
-        .seconds = seconds,
-    };
+    return .{ .hours = hours, .minutes = minutes, .seconds = seconds };
 }
 
-/// if you have a full timestamp
 pub fn initDatetime(year: u16, month: u8, day: u8, hours: u8, minutes: u8, seconds: f64) Datetime {
-    var dt = Datetime{
-        .instant = null,
-        .doy = null,
-        .daysInYear = daysPerYear,
+    var dt: Datetime = .{
         .year = year,
         .month = month,
         .day = day,
@@ -65,22 +38,6 @@ pub fn initDatetime(year: u16, month: u8, day: u8, hours: u8, minutes: u8, secon
     };
     dt.calculateDoy();
     return dt;
-}
-
-/// if you want an Instant converted
-pub fn fromInstant(instant: std.Io.Timestamp) Datetime {
-    var newDt = Datetime{
-        .instant = instant,
-        .doy = null,
-        .daysInYear = daysPerYear,
-        .year = null,
-        .month = null,
-        .day = null,
-        .hours = null,
-        .minutes = null,
-        .seconds = null,
-    };
-    return newDt.epochToDatetime();
 }
 
 fn calculateDoy(self: *Datetime) void {
@@ -192,7 +149,6 @@ pub fn toJulianDate(self: Datetime) f64 {
     var jd = d + @floor((153.0 * mm + 2.0) / 5.0) + 365.0 * yy +
         @floor(yy / 4.0) - @floor(yy / 100.0) + @floor(yy / 400.0) - 32045.0;
 
-    // add fractional day from time if present
     if (self.hours != null) {
         const h: f64 = @floatFromInt(self.hours.?);
         const min: f64 = if (self.minutes) |mins| @floatFromInt(mins) else 0.0;
@@ -203,7 +159,7 @@ pub fn toJulianDate(self: Datetime) f64 {
     return jd;
 }
 
-/// initialize from year and fractional day-of-year (TLE epoch format).
+/// From year and fractional day-of-year (TLE epoch format).
 /// Seconds are rounded to the microsecond, the same way python-sgp4's days2mdhms does.
 pub fn fromYearDoy(year: u16, doy: f64) Datetime {
     const totalSeconds = roundToMicrosecond(doy * constants.secondsPerDay);
@@ -260,8 +216,7 @@ pub fn jday(year: u16, month: u8, day: u8, hour: u8, minute: u8, second: f64) st
     };
 }
 
-/// python-sgp4 compatible: fractional doy to (month, day, hour, minute, second)
-/// Converts year and fractional day-of-year to calendar components
+/// python-sgp4 compatible: fractional day of year to calendar components
 pub fn days2mdhms(year: u16, days: f64) struct { month: u8, day: u8, hour: u8, minute: u8, second: f64 } {
     const dt = fromYearDoy(year, days);
     return .{
@@ -329,11 +284,9 @@ test "Test J2000" {
 }
 
 test "Test jday" {
-    // Test jday: 2019-01-05 04:28:31.5 should give JD ~2458488.686
+    // 2019-01-05 04:28:31.5: jd is midnight, fr is 4:28:31.5 into the day
     const result = Datetime.jday(2019, 1, 5, 4, 28, 31.5);
-    // JD at noon should be 2458488.5
     try std.testing.expectEqual(2458488.5, result.jd);
-    // Fractional part should be about 0.186... (4:28:31.5 from noon)
     try std.testing.expectApproxEqAbs(0.18647569444444444, result.fr, 1e-9);
 
     // values from python-sgp4 2.27's sgp4.api.jday
@@ -350,7 +303,7 @@ test "Test jday" {
 }
 
 test "Test days2mdhms" {
-    // Test days2mdhms: day 5.186475... of 2019 should give Jan 5, 04:28:31.5
+    // day 5.186475... of 2019 is Jan 5, 04:28:31.5
     const result = Datetime.days2mdhms(2019, 5.186475694444444);
     try std.testing.expectEqual(1, result.month);
     try std.testing.expectEqual(5, result.day);

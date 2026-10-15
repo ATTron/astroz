@@ -18,6 +18,12 @@ pub const Integrator = struct {
     }
 };
 
+/// d/dt of [r, v] is [v, a(r, t)].
+fn derivative(state: [6]f64, t: f64, force: ForceModel) [6]f64 {
+    const accel = force.acceleration(state, t);
+    return .{ state[3], state[4], state[5], accel[0], accel[1], accel[2] };
+}
+
 pub const Rk4 = struct {
     pub fn integrator(self: *Rk4) Integrator {
         return .{ .ptr = self, .vtable = &vtable };
@@ -44,11 +50,6 @@ pub const Rk4 = struct {
         return sv + factor * (k1v + two * k2v + two * k3v + k4v);
     }
 
-    fn derivative(state: [6]f64, t: f64, force: ForceModel) [6]f64 {
-        const accel = force.acceleration(state, t);
-        return .{ state[3], state[4], state[5], accel[0], accel[1], accel[2] };
-    }
-
     fn addScaled(state: [6]f64, delta: [6]f64, scale: f64) [6]f64 {
         const s: @Vector(6, f64) = state;
         const d: @Vector(6, f64) = delta;
@@ -57,19 +58,18 @@ pub const Rk4 = struct {
     }
 };
 
-/// Dormand-Prince 8(7) adaptive step-size integrator
-/// 13-stage embedded RK method with 8th order solution and 7th order error estimate
+/// Dormand-Prince 8(7): 13-stage adaptive RK with an embedded 7th order error estimate.
 pub const DormandPrince87 = struct {
-    rtol: f64 = 1e-9, // relative tolerance
-    atol: f64 = 1e-12, // absolute tolerance
-    hCurrent: f64 = 60.0, // current/suggested step size
-    hMin: f64 = 0.001, // minimum step size (seconds)
-    hMax: f64 = 3600.0, // maximum step size (seconds)
-    safety: f64 = 0.9, // safety factor for step size control
-    maxSubsteps: u32 = 10000, // prevent infinite loops
+    rtol: f64 = 1e-9,
+    atol: f64 = 1e-12,
+    /// Step size (s) carried over to the next call.
+    hCurrent: f64 = 60.0,
+    hMin: f64 = 0.001,
+    hMax: f64 = 3600.0,
+    safety: f64 = 0.9,
+    maxSubsteps: u32 = 10000,
 
-    // Dormand-Prince 8(7) coefficients (Prince & Dormand 1981)
-    // c coefficients (time nodes)
+    // Coefficients from Prince & Dormand (1981). c: time nodes
     const c = [13]f64{
         0.0,
         1.0 / 18.0,
@@ -86,7 +86,7 @@ pub const DormandPrince87 = struct {
         1.0,
     };
 
-    // a coefficients (Butcher tableau, lower triangular)
+    // a: Butcher tableau, lower triangular
     const a = [13][12]f64{
         .{ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 },
         .{ 1.0 / 18.0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 },
@@ -103,7 +103,7 @@ pub const DormandPrince87 = struct {
         .{ 403863854.0 / 491063109.0, 0, 0, -5068492393.0 / 434740067.0, -411421997.0 / 543043805.0, 652783627.0 / 914296604.0, 11173962825.0 / 925320556.0, -13158990841.0 / 6184727034.0, 3936647629.0 / 1978049680.0, -160528059.0 / 685178525.0, 248638103.0 / 1413531060.0, 0 },
     };
 
-    // b coefficients for 8th order solution
+    // b8: 8th order weights
     const b8 = [13]f64{
         14005451.0 / 335480064.0,
         0,
@@ -120,7 +120,7 @@ pub const DormandPrince87 = struct {
         1.0 / 4.0,
     };
 
-    // b coefficients for 7th order solution (for error estimation)
+    // b7: 7th order weights, only used for the error estimate
     const b7 = [13]f64{
         13451932.0 / 455176623.0,
         0,
@@ -205,7 +205,6 @@ pub const DormandPrince87 = struct {
             k[i] = derivative(yStage, t + c[i] * h, fm);
         }
 
-        // Compute 8th order solution
         var y8: @Vector(6, f64) = y;
         inline for (0..13) |i| {
             if (b8[i] != 0) {
@@ -215,7 +214,6 @@ pub const DormandPrince87 = struct {
             }
         }
 
-        // Compute 7th order solution for error estimate
         var y7: @Vector(6, f64) = y;
         inline for (0..13) |i| {
             if (b7[i] != 0) {
@@ -225,7 +223,6 @@ pub const DormandPrince87 = struct {
             }
         }
 
-        // Error estimate
         const errVec = y8 - y7;
         const y8Arr: [6]f64 = y8;
         const errArr: [6]f64 = errVec;
@@ -256,11 +253,6 @@ pub const DormandPrince87 = struct {
             .hNew = hNew,
             .accepted = accepted,
         };
-    }
-
-    fn derivative(state: [6]f64, t: f64, force: ForceModel) [6]f64 {
-        const accel = force.acceleration(state, t);
-        return .{ state[3], state[4], state[5], accel[0], accel[1], accel[2] };
     }
 
     pub fn getCurrentStepSize(self: *const DormandPrince87) f64 {

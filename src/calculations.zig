@@ -37,35 +37,31 @@ pub const Vector3D = struct {
     }
 
     pub fn add(self: Vector3D, other: Vector3D) Vector3D {
-        return .{ .data = @Vector(3, f64){ self.x() + other.x(), self.y() + other.y(), self.z() + other.z() } };
+        return .{ .data = self.data + other.data };
     }
 
     pub fn sub(self: Vector3D, other: Vector3D) Vector3D {
-        return .{ .data = @Vector(3, f64){ self.x() - other.x(), self.y() - other.y(), self.z() - other.z() } };
+        return .{ .data = self.data - other.data };
     }
 
     pub fn mul(self: Vector3D, scalar: f64) Vector3D {
-        return .{ .data = @Vector(3, f64){ self.x() * scalar, self.y() * scalar, self.z() * scalar } };
+        return .{ .data = self.data * @as(@Vector(3, f64), @splat(scalar)) };
     }
 };
 
-/// State Vector - Used for position and velocity knowledge
+/// [x, y, z, vx, vy, vz]
 pub const StateV = [6]f64;
 
-/// Contains time and state vector to be used during propagation
 pub const StateTime = struct {
     time: f64,
     state: StateV,
 };
 
-// an easy win would be to combine this with StateTime to form a *spacecraftState* struct to deal with all of this
-/// Responsible for spacecraft orientation
 pub const AttitudeState = struct {
     quaternion: [4]f64,
     angularVelocity: [3]f64,
 };
 
-/// Needed for propagation.
 pub const OrbitalElements = struct {
     a: f64,
     e: f64,
@@ -97,7 +93,6 @@ pub fn escapeVelocity(mu: f64, radius: f64) f64 {
     return @sqrt(2.0 * mu / radius);
 }
 
-/// Hohmann transfer result.
 pub const HohmannTransfer = struct {
     semiMajorAxis: f64,
     deltaV1: f64,
@@ -154,7 +149,6 @@ pub fn multiplyMatrices(a: [3][3]f64, b: [3][3]f64) [3][3]f64 {
     return result;
 }
 
-/// convert tle to orbital elements
 pub fn tleToOrbitalElements(tle: Tle) OrbitalElements {
     const inclination = tle.inclination * constants.deg2rad;
     const raan = tle.rightAscension * constants.deg2rad;
@@ -178,7 +172,6 @@ pub fn tleToOrbitalElements(tle: Tle) OrbitalElements {
     };
 }
 
-/// convert orbital elements to a usable state vector
 pub fn orbitalElementsToStateVector(elements: OrbitalElements, mu: f64) [6]f64 {
     const p = elements.a * (1 - elements.e * elements.e);
     const r = p / (1 + elements.e * @cos(elements.trueAnomaly));
@@ -246,19 +239,12 @@ pub fn stateVectorToOrbitalElements(r: [3]f64, v: [3]f64, mu: f64) OrbitalElemen
     };
 }
 
-/// Solve Kepler's equation: E - e*sin(E) = M
-/// Returns eccentric anomaly E given mean anomaly M and eccentricity e
-/// Uses Newton-Raphson iteration with optional damping for high eccentricity
+/// Eccentric anomaly E from mean anomaly M: solves E - e*sin(E) = M.
 pub fn solveKeplerEquation(M: f64, e: f64) f64 {
     return solveKeplerNewton(M, e, 1e-6, 50, null);
 }
 
-/// Newton-Raphson solver for Kepler's equation with configurable tolerance and damping.
-/// - M: mean anomaly (radians)
-/// - e: eccentricity
-/// - tol: convergence tolerance
-/// - maxIter: maximum iterations
-/// - damp: optional damping factor (clamps correction magnitude), null for no damping
+/// Newton-Raphson for Kepler's equation. `damp`, if set, clamps each correction step.
 pub fn solveKeplerNewton(M: f64, e: f64, tol: f64, maxIter: u32, damp: ?f64) f64 {
     var E = M;
     var iter: u32 = 0;
@@ -325,22 +311,18 @@ pub fn mag(v: [3]f64) f64 {
     return @sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]);
 }
 
-/// Position magnitude from state vector [x, y, z, vx, vy, vz]
 pub fn posMag(state: StateV) f64 {
-    return @sqrt(state[0] * state[0] + state[1] * state[1] + state[2] * state[2]);
+    return mag(posVec(state));
 }
 
-/// Velocity magnitude from state vector [x, y, z, vx, vy, vz]
 pub fn velMag(state: StateV) f64 {
-    return @sqrt(state[3] * state[3] + state[4] * state[4] + state[5] * state[5]);
+    return mag(velVec(state));
 }
 
-/// Extract position vector from state
 pub fn posVec(state: StateV) [3]f64 {
     return .{ state[0], state[1], state[2] };
 }
 
-/// Extract velocity vector from state
 pub fn velVec(state: StateV) [3]f64 {
     return .{ state[3], state[4], state[5] };
 }
@@ -353,7 +335,6 @@ pub fn transposeMatrix(m: [3][3]f64) [3][3]f64 {
     };
 }
 
-// TODO: this can probably be improved somehow
 pub fn matrixToQuaternion(m: [3][3]f64) [4]f64 {
     var q: [4]f64 = undefined;
     const trace = m[0][0] + m[1][1] + m[2][2];
@@ -425,7 +406,7 @@ pub fn addScaledAttitudeState(state: AttitudeState, delta: AttitudeState, scalar
     return addAttitudeStates(state, scaleAttitudeState(delta, scalar));
 }
 
-/// propagate attitude state using RK4 integration
+/// One RK4 step of the attitude state.
 pub fn propagateAttitude(state: AttitudeState, inertiaTensor: [3][3]f64, dt: f64) AttitudeState {
     const k1 = attitudeDerivative(state, inertiaTensor);
     const k2 = attitudeDerivative(addScaledAttitudeState(state, k1, 0.5 * dt), inertiaTensor);
@@ -465,22 +446,6 @@ fn attitudeDerivative(state: AttitudeState, I: [3][3]f64) AttitudeState {
             (I[0][0] - I[1][1]) / I[2][2] * w[0] * w[1],
         },
     };
-}
-
-pub fn vectorAdd(a: StateV, b: StateV) StateV {
-    var result: StateV = undefined;
-    for (0..6) |i| {
-        result[i] = a[i] + b[i];
-    }
-    return result;
-}
-
-pub fn scalarMultiply(scalar: f64, vector: StateV) StateV {
-    var result: StateV = undefined;
-    for (0..6) |i| {
-        result[i] = scalar * vector[i];
-    }
-    return result;
 }
 
 pub fn impulse(state: StateV, deltaV: [3]f64) StateV {

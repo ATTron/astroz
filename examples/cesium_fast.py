@@ -1,8 +1,5 @@
 #!/usr/bin/env python3
-"""
-Generate an interactive Cesium visualization of the satellite catalog.
-Uses astroz for high-performance SGP4 propagation.
-"""
+"""Render a day of the active satellite catalog as an interactive Cesium page."""
 
 import json
 import numpy as np
@@ -24,8 +21,7 @@ COLORS = {
 }
 
 
-def classify_satellite(name, inc, period):
-    """Classify satellite into constellation category."""
+def classify_satellite(name, inc):
     name_upper = name.upper()
     if "ISS" in name_upper and "ZARYA" in name_upper:
         return "ISS"
@@ -47,7 +43,7 @@ def classify_satellite(name, inc, period):
 
 
 def parse_tles_and_metadata(data):
-    """Parse TLE data into (line1, line2) pairs and satellite metadata."""
+    """(line1, line2) pairs plus display metadata for each near-earth satellite."""
     lines = data.strip().split("\n")
     tle_pairs = []
     satellites = []
@@ -62,12 +58,12 @@ def parse_tles_and_metadata(data):
             inc = float(line2[8:16])
             mean_motion = float(line2[52:63])
             period = 1440.0 / mean_motion
-            if period <= 225:  # Near-earth only (SGP4 limitation)
+            if period <= 225:  # near-earth only
                 tle_pairs.append((line1, line2))
                 satellites.append(
                     {
                         "name": name,
-                        "constellation": classify_satellite(name, inc, period),
+                        "constellation": classify_satellite(name, inc),
                         "data": {
                             "norad_id": line1[2:7].strip(),
                             "inclination": inc,
@@ -85,39 +81,24 @@ def parse_tles_and_metadata(data):
 
 
 def generate_legend_html(counts):
-    """Generate legend HTML items."""
     items = [
         f'<label class="legend-item toggle iss-item" data-constellation="ISS"><input type="checkbox" checked><div class="legend-dot iss-dot">🛰</div>ISS<span class="legend-count">{counts.get("ISS", 0)}</span></label>'
     ]
-    for name, color in [
-        ("Starlink", "100,180,255"),
-        ("OneWeb", "255,160,100"),
-        ("Planet", "130,200,130"),
-        ("Spire", "240,220,140"),
-        ("Iridium", "200,140,220"),
-        ("SSO", "255,130,130"),
-        ("LEO53", "140,220,200"),
-        ("Other", "180,180,190"),
-    ]:
+    for name, rgb in COLORS.items():
+        if name == "ISS":
+            continue
         label = "LEO 53°" if name == "LEO53" else name
+        color = ",".join(map(str, rgb))
         items.append(
             f'<label class="legend-item toggle" data-constellation="{name}"><input type="checkbox" checked><div class="legend-dot" style="background:rgb({color})"></div>{label}<span class="legend-count">{counts.get(name, 0):,}</span></label>'
         )
     return "\n            ".join(items)
 
 
-def load_tle_text(source):
-    """Load TLE text from CelesTrak."""
+def load_active_catalog():
     import urllib.request
 
-    aliases = {
-        "all": "active",
-        "iss": "stations",
-        "gps": "gps-ops",
-        "glonass": "glo-ops",
-    }
-    group = aliases.get(source.lower(), source)
-    url = f"https://celestrak.org/NORAD/elements/gp.php?GROUP={group}&FORMAT=tle"
+    url = "https://celestrak.org/NORAD/elements/gp.php?GROUP=active&FORMAT=tle"
     req = urllib.request.Request(url, headers={"User-Agent": "astroz"})
     return urllib.request.urlopen(req, timeout=60).read().decode("utf-8")
 
@@ -129,12 +110,9 @@ def main():
     print("  Cesium Satellite Visualization (python-sgp4 compatible API)")
     print("=" * 60)
 
-    # Load all active satellites with metadata
     print("\n[1/4] Loading catalog...", end=" ", flush=True)
-    tle_text = load_tle_text("all")
-    tle_pairs, satellites = parse_tles_and_metadata(tle_text)
+    tle_pairs, satellites = parse_tles_and_metadata(load_active_catalog())
 
-    # Create Satrec objects (python-sgp4 compatible)
     satrecs = []
     valid_satellites = []
     for i, (line1, line2) in enumerate(tle_pairs):
@@ -151,18 +129,14 @@ def main():
     num_sats = len(satrecs)
     print(f"done - {num_sats:,} satellites")
 
-    # Choose a start time: current UTC time rounded down to the minute
-    now = datetime.now(timezone.utc)
-    start_time = now.replace(second=0, microsecond=0)
+    start_time = datetime.now(timezone.utc).replace(second=0, microsecond=0)
     print(f"       Start time: {start_time.isoformat()}")
 
-    # --- Propagation ---
     print("[2/4] Propagating...", end=" ", flush=True)
 
     num_times = 1440  # 1 day at 1-minute resolution
     t0_total = time_module.perf_counter()
 
-    # Convert start_time to Julian Date arrays (python-sgp4 compatible)
     base_jd, base_fr = jday(
         start_time.year,
         start_time.month,
@@ -171,11 +145,9 @@ def main():
         start_time.minute,
         float(start_time.second),
     )
-    # Create time arrays: jd stays constant, fr increments by minutes
     jd = np.full(num_times, base_jd, dtype=np.float64)
-    fr = base_fr + np.arange(num_times, dtype=np.float64) / 1440.0  # minutes to days
+    fr = base_fr + np.arange(num_times, dtype=np.float64) / 1440.0
 
-    # Warmup
     for _ in range(3):
         sat_array.sgp4(jd[:10], fr[:10], velocities=False)
 
@@ -183,8 +155,7 @@ def main():
     errors, positions, _ = sat_array.sgp4(jd, fr, velocities=False)
     prop_time = time_module.perf_counter() - t0_prop
 
-    # positions shape from sgp4: (num_sats, num_times, 3) -> transpose to (num_times, num_sats, 3)
-    # and convert km → meters
+    # (num_sats, num_times, 3) km -> (num_times, num_sats, 3) m for the viewer
     t0_conv = time_module.perf_counter()
     positions = np.transpose(positions, (1, 0, 2)) * 1000.0
     conv_time = time_module.perf_counter() - t0_conv
@@ -196,17 +167,15 @@ def main():
 
     print("done")
     print(
-        f"       SGP4 + ECEF:      {prop_time:.2f}s ({prop_throughput:.1f}M props/sec)"
+        f"       SGP4 (TEME):      {prop_time:.2f}s ({prop_throughput:.1f}M props/sec)"
     )
     print(f"       km → m:           {conv_time:.3f}s")
     print(
         f"       Total:            {total_time:.2f}s ({effective_throughput:.1f}M props/sec effective)"
     )
 
-    # Prepare template data
     counts = Counter(s["constellation"] for s in satellites)
 
-    # Save positions as gzipped binary
     import gzip
     import io
 
@@ -220,7 +189,6 @@ def main():
     gz_size_mb = len(gz_data) / 1e6
     print(f"{gz_size_mb:.1f} MB gzipped...", end=" ", flush=True)
 
-    # Split into 50MB chunks
     chunk_size = 50 * 1024 * 1024
     chunk_names = []
     for i, start in enumerate(range(0, len(gz_data), chunk_size)):
@@ -240,9 +208,6 @@ def main():
         "{{THROUGHPUT}}": f"{prop_throughput:.1f}",
         "{{TOTAL_PROPS}}": f"{total_props:,}",
         "{{PROP_TIME_MS}}": f"{prop_time * 1000:.0f}",
-        "{{CONV_TIME_MS}}": f"{conv_time * 1000:.0f}",
-        "{{TOTAL_TIME_MS}}": f"{total_time * 1000:.0f}",
-        "{{EFFECTIVE_THROUGHPUT}}": f"{effective_throughput:.1f}",
         "{{REFERENCE_EPOCH}}": start_time.isoformat(),
         "{{SAT_COLORS}}": json.dumps(
             [COLORS.get(s["constellation"], [150, 150, 150]) for s in satellites],
@@ -261,7 +226,6 @@ def main():
         "{{TLE_FETCH_DATE}}": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC"),
     }
 
-    # Generate HTML
     print("[4/4] Generating HTML...", end=" ", flush=True)
     template = (Path(__file__).parent / "cesium_template.html").read_text()
     html = template

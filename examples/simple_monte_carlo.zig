@@ -6,9 +6,6 @@ const constants = astroz.constants;
 pub fn main(init: std.process.Init) !void {
     const allocator = init.gpa;
 
-    std.debug.print("=== Simple Monte Carlo Test ===\n", .{});
-
-    // Basic uncertainty configuration
     const uncertainty = MonteCarlo.UncertaintyParams{
         .departureRadiusUncertainty = 0.01, // 1%
         .arrivalRadiusUncertainty = 0.01, // 1%
@@ -33,8 +30,6 @@ pub fn main(init: std.process.Init) !void {
 
     try mc.runHohmannSimulation();
 
-    std.debug.print("Simulation completed!\n", .{});
-
     try mc.printStatistics();
 
     std.debug.print("\nFirst 3 simulation results:\n", .{});
@@ -45,6 +40,4 @@ pub fn main(init: std.process.Init) !void {
             result.transferTime,
         });
     }
-
-    std.debug.print("\n=== Monte Carlo Test Complete ===\n", .{});
 }

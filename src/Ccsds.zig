@@ -34,7 +34,7 @@ pub fn init(pl: []const u8, allocator: std.mem.Allocator, config: ?Config) !Ccsd
             std.log.warn("packet length isn't long enough to have a secondary header", .{});
             break :blk null;
         }
-        start = if (config != null) config.?.secondaryHeaderLength else 10;
+        start = if (config) |c| c.secondaryHeaderLength else 10;
         break :blk rawPackets[6..10];
     } else null;
     const header = HeaderMetadata{
@@ -65,14 +65,12 @@ pub fn deinit(self: *Ccsds) void {
     self.allocator.free(self.rawData);
 }
 
-/// CCSDS Config Data Structure
-/// This functionality is still so-so
-/// Probably avoid it for now
+/// Optional packet layout; load it with `parseConfig`.
 pub const Config = struct {
     secondaryHeaderLength: u8,
 };
 
-/// The primary headers metadata
+/// CCSDS primary header fields.
 pub const HeaderMetadata = packed struct {
     version: u3,
     packetType: u1,
@@ -83,14 +81,11 @@ pub const HeaderMetadata = packed struct {
     packetSize: u16,
 };
 
-/// If you choose to use the CCSDS config you need to call this function first to get the Config struct
+/// Parses a JSON `Config`.
 pub fn parseConfig(configContent: []const u8, allocator: std.mem.Allocator) !Config {
-    const configParsed = try std.json.parseFromSlice(Config, allocator, configContent, .{});
-    defer configParsed.deinit();
-
-    return .{
-        .secondaryHeaderLength = configParsed.value.secondaryHeaderLength,
-    };
+    const parsed = try std.json.parseFromSlice(Config, allocator, configContent, .{});
+    defer parsed.deinit();
+    return parsed.value;
 }
 
 fn readBigEndianU16(bytes: [2]u8) u16 {

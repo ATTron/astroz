@@ -5,13 +5,10 @@ const Translator = @import("translate_c").Translator;
 const examples = [_][]const u8{
     "maneuver_planning",
     "constellation_phasing",
-    "create_ccsds_packet_config",
     "create_ccsds_packet",
     "orbit_maneuvers",
-    "parse_ccsds_file_sync",
     "parse_ccsds",
     "parse_fits_file",
-    "parse_vita49_callback",
     "parse_vita49",
     "precess_star",
     "propagation",
@@ -160,7 +157,7 @@ pub fn build(b: *std.Build) void {
     // Example with a uv-managed interpreter:
     //   zig build python-bindings -Doptimize=ReleaseFast \
     //     -Dpython-include=$(uv run python -c "import sysconfig; print(sysconfig.get_path('include'))")
-    const astroz_python = b.addModule("astroz_python", .{
+    const astroz_python = b.createModule(.{
         .root_source_file = b.path("src/lib.zig"),
         .target = target,
         .optimize = optimize,
@@ -226,7 +223,7 @@ pub fn build(b: *std.Build) void {
     bench_step.dependOn(&b.addRunArtifact(bench).step);
 
     // Formatting check
-    const fmt = b.addFmt(.{ .paths = b.pathList(&.{ "src", "examples", "build.zig" }), .check = true });
+    const fmt = b.addFmt(.{ .paths = b.pathList(&.{ "src", "examples", "benchmarks", "bindings/python/src", "build.zig" }), .check = true });
     const fmt_step = b.step("fmt", "Check source formatting");
     fmt_step.dependOn(&fmt.step);
 
@@ -238,7 +235,6 @@ pub fn build(b: *std.Build) void {
 
     b.getInstallStep().dependOn(lib_step);
     b.getInstallStep().dependOn(doc_step);
-    b.getInstallStep().dependOn(fmt_step);
 }
 
 fn fetchKernelsScript() []const u8 {

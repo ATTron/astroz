@@ -4,19 +4,19 @@ const std = @import("std");
 const astroz = @import("astroz");
 const Tle = astroz.Tle;
 
-const allocator = @import("allocator.zig");
+const gpa = std.heap.page_allocator;
 const err = @import("error.zig");
 
 pub const Handle = *anyopaque;
 
 pub fn parse(tleStr: [*:0]const u8, out: *Handle) err.Code {
-    const tle = Tle.parse(std.mem.span(tleStr), allocator.get()) catch |e| {
+    const tle = Tle.parse(std.mem.span(tleStr), gpa) catch |e| {
         return switch (e) {
             Tle.Error.BadTleLength => .badTleLength,
             else => err.fromError(e),
         };
     };
-    const ptr = allocator.get().create(Tle) catch return .allocFailed;
+    const ptr = gpa.create(Tle) catch return .allocFailed;
     ptr.* = tle;
     out.* = @ptrCast(ptr);
     return .ok;
@@ -25,7 +25,7 @@ pub fn parse(tleStr: [*:0]const u8, out: *Handle) err.Code {
 pub fn free(handle: Handle) void {
     const ptr: *Tle = @ptrCast(@alignCast(handle));
     ptr.deinit();
-    allocator.get().destroy(ptr);
+    gpa.destroy(ptr);
 }
 
 pub fn getSatelliteNumber(handle: Handle) u32 {

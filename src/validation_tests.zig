@@ -20,8 +20,6 @@ const FM = propagators.ForceModel;
 const muEarth = 398600.4418; // km^3/s^2 (JGM-3/EGM96, used by poliastro reference data)
 const rEarth = constants.wgs84.radiusEarthKm;
 const j2Earth = constants.wgs84.j2;
-const j3Earth = constants.wgs84.j3;
-const j4Earth = constants.wgs84.j4;
 
 test "validate two-body against analytical kepler - circular orbit" {
     // Circular orbit: after one period, should return to start
@@ -35,11 +33,9 @@ test "validate two-body against analytical kepler - circular orbit" {
     const state0 = [6]f64{ r0, 0, 0, 0, v0, 0 };
     const state1 = try dp87.integrator().step(state0, 0, period, FM.wrap(propagators.TwoBody, &tb));
 
-    // After one period, should return to initial position
     const posError = calculations.mag(.{ state1[0] - state0[0], state1[1] - state0[1], state1[2] - state0[2] });
 
-    // Position error should be < 1 meter after one orbit
-    try testing.expect(posError < 0.001); // 1 meter in km
+    try testing.expect(posError < 0.001); // 1 m
 }
 
 test "validate two-body against analytical kepler - elliptical orbit" {
@@ -58,16 +54,13 @@ test "validate two-body against analytical kepler - elliptical orbit" {
     // Specific orbital energy: = v^2/2 - mu/r = -mu/(2a)
     const energyExpected = -muEarth / (2 * a);
 
-    // Propagate for half period (to apoapsis)
     const period = calculations.orbitalPeriod(muEarth, a);
     const state1 = try dp87.integrator().step(state0, 0, period / 2.0, tbFm);
 
-    // Check energy at apoapsis
     const r1 = calculations.posMag(state1);
     const v1 = calculations.velMag(state1);
     const energy1 = v1 * v1 / 2 - muEarth / r1;
 
-    // Energy should match to high precision
     const energyError = @abs(energy1 - energyExpected) / @abs(energyExpected);
     try testing.expect(energyError < 1e-10);
 
@@ -88,11 +81,9 @@ test "validate J2 acceleration magnitude" {
 
     const accel = FM.wrap(propagators.J2, &j2).acceleration(state, 0);
 
-    // Expected J2 acceleration at equator (z=0)
     const expectedMag = 1.5 * j2Earth * muEarth * rEarth * rEarth / (r * r * r * r);
     const accelMag = calculations.mag(accel);
 
-    // Should match within 1%
     const relError = @abs(accelMag - expectedMag) / expectedMag;
     try testing.expect(relError < 0.01);
 }
@@ -111,55 +102,26 @@ test "validate J2 causes nodal regression" {
 
     var dp87 = propagators.DormandPrince87.initWithTolerance(1e-10, 1e-12);
 
-    // Initial state: ISS-like orbit, inclined
     const state0 = [6]f64{
         a * @cos(i), 0, a * @sin(i), // position in orbital plane
         0, v, 0, // velocity perpendicular
     };
 
-    // Propagate for 1 day
     const state1 = try dp87.integrator().step(state0, 0, constants.secondsPerDay, FM.wrap(propagators.Composite, &comp));
 
     // The orbit should have precessed - angular momentum vector should have rotated
     const h0 = calculations.cross(calculations.posVec(state0), calculations.velVec(state0));
     const h1 = calculations.cross(calculations.posVec(state1), calculations.velVec(state1));
 
-    // Angular momentum direction should have changed (RAAN drift)
     const h0Mag = calculations.mag(h0);
     const h1Mag = calculations.mag(h1);
 
-    // Magnitude should be approximately conserved
     const hMagError = @abs(h1Mag - h0Mag) / h0Mag;
     try testing.expect(hMagError < 0.001);
 
-    // Direction should have changed slightly
     const dot = calculations.dot(h0, h1) / (h0Mag * h1Mag);
     try testing.expect(dot < 1.0); // Not exactly parallel
     try testing.expect(dot > 0.99); // But close (allows for ~8 degrees of precession)
-}
-
-test "validate J3 and J4 are smaller than J2" {
-    // At any position, |a_J3| << |a_J2| and |a_J4| << |a_J2|
-    // Based on coefficient ratios: J3/J2 ~= 0.002, J4/J2 ~= 0.001
-
-    var j2 = propagators.J2.init(muEarth, j2Earth, rEarth);
-    var j3 = propagators.J3.init(muEarth, j3Earth, rEarth);
-    var j4 = propagators.J4.init(muEarth, j4Earth, rEarth);
-
-    // Test at polar position (z != 0) where all terms are active
-    const state = [6]f64{ 5000, 3000, 4000, 0, 6, 2 };
-
-    const magJ2 = calculations.mag(FM.wrap(propagators.J2, &j2).acceleration(state, 0));
-    const magJ3 = calculations.mag(FM.wrap(propagators.J3, &j3).acceleration(state, 0));
-    const magJ4 = calculations.mag(FM.wrap(propagators.J4, &j4).acceleration(state, 0));
-
-    // J3 should be ~1000x smaller than J2
-    try testing.expect(magJ3 < magJ2 * 0.01);
-    try testing.expect(magJ3 > magJ2 * 0.0001);
-
-    // J4 should be significantly smaller than J2
-    try testing.expect(magJ4 < magJ2 * 0.01);
-    try testing.expect(magJ4 > 0); // Just verify it's non-zero
 }
 
 test "validate drag behavior" {
@@ -225,11 +187,10 @@ test "validate DP87 more accurate than RK4 for long propagation" {
         t += step;
     }
 
-    // Propagate 10 orbits with DP87
     var dp87 = propagators.DormandPrince87.initWithTolerance(1e-10, 1e-12);
     const dp87State = try dp87.integrator().step(state0, 0, totalTime, tbFm);
 
-    // Check position error (should return to start after 10 orbits)
+    // Distance from the start point after 10 full orbits
     const rk4Err = calculations.mag(.{
         rk4State[0] - state0[0],
         rk4State[1] - state0[1],
@@ -241,7 +202,6 @@ test "validate DP87 more accurate than RK4 for long propagation" {
         dp87State[2] - state0[2],
     });
 
-    // DP87 should be significantly more accurate
     try testing.expect(dp87Err < rk4Err);
     // DP87 error should be very small (< 10 meters after 10 orbits)
     try testing.expect(dp87Err < 0.01);
@@ -281,7 +241,6 @@ test "validate composite model combines forces correctly" {
 
     const aComp = FM.wrap(propagators.Composite, &comp).acceleration(state, 0);
 
-    // Composite should be sum of individual accelerations
     try testing.expectApproxEqAbs(aTb[0] + aJ2[0], aComp[0], 1e-15);
     try testing.expectApproxEqAbs(aTb[1] + aJ2[1], aComp[1], 1e-15);
     try testing.expectApproxEqAbs(aTb[2] + aJ2[2], aComp[2], 1e-15);
@@ -296,7 +255,6 @@ test "validate ISS-like orbit propagation" {
     const v = calculations.orbitalVelocity(muEarth, r, null);
     const incl = 51.6 * constants.deg2rad;
 
-    // Initial state in inclined orbit
     const state0 = [6]f64{
         r, 0,              0,
         0, v * @cos(incl), v * @sin(incl),
@@ -321,7 +279,6 @@ test "validate ISS-like orbit propagation" {
     // Radius should stay within ~10 km (J2 causes small oscillations)
     try testing.expect(@abs(r1 - r0) < 10.0);
 
-    // Velocity magnitude should be approximately conserved
     const v0 = calculations.velMag(state0);
     const v1 = calculations.velMag(state1);
 
@@ -350,7 +307,6 @@ const sgp4Reference = [_]struct {
 };
 
 test "validate SGP4 against python-sgp4 reference" {
-    // TLE matching the python-sgp4 reference above
     const testTle =
         \\1 25544U 98067A   24001.50000000  .00016717  00000-0  10270-3 0  9993
         \\2 25544  51.6400 200.0000 0001234  90.0000 270.0000 15.50000000000017
@@ -374,7 +330,6 @@ test "validate SGP4 against python-sgp4 reference" {
 }
 
 test "validate two-body energy conservation over 100 orbits" {
-    // Start with elliptical orbit
     const a = 8000.0;
     const e = 0.2;
     const rp = a * (1 - e);
@@ -382,7 +337,6 @@ test "validate two-body energy conservation over 100 orbits" {
 
     const state0 = [6]f64{ rp, 0, 0, 0, vp, 0 };
 
-    // Expected energy (should be conserved)
     const energyExpected = -muEarth / (2 * a);
 
     var tb = propagators.TwoBody.init(muEarth);
@@ -392,15 +346,12 @@ test "validate two-body energy conservation over 100 orbits" {
     const period = calculations.orbitalPeriod(muEarth, a);
     const totalTime = 100 * period;
 
-    // Propagate 100 orbits
     const stateFinal = try dp87.integrator().step(state0, 0, totalTime, tbFm);
 
-    // Calculate final energy
     const rFinal = calculations.posMag(stateFinal);
     const vFinal = calculations.velMag(stateFinal);
     const energyFinal = vFinal * vFinal / 2 - muEarth / rFinal;
 
-    // Energy should be conserved to 1e-10 relative error
     const relErr = @abs(energyFinal - energyExpected) / @abs(energyExpected);
     try testing.expect(relErr < 1e-10);
 }

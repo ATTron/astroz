@@ -80,11 +80,6 @@ fn generateNormal(self: *MonteCarlo, mean: f64, stdDev: f64) f64 {
     return mean + stdDev * z;
 }
 
-fn generateUniform(self: *MonteCarlo, min: f64, max: f64) f64 {
-    const rand = self.random.random();
-    return min + (max - min) * rand.float(f64);
-}
-
 fn applyUncertainty(self: *MonteCarlo, baseValue: f64, uncertaintyPercent: f64) f64 {
     const stdDev = baseValue * uncertaintyPercent;
     return self.generateNormal(baseValue, stdDev);
@@ -156,7 +151,6 @@ pub fn runHohmannSimulation(self: *MonteCarlo) !void {
     log.info("Monte Carlo simulation completed: {d} total simulations", .{self.results.items.len});
 }
 
-/// Calculate statistical summary
 pub fn calculateStatistics(self: *MonteCarlo) !StatisticalSummary {
     if (self.results.items.len == 0) {
         return ValidationError.ValueError;
@@ -225,7 +219,6 @@ pub fn calculateStatistics(self: *MonteCarlo) !StatisticalSummary {
     };
 }
 
-/// Print statistical summary to console
 pub fn printStatistics(self: *MonteCarlo) !void {
     const stats = try self.calculateStatistics();
 
@@ -247,7 +240,7 @@ pub fn printStatistics(self: *MonteCarlo) !void {
     log.info("  95% Confidence Interval: [{d:.1}, {d:.1}] days", .{ stats.confidence95TransferTime[0], stats.confidence95TransferTime[1] });
 }
 
-/// Export results to CSV format for Python analysis
+/// Writes results as CSV.
 pub fn exportToCSV(self: *MonteCarlo, io: std.Io, filePath: []const u8) !void {
     const file = try std.Io.Dir.cwd().createFile(io, filePath, .{});
     defer file.close(io);

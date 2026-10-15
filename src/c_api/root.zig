@@ -1,7 +1,6 @@
 //! C API for astroz - Python/FFI bindings
 //! Build with: zig build c-api
 
-const allocator = @import("allocator.zig");
 pub const err = @import("error.zig");
 const tle = @import("tle.zig");
 const sgp4 = @import("sgp4.zig");
@@ -14,13 +13,9 @@ pub export fn astroz_version() callconv(.c) u32 {
     return (@as(u32, version.major) << 16) | (@as(u32, version.minor) << 8) | version.patch;
 }
 
-pub export fn astroz_init() callconv(.c) void {
-    allocator.init();
-}
-
-pub export fn astroz_deinit() callconv(.c) void {
-    allocator.deinit();
-}
+// Kept for ABI compatibility; handles are page-allocated and need no setup.
+pub export fn astroz_init() callconv(.c) void {}
+pub export fn astroz_deinit() callconv(.c) void {}
 
 pub export fn tle_parse(str: [*:0]const u8, out: *tle.Handle) callconv(.c) i32 {
     return @backingInt(tle.parse(str, out));

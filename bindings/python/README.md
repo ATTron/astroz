@@ -1,14 +1,14 @@
 # astroz Python Bindings
 
-High-performance SGP4/SDP4 satellite propagation, powered by Zig with SIMD acceleration (AVX512/AVX2). Automatically handles both near-earth and deep-space satellites.
+SGP4/SDP4 satellite propagation backed by the astroz Zig library, using SIMD (AVX512/AVX2) and threads. Near-earth and deep-space satellites are both handled.
 
-**Platforms:** macOS, Linux | **Requires:** Python 3.10+
+Wheels: Linux (x86_64, arm64) and macOS (arm64), Python 3.10 to 3.14.
 
 ## Quick Start
 
-### python-sgp4 Compatible API (Recommended)
+### python-sgp4 compatible API
 
-Drop-in replacement for [python-sgp4](https://github.com/brandon-rhodes/python-sgp4):
+`astroz.api` follows the [python-sgp4](https://github.com/brandon-rhodes/python-sgp4) API:
 
 ```python
 from astroz.api import Satrec, SatrecArray, jday, WGS72
@@ -19,21 +19,20 @@ sat = Satrec.twoline2rv(line1, line2, WGS72)
 jd, fr = jday(2024, 5, 6, 12, 0, 0.0)
 error, position, velocity = sat.sgp4(jd, fr)
 
-# Batch propagation (270-330M props/sec with SIMD)
+# Many satellites at once
 sat_array = SatrecArray(satrecs)
 e, r, v = sat_array.sgp4(jd, fr)  # Scalars or arrays
 
-# Skip velocities for 30% faster propagation
+# Skip velocities if you only need positions (about 30% faster)
 e, r, _ = sat_array.sgp4(jd_array, fr_array, velocities=False)
 ```
 
-### High-Level API
+### High-level API
 
 ```python
 from astroz import propagate
 import numpy as np
 
-# Load and propagate - automatically optimized for 300M+ props/sec
 positions = propagate("starlink", np.arange(1440))  # 1 day at 1-min intervals
 # positions: (1440, num_satellites, 3) in km, ECEF coordinates
 ```
@@ -100,7 +99,7 @@ import numpy as np
 
 times = np.arange(1440)
 
-# Single target (fastest - uses fused propagate+screen, no full position array)
+# Single target (propagates and screens in one pass, no full position array)
 min_dists, min_t_indices = screen("starlink", times, threshold=50.0, target=0)
 # Returns per-satellite minimum distance to target and time index
 
@@ -111,7 +110,7 @@ pairs, t_indices = screen("starlink", times, threshold=10.0)
 
 ## Migrating from python-sgp4
 
-### Step 1: Change the Import (2x faster)
+Changing the import is enough for existing code to run:
 
 ```python
 # Before
@@ -121,62 +120,37 @@ from sgp4.api import Satrec, SatrecArray, jday
 from astroz.api import Satrec, SatrecArray, jday
 ```
 
-That's it. Your existing code works unchanged and runs **2x faster**.
-
-### Step 2: Use Batch Methods (5-12x faster)
-
-If you have loops, switch to batch methods:
+Most of the speedup comes from the batch methods, so if your code loops over times or satellites, switch to `sgp4_array` or `SatrecArray`:
 
 ```python
-# Before: loop (1.3M props/sec)
-results = []
+# Loop over times
 for jd, fr in zip(jd_list, fr_list):
     e, r, v = sat.sgp4(jd, fr)
-    results.append(r)
+# becomes
+e, r, v = sat.sgp4_array(np.array(jd_list), np.array(fr_list))
 
-# After: batch (15M props/sec) - 12x faster
-jd_array = np.array(jd_list)
-fr_array = np.array(fr_list)
-e, r, v = sat.sgp4_array(jd_array, fr_array)
-```
-
-### Step 3: Use SatrecArray for Multiple Satellites (100x faster)
-
-```python
-# Before: loop over satellites (1.3M props/sec)
+# Loop over satellites
 for sat in satellites:
     e, r, v = sat.sgp4_array(jd, fr)
-
-# After: batch all satellites (290M props/sec) - 100x faster
-sat_array = SatrecArray(satellites)
-e, r, v = sat_array.sgp4(jd, fr)
+# becomes
+e, r, v = SatrecArray(satellites).sgp4(jd, fr)
 ```
 
-### Step 4: Skip Velocities If Not Needed (30% faster)
+Pass `velocities=False` to `SatrecArray.sgp4` if you only need positions.
 
-```python
-# If you only need positions
-e, r, _ = sat_array.sgp4(jd, fr, velocities=False)
-```
+| Method | python-sgp4 | astroz | Speedup |
+|--------|-------------|--------|---------|
+| `sat.sgp4()` in a loop | 1.3M/s | 2.5M/s | 2x |
+| `sat.sgp4_array()` | 2.7M/s | 15M/s | 5x |
+| `SatrecArray.sgp4()` | 3M/s | 290M/s | 100x |
 
-### Performance Summary
+### Compatibility notes
 
-| Pattern | python-sgp4 | astroz | Speedup |
-|---------|-------------|--------|---------|
-| `sat.sgp4()` loop | 1.3M/s | 2.5M/s | **2x** |
-| `sat.sgp4_array()` | 2.7M/s | 15M/s | **5x** |
-| `SatrecArray.sgp4()` | 3M/s | 290M/s | **100x** |
+These python-sgp4 `Satrec` attributes are not implemented:
 
-### Compatibility Notes
-
-astroz supports the core python-sgp4 API for satellite propagation. Some rarely-used attributes are not implemented:
-
-- **TLE metadata**: `classification`, `intldesg`, `elnum`, `revnum`, `ephtype`
-- **Intermediate elements**: `Om`, `am`, `em`, `im`, `mm`, `nm`, `om` (osculating elements after propagation)
-- **Element rates**: `argpdot`, `mdot`, `nodedot`
-- **Gravity constants**: `j2`, `j3`, `j4`, `mu`, etc. (available via `astroz.constants`)
-
-For typical satellite tracking and visualization, astroz is a full drop-in replacement.
+- Elements after propagation: `Om`, `am`, `em`, `im`, `mm`, `nm`, `om`
+- Element rates: `argpdot`, `mdot`, `nodedot`
+- Gravity constants on the object: `j2`, `j3`, `j4`, `mu`, etc. Earth constants are available as `astroz.EARTH_MU`, `astroz.EARTH_J2` and `astroz.EARTH_R_EQ`.
 
 ## Performance
 
@@ -185,7 +159,7 @@ For typical satellite tracking and visualization, astroz is a full drop-in repla
 | 1 thread | 37.7M props/sec |
 | 16 threads | 303M props/sec |
 
-*Benchmarked on AMD Ryzen 7 7840U with AVX512.*
+*Measured on an AMD Ryzen 7 7840U with AVX512.*
 
 Set `ASTROZ_THREADS` to control thread count (defaults to all cores).
 
@@ -203,7 +177,7 @@ result = hohmann_transfer(EARTH_MU, 6778, 42164)
 print(f"Total ΔV: {result['total_dv']:.3f} km/s")
 print(f"Transfer time: {result['transfer_time_days']:.2f} days")
 
-# Bi-elliptic transfer (more efficient for large radius ratios)
+# Bi-elliptic transfer (cheaper than Hohmann for large radius ratios)
 result = bi_elliptic_transfer(EARTH_MU, 6778, 42164, 100000)
 print(f"Total ΔV: {result['total_dv']:.3f} km/s")
 

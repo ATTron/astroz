@@ -36,7 +36,7 @@ Repository = "https://github.com/ATTron/astroz"
 where = ["."]
 
 [tool.setuptools.package-data]
-astroz = ["*.so", "*.dylib", "*.pyd", "py.typed", "*.pyi"]
+astroz = ["py.typed", "*.pyi"]
 
 [tool.cibuildwheel]
 build = "cp310-* cp311-* cp312-* cp313-* cp314-*"

@@ -1,4 +1,4 @@
-//! Base struct that provides various orbital mechanic functions
+//! Orbital mechanics helpers bound to a gravitational parameter, with input validation.
 
 const std = @import("std");
 
@@ -43,26 +43,23 @@ pub fn init(mu: f64) OrbitalMechanics {
     return .{ .mu = mu };
 }
 
-/// calculate orbital velocity
 pub fn orbitalVelocity(self: *OrbitalMechanics, radius: f64, semiMajorAxis: ?f64) ValidationError!f64 {
     if (radius <= 0) return ValidationError.InvalidDistance;
     if (semiMajorAxis) |sma| if (sma <= 0) return ValidationError.InvalidSMA;
     return calculations.orbitalVelocity(self.mu, radius, semiMajorAxis);
 }
 
-/// calculate orbital period
 pub fn orbitalPeriod(self: *OrbitalMechanics, semiMajorAxis: f64) ValidationError!f64 {
     if (semiMajorAxis <= 0) return ValidationError.InvalidSMA;
     return calculations.orbitalPeriod(self.mu, semiMajorAxis);
 }
 
-/// calculate escape velocity from a given radius
 pub fn escapeVelocity(self: *OrbitalMechanics, radius: f64) ValidationError!f64 {
     if (radius <= 0) return ValidationError.InvalidDistance;
     return calculations.escapeVelocity(self.mu, radius);
 }
 
-/// calculate hohmann transfer parameters between two circular orbits
+/// Hohmann transfer between two circular orbits.
 pub fn hohmannTransfer(self: *OrbitalMechanics, initialRadius: f64, finalRadius: f64) ValidationError!TransferResult {
     if (initialRadius <= 0 or finalRadius <= 0) return ValidationError.ValueError;
     if (@abs(initialRadius - finalRadius) < 1000) return ValidationError.ValueError;
@@ -118,7 +115,7 @@ pub fn biEllipicTransfer(self: *OrbitalMechanics, initialRadius: f64, finalRadiu
     };
 }
 
-/// simplified lambert solver using universal variable approach
+/// Rough Lambert solution from a minimum-energy guess scaled by time of flight.
 pub fn lambertSolverSimple(self: OrbitalMechanics, initialPositionVec: Vector3D, finalPositionVec: Vector3D, timeOfFlight: f64) !LambertResult {
     if (timeOfFlight <= 0) {
         return ValidationError.ValueError;

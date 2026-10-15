@@ -61,7 +61,7 @@ pub fn open_and_parse(file_path: []const u8, io: std.Io, allocator: std.mem.Allo
     var binary_table_count: usize = 0;
 
     var output_path_buffer: [std.fs.max_path_bytes]u8 = undefined;
-    std.log.debug("Processing HDUs started. . .", .{});
+    std.log.debug("Processing HDUs", .{});
     for (fits_file.hdus) |hdu| {
         switch (hdu.content_type) {
             .Image => {
@@ -77,17 +77,17 @@ pub fn open_and_parse(file_path: []const u8, io: std.Io, allocator: std.mem.Allo
             .AsciiTable => {
                 ascii_table_count += 1;
                 const filename = try std.fmt.bufPrint(&output_path_buffer, "ascii_table_{d}", .{ascii_table_count});
-                std.log.debug("Starting to read ASCII table...\n", .{});
+                std.log.debug("Reading ASCII table", .{});
                 try fits_file.readTable(hdu.number, filename);
             },
             .BinaryTable => {
                 binary_table_count += 1;
                 const filename = try std.fmt.bufPrint(&output_path_buffer, "binary_table_{d}", .{binary_table_count});
-                std.log.debug("Starting to read binary table...\n", .{});
+                std.log.debug("Reading binary table", .{});
                 try fits_file.readTable(hdu.number, filename);
             },
             .Unknown => {
-                std.log.warn("Unknown Fits HDU found . . . skipping", .{});
+                std.log.warn("Skipping unknown HDU type", .{});
             },
         }
     }
@@ -107,35 +107,23 @@ pub fn readTable(self: *Fits, hdu_number: c_int, output_path: ?[]const u8) !void
     if (hdu_number < 1 or hdu_number > self.hdus.len) {
         return FitsError.InvalidHDUError;
     }
-    const hdu_info = self.hdus[@intCast(hdu_number - 1)];
-    switch (hdu_info.content_type) {
+    switch (self.hdus[@intCast(hdu_number - 1)].content_type) {
         .AsciiTable, .BinaryTable => {},
         else => return FitsError.NotATableError,
     }
     var status: c_int = 0;
     _ = cfitsio.fits_movabs_hdu(self.fptr, hdu_number, null, &status);
-    if (status != 0) {
-        try self.reportError(status);
-        return FitsError.ReadError;
-    }
+    try check(status);
     var rows: c_long = undefined;
     var cols: c_int = undefined;
     _ = cfitsio.fits_get_num_rows(self.fptr, &rows, &status);
     _ = cfitsio.fits_get_num_cols(self.fptr, &cols, &status);
-    if (status != 0) {
-        try self.reportError(status);
-        return FitsError.ReadError;
-    }
-    std.log.debug("Table has {d} rows and {d} columns\n", .{ rows, cols });
-    const input_path = self.file_path;
-    const file_name = std.fs.path.stem(std.fs.path.basename(input_path));
+    try check(status);
+    std.log.debug("Table has {d} rows and {d} columns", .{ rows, cols });
 
-    createDirectoryIfNotExists(file_name) catch |err| {
-        std.log.warn("Failed to create directory: {s}. Error: {}", .{ file_name, err });
-    };
-
+    const dir = self.outputDir();
     var path_buf: [std.fs.max_path_bytes]u8 = undefined;
-    const csv_path = try std.fmt.bufPrint(&path_buf, "{s}/{s}.csv", .{ file_name, output_path orelse file_name });
+    const csv_path = try std.fmt.bufPrint(&path_buf, "{s}/{s}.csv", .{ dir, output_path orelse dir });
 
     const csv_file = try std.Io.Dir.cwd().createFile(self.io, csv_path, .{});
     defer csv_file.close(self.io);
@@ -143,7 +131,6 @@ pub fn readTable(self: *Fits, hdu_number: c_int, output_path: ?[]const u8) !void
     var csv_writer = csv_file.writer(self.io, &out_buf);
     const out = &csv_writer.interface;
 
-    // Write column headers
     var i: c_int = 1;
     while (i <= cols) : (i += 1) {
         var ttype: [cfitsio.FLEN_VALUE]u8 = undefined;
@@ -156,12 +143,8 @@ pub fn readTable(self: *Fits, hdu_number: c_int, output_path: ?[]const u8) !void
         var tdisp: [cfitsio.FLEN_VALUE]u8 = undefined;
         status = 0;
         _ = cfitsio.fits_get_bcolparms(self.fptr, i, &ttype, &tunit, &typechar, &repeat, &scale, &zero, &nulval, &tdisp, &status);
-        if (status != 0) {
-            try self.reportError(status);
-            return FitsError.ReadError;
-        }
-        const col_name = std.mem.sliceTo(&ttype, 0);
-        try out.print("{s}", .{col_name});
+        try check(status);
+        try out.print("{s}", .{std.mem.sliceTo(&ttype, 0)});
         if (i < cols) {
             try out.writeAll(",");
         }
@@ -180,18 +163,13 @@ pub fn readTable(self: *Fits, hdu_number: c_int, output_path: ?[]const u8) !void
 
     const row_ptr: [*c][*c]u8 = @ptrCast(row_pointers.ptr);
 
-    // Write data rows
     var row: c_long = 1;
     while (row <= rows) : (row += 1) {
         i = 1;
         while (i <= cols) : (i += 1) {
             _ = cfitsio.fits_read_col_str(self.fptr, i, row, 1, 1, null, row_ptr, null, &status);
-            if (status != 0) {
-                try self.reportError(status);
-                return FitsError.ReadError;
-            }
-            const value_str = std.mem.sliceTo(row_ptr[0], 0);
-            try out.print("{s}", .{value_str});
+            try check(status);
+            try out.print("{s}", .{std.mem.sliceTo(row_ptr[0], 0)});
             if (i < cols) {
                 try out.writeAll(",");
             }
@@ -199,137 +177,88 @@ pub fn readTable(self: *Fits, hdu_number: c_int, output_path: ?[]const u8) !void
         try out.writeAll("\n");
     }
     try out.flush();
-    std.log.debug("Finished processing all columns and rows. CSV file created: {s}\n", .{csv_path});
+    std.log.debug("CSV file created: {s}", .{csv_path});
 }
 
-fn reportError(self: *Fits, status: c_int) !void {
-    _ = self;
+/// Prints the CFITSIO message for a non-zero status and returns ReadError.
+fn check(status: c_int) FitsError!void {
+    if (status == 0) return;
     var error_text: [128]u8 = undefined;
     _ = cfitsio.fits_get_errstatus(status, &error_text);
     std.debug.print("CFITSIO Error: {s}\n", .{std.mem.sliceTo(&error_text, 0)});
+    return FitsError.ReadError;
+}
+
+const Pixels = struct {
+    data: []f32,
+    width: usize,
+    height: usize,
+};
+
+/// Reads a 2D image HDU as f32. Returns null if the image is empty.
+fn readPixels(self: *Fits, hdu_number: c_int) !?Pixels {
+    if (hdu_number < 1 or hdu_number > self.hdus.len) {
+        return FitsError.InvalidHDUError;
+    }
+    if (self.hdus[@intCast(hdu_number - 1)].content_type != .Image) {
+        return FitsError.NotAnImageError;
+    }
+
+    var status: c_int = 0;
+    _ = cfitsio.fits_movabs_hdu(self.fptr, hdu_number, null, &status);
+    try check(status);
+
+    var naxes: [2]c_long = undefined;
+    _ = cfitsio.fits_get_img_size(self.fptr, 2, &naxes, &status);
+    try check(status);
+
+    if (naxes[0] <= 0 or naxes[1] <= 0) {
+        std.log.debug("Image is empty or has invalid dimensions: {d}x{d}", .{ naxes[0], naxes[1] });
+        return null;
+    }
+
+    const width: usize = @intCast(naxes[0]);
+    const height: usize = @intCast(naxes[1]);
+    const data = try self.allocator.alloc(f32, width * height);
+    errdefer self.allocator.free(data);
+
+    _ = cfitsio.fits_read_img(self.fptr, cfitsio.TFLOAT, 1, @intCast(data.len), null, data.ptr, null, &status);
+    try check(status);
+    return .{ .data = data, .width = width, .height = height };
 }
 
 pub fn readImage(self: *Fits, hdu_number: c_int, output_path: ?[]const u8, options: StretchOptions) !void {
-    if (hdu_number < 1 or hdu_number > self.hdus.len) {
-        return FitsError.InvalidHDUError;
-    }
-
-    const hdu_info = self.hdus[@intCast(hdu_number - 1)];
-
-    if (hdu_info.content_type != .Image) {
-        return FitsError.NotAnImageError;
-    }
-
-    var status: c_int = 0;
-
-    _ = cfitsio.fits_movabs_hdu(self.fptr, hdu_number, null, &status);
-    if (status != 0) {
-        try self.reportError(status);
-        return FitsError.ReadError;
-    }
-
-    var naxis: c_int = 0;
-    var naxes: [2]c_long = undefined;
-    _ = cfitsio.fits_get_img_dim(self.fptr, &naxis, &status);
-    _ = cfitsio.fits_get_img_size(self.fptr, 2, &naxes, &status);
-    if (status != 0) {
-        try self.reportError(status);
-        return FitsError.ReadError;
-    }
-
-    const cols = naxes[0];
-    const rows = naxes[1];
-    if (cols <= 0 or rows <= 0) {
-        std.log.debug("Image is empty or invalid dimensions: {d}x{d}\n", .{ cols, rows });
-        return;
-    }
-
-    const npix: usize = @as(usize, @intCast(cols)) * @as(usize, @intCast(rows));
-    const pixels = try self.allocator.alloc(f32, npix);
-    defer self.allocator.free(pixels);
-
-    _ = cfitsio.fits_read_img(self.fptr, cfitsio.TFLOAT, 1, @intCast(npix), null, pixels.ptr, null, &status);
-    if (status != 0) {
-        try self.reportError(status);
-        return FitsError.ReadError;
-    }
-
-    try self.applyStretch(pixels, @intCast(cols), @intCast(rows), output_path, options);
+    const pixels = try self.readPixels(hdu_number) orelse return;
+    defer self.allocator.free(pixels.data);
+    try self.applyStretch(pixels.data, @intCast(pixels.width), @intCast(pixels.height), output_path, options);
 }
 
 pub fn readImageAsTable(self: *Fits, hdu_number: c_int, output_path: ?[]const u8) !void {
-    if (hdu_number < 1 or hdu_number > self.hdus.len) {
-        return FitsError.InvalidHDUError;
-    }
+    const pixels = try self.readPixels(hdu_number) orelse return;
+    defer self.allocator.free(pixels.data);
 
-    const hdu_info = self.hdus[@intCast(hdu_number - 1)];
+    const dir = self.outputDir();
+    var output_path_buffer: [std.fs.max_path_bytes]u8 = undefined;
+    const output = if (output_path) |op|
+        try std.fmt.bufPrint(&output_path_buffer, "{s}/{s}.csv", .{ dir, op })
+    else
+        try std.fmt.bufPrint(&output_path_buffer, "{s}/{s}_image_data.csv", .{ dir, dir });
 
-    if (hdu_info.content_type != .Image) {
-        return FitsError.NotAnImageError;
-    }
+    const csv_file = try std.Io.Dir.cwd().createFile(self.io, output, .{});
+    defer csv_file.close(self.io);
+    var out_buf: [4096]u8 = undefined;
+    var csv_writer = csv_file.writer(self.io, &out_buf);
+    const out = &csv_writer.interface;
 
-    var status: c_int = 0;
-
-    _ = cfitsio.fits_movabs_hdu(self.fptr, hdu_number, null, &status);
-    if (status != 0) {
-        try self.reportError(status);
-        return FitsError.ReadError;
-    }
-
-    var naxis: c_int = 0;
-    var naxes: [2]c_long = undefined;
-    _ = cfitsio.fits_get_img_dim(self.fptr, &naxis, &status);
-    _ = cfitsio.fits_get_img_size(self.fptr, 2, &naxes, &status);
-    if (status != 0) {
-        try self.reportError(status);
-        return FitsError.ReadError;
-    }
-
-    if (naxes[0] > 0 and naxes[1] > 0) {
-        const width: usize = @intCast(naxes[0]);
-        const height: usize = @intCast(naxes[1]);
-        const pixels: []f32 = try self.allocator.alloc(f32, width * height);
-        defer self.allocator.free(pixels);
-
-        const fpixel: c_long = 1;
-        const nelem: c_long = @intCast(width * height);
-        _ = cfitsio.fits_read_img(self.fptr, cfitsio.TFLOAT, fpixel, nelem, null, pixels.ptr, null, &status);
-        if (status != 0) {
-            try self.reportError(status);
-            return FitsError.ReadError;
+    try out.writeAll("x,y,value\n");
+    for (0..pixels.height) |y| {
+        const row = pixels.data[y * pixels.width ..][0..pixels.width];
+        for (row, 0..) |value, x| {
+            try out.print("{d},{d},{d}\n", .{ x, y, value });
         }
-
-        const input_path = self.file_path;
-        const file_name = std.fs.path.stem(std.fs.path.basename(input_path));
-
-        createDirectoryIfNotExists(file_name) catch |err| {
-            std.log.warn("Failed to create directory: {s}. Error: {}", .{ file_name, err });
-        };
-
-        var output_path_buffer: [std.fs.max_path_bytes]u8 = undefined;
-        const output = if (output_path) |op|
-            try std.fmt.bufPrint(&output_path_buffer, "{s}/{s}.csv", .{ file_name, op })
-        else
-            try std.fmt.bufPrint(&output_path_buffer, "{s}/{s}_image_data.csv", .{ file_name, file_name });
-
-        const csv_file = try std.Io.Dir.cwd().createFile(self.io, output, .{});
-        defer csv_file.close(self.io);
-        var out_buf: [4096]u8 = undefined;
-        var csv_writer = csv_file.writer(self.io, &out_buf);
-        const out = &csv_writer.interface;
-
-        try out.writeAll("x,y,value\n");
-        for (0..height) |y| {
-            const row = pixels[y * width ..][0..width];
-            for (row, 0..) |value, x| {
-                try out.print("{d},{d},{d}\n", .{ x, y, value });
-            }
-        }
-        try out.flush();
-        std.log.debug("Image data saved as CSV: {s}\n", .{output});
-    } else {
-        std.log.debug("Image is empty or invalid dimensions\n", .{});
     }
+    try out.flush();
+    std.log.debug("Image data saved as CSV: {s}", .{output});
 }
 
 fn applyStretch(self: *Fits, pixels: []f32, width: u32, height: u32, output_path: ?[]const u8, options: StretchOptions) !void {
@@ -346,21 +275,13 @@ fn applyStretch(self: *Fits, pixels: []f32, width: u32, height: u32, output_path
 
     for (img.data, pixels) |*dst, raw| {
         const t = std.math.clamp((raw - lo) / span, 0.0, 1.0);
-        const rgb = applyColorMap(sineStretch(t, options));
-        dst.* = .{
-            .r = @intFromFloat(rgb[0] * 255),
-            .g = @intFromFloat(rgb[1] * 255),
-            .b = @intFromFloat(rgb[2] * 255),
-        };
+        const gray: u8 = @intFromFloat(sineStretch(t, options) * 255);
+        dst.* = .{ .r = gray, .g = gray, .b = gray };
     }
 
-    const stem = std.fs.path.stem(std.fs.path.basename(self.file_path));
-    createDirectoryIfNotExists(stem) catch |err| {
-        std.log.warn("Failed to create directory: {s}. Error: {}", .{ stem, err });
-    };
-
+    const dir = self.outputDir();
     var path_buf: [std.fs.max_path_bytes]u8 = undefined;
-    const png_path = try std.fmt.bufPrint(&path_buf, "{s}/{s}.png", .{ stem, output_path orelse stem });
+    const png_path = try std.fmt.bufPrint(&path_buf, "{s}/{s}.png", .{ dir, output_path orelse dir });
     try img.save(self.io, self.allocator, png_path);
 }
 
@@ -370,22 +291,14 @@ inline fn sineStretch(x: f32, options: StretchOptions) f32 {
     return std.math.asinh((x - bend) / stretch) / std.math.asinh((1 - bend) / stretch) * 0.5 + 0.5;
 }
 
-inline fn applyColorMap(value: f32) [3]f32 {
-    return .{ value, value, value };
-}
-
-fn createDirectoryIfNotExists(dir_name: []const u8) !void {
-    const io = std.Io.Threaded.global_single_threaded.io();
-    std.Io.Dir.cwd().createDir(io, dir_name, .default_dir) catch |err| {
-        switch (err) {
-            error.PathAlreadyExists => {
-                return;
-            },
-            else => {
-                return err;
-            },
-        }
+/// Outputs go in a directory named after the input file's stem, created on demand.
+fn outputDir(self: *Fits) []const u8 {
+    const stem = std.fs.path.stem(std.fs.path.basename(self.file_path));
+    std.Io.Dir.cwd().createDir(self.io, stem, .default_dir) catch |err| switch (err) {
+        error.PathAlreadyExists => {},
+        else => std.log.warn("Failed to create directory: {s}. Error: {}", .{ stem, err }),
     };
+    return stem;
 }
 
 pub const StretchOptions = struct {
@@ -402,13 +315,9 @@ pub const FitsError = error{
     OpenError,
     HeaderReadError,
     ReadError,
-    MemoryError,
-    UnknownError,
     NotATableError,
     NotAnImageError,
     InvalidHDUError,
-    InvalidImageSizeError,
-    UnsupportedColumnType,
 };
 
 pub const HduInfo = struct {
@@ -421,11 +330,6 @@ pub const FitsContentType = enum {
     AsciiTable,
     BinaryTable,
     Unknown,
-};
-
-pub const FitsTableInfo = struct {
-    rows: f32,
-    columns: f32,
 };
 
 test Fits {

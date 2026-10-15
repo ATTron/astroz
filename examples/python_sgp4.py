@@ -11,7 +11,6 @@ LINE2 = "2 25544  51.6393 160.4574 0003580 140.6673 205.7250 15.50957674452123"
 
 
 def main():
-    # Create satellite from TLE (python-sgp4 compatible syntax)
     sat = Satrec.twoline2rv(LINE1, LINE2, WGS72)
 
     print(f"Satellite: {sat.satnum}")
@@ -27,7 +26,6 @@ def main():
     n = 1440
     sat_array = SatrecArray([sat])
 
-    # Create time arrays (JD format)
     base_jd, base_fr = sat.jdsatepoch, sat.jdsatepochF
     jd_arr = np.full(n, base_jd, dtype=np.float64)
     fr_arr = base_fr + np.arange(n, dtype=np.float64) / 1440.0

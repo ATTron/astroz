@@ -1,5 +1,4 @@
-//! Python Satrec type - python-sgp4 compatible API
-//! Provides drop-in replacement for sgp4.api.Satrec
+//! Satrec and SatrecArray: the python-sgp4 compatible API.
 
 const std = @import("std");
 const py = @import("python.zig");
@@ -10,13 +9,11 @@ const Tle = astroz.Tle;
 const Sgp4 = astroz.Sgp4;
 const Sdp4 = astroz.Sdp4;
 const Sdp4Batch = astroz.Constellation.Sdp4Batch;
-const Sgp4Batch = astroz.Constellation.Sgp4Batch;
 const Datetime = astroz.Datetime;
 const constants = astroz.constants;
 
 const allocator = shared.allocator;
 
-// Re-export gravity constants for main.zig
 pub const WGS72 = shared.WGS72;
 pub const WGS84 = shared.WGS84;
 
@@ -40,26 +37,12 @@ fn initType() void {
     SatrecType.tp_doc = "SGP4 satellite record (python-sgp4 compatible).\n\nUse Satrec.twoline2rv(line1, line2) to create from TLE lines.";
     SatrecType.tp_basicsize = @sizeOf(SatrecObject);
     SatrecType.tp_flags = c.Py_TPFLAGS_DEFAULT | c.Py_TPFLAGS_BASETYPE;
-    SatrecType.tp_new = @ptrCast(&satrec_new);
+    SatrecType.tp_new = c.PyType_GenericNew;
     SatrecType.tp_dealloc = @ptrCast(&satrec_dealloc);
     SatrecType.tp_methods = @constCast(&satrec_methods);
     SatrecType.tp_getset = @constCast(&satrec_getset);
 }
 
-fn satrec_new(typ: [*c]c.PyTypeObject, _: [*c]c.PyObject, _: [*c]c.PyObject) callconv(.c) [*c]c.PyObject {
-    const self: *SatrecObject = @ptrCast(@alignCast(c.PyType_GenericAlloc(typ, 0) orelse return null));
-    self.tle = null;
-    self.sgp4 = null;
-    self.sdp4 = null;
-    self.whichconst = WGS84;
-    self.errorCode = 0;
-    self.t = 0.0;
-    self.jdsatepoch = 0.0;
-    self.jdsatepochF = 0.0;
-    return @ptrCast(self);
-}
-
-/// Cast the opaque SDP4 pointer back to a typed pointer.
 fn getSdp4(self: *const SatrecObject) ?*const Sdp4 {
     const ptr = self.sdp4 orelse return null;
     return @ptrCast(@alignCast(ptr));
@@ -68,9 +51,7 @@ fn getSdp4(self: *const SatrecObject) ?*const Sdp4 {
 fn satrec_dealloc(self_obj: [*c]c.PyObject) callconv(.c) void {
     const self: *SatrecObject = @ptrCast(@alignCast(self_obj));
     if (self.sgp4) |s| allocator.destroy(s);
-    if (getSdp4(self)) |sdp4| {
-        allocator.destroy(sdp4);
-    }
+    if (getSdp4(self)) |sdp4| allocator.destroy(sdp4);
     if (self.tle) |t| {
         var tle_copy = t.*;
         tle_copy.deinit();
@@ -79,37 +60,24 @@ fn satrec_dealloc(self_obj: [*c]c.PyObject) callconv(.c) void {
     if (py.pyType(self_obj)) |tp| if (tp.*.tp_free) |free| free(@as(?*anyopaque, @ptrCast(self)));
 }
 
-/// Class method: twoline2rv(line1, line2, whichconst=WGS72) -> Satrec
 fn satrec_twoline2rv(cls: [*c]c.PyObject, args: [*c]c.PyObject, kwds: [*c]c.PyObject) callconv(.c) [*c]c.PyObject {
     _ = cls;
     var line1_ptr: [*c]const u8 = null;
     var line2_ptr: [*c]const u8 = null;
-    var whichconst: c_int = WGS72; // default to WGS72 like python-sgp4
+    var whichconst: c_int = WGS72; // python-sgp4's default
 
     const kwlist = [_:null]?[*:0]const u8{ "line1", "line2", "whichconst", null };
     if (c.PyArg_ParseTupleAndKeywords(args, kwds, "ss|i", @ptrCast(@constCast(&kwlist)), &line1_ptr, &line2_ptr, &whichconst) == 0)
         return null;
 
-    if (line1_ptr == null or line2_ptr == null) {
-        py.raiseValue("line1 and line2 are required");
-        return null;
-    }
-
     const line1 = std.mem.span(line1_ptr);
     const line2 = std.mem.span(line2_ptr);
 
-    // Create new SatrecObject
     const self: *SatrecObject = @ptrCast(@alignCast(
         c.PyType_GenericAlloc(&SatrecType, 0) orelse return null,
     ));
-    self.tle = null;
-    self.sgp4 = null;
-    self.sdp4 = null;
     self.whichconst = whichconst;
-    self.errorCode = 0;
-    self.t = 0.0;
 
-    // Parse TLE
     const tle = Tle.parseLines(line1, line2, allocator) catch |err| {
         py.raiseValue(if (err == error.CatalogNumberMismatch) "TLE lines 1 and 2 have different catalog numbers" else "Failed to parse TLE lines");
         py.decref(@as(*c.PyObject, @ptrCast(self)));
@@ -126,15 +94,13 @@ fn satrec_twoline2rv(cls: [*c]c.PyObject, args: [*c]c.PyObject, kwds: [*c]c.PyOb
     tle_ptr.* = tle;
     self.tle = tle_ptr;
 
-    // Split epoch JD into integer (at noon) and fractional parts like python-sgp4
+    // python-sgp4 splits the epoch into a half-integer JD and a fraction
     self.jdsatepoch = @floor(tle.epochJd - 0.5) + 0.5;
     self.jdsatepochF = tle.epochJd - self.jdsatepoch;
 
-    // Initialize SGP4, fallback to SDP4 for deep-space orbits
     const grav = shared.getGravity(whichconst);
     const sgp4 = Sgp4.init(tle, grav) catch |e| switch (e) {
         error.DeepSpaceNotSupported => {
-            // Deep-space orbit — use SDP4
             const sdp4 = Sdp4.init(tle, grav) catch |e2| {
                 self.errorCode = shared.sgp4ErrorCode(e2);
                 return @ptrCast(self);
@@ -165,7 +131,6 @@ fn satrec_twoline2rv(cls: [*c]c.PyObject, args: [*c]c.PyObject, kwds: [*c]c.PyOb
     return @ptrCast(self);
 }
 
-/// Instance method: sgp4(jd, fr) -> (error, (x,y,z), (vx,vy,vz))
 fn satrec_sgp4(self_obj: [*c]c.PyObject, args: [*c]c.PyObject) callconv(.c) [*c]c.PyObject {
     const self: *SatrecObject = @ptrCast(@alignCast(self_obj));
     var jd: f64 = undefined;
@@ -173,90 +138,41 @@ fn satrec_sgp4(self_obj: [*c]c.PyObject, args: [*c]c.PyObject) callconv(.c) [*c]
 
     if (c.PyArg_ParseTuple(args, "dd", &jd, &fr) == 0) return null;
 
-    // Convert JD to minutes since epoch
     const epochJd = self.jdsatepoch + self.jdsatepochF;
-    const totalJd = jd + fr;
-    const tsince = (totalJd - epochJd) * constants.minutesPerDay;
-
+    const tsince = (jd + fr - epochJd) * constants.minutesPerDay;
     self.t = tsince;
 
-    if (self.sgp4) |sgp4| {
-        const result = sgp4.propagate(tsince) catch |e| {
-            self.errorCode = shared.sgp4ErrorCode(e);
-            return buildErrorResult(self.errorCode);
-        };
-        self.errorCode = 0;
-        return buildSuccessResult(result);
-    } else if (getSdp4(self)) |sdp4| {
-        const result = sdp4.propagate(tsince) catch |e| {
-            self.errorCode = shared.sgp4ErrorCode(e);
-            return buildErrorResult(self.errorCode);
-        };
-        self.errorCode = 0;
-        return buildSuccessResult(result);
-    } else {
+    const zero: [2][3]f64 = .{ @splat(0), @splat(0) };
+    const propagated = if (self.sgp4) |sgp4|
+        sgp4.propagate(tsince)
+    else if (getSdp4(self)) |sdp4|
+        sdp4.propagate(tsince)
+    else {
         self.errorCode = 6;
-        return buildErrorResult(self.errorCode);
-    }
+        return sgp4Result(self.errorCode, zero);
+    };
+    const pv = propagated catch |e| {
+        self.errorCode = shared.sgp4ErrorCode(e);
+        return sgp4Result(self.errorCode, zero);
+    };
+    self.errorCode = 0;
+    return sgp4Result(0, pv);
 }
 
-fn buildErrorResult(errorCode: c_int) [*c]c.PyObject {
-    // Return (error_code, (0,0,0), (0,0,0))
-    const err = py.int(@intCast(errorCode)) orelse return null;
-    const zero = [3]f64{ 0.0, 0.0, 0.0 };
-    const zero_pos = py.vecTuple(zero) orelse {
-        py.decref(err);
-        return null;
-    };
-    const zero_vel = py.vecTuple(zero) orelse {
-        py.decref(err);
-        py.decref(zero_pos);
-        return null;
-    };
-    const result = py.tuple(3) orelse {
-        py.decref(err);
-        py.decref(zero_pos);
-        py.decref(zero_vel);
-        return null;
-    };
-    py.tupleSet(result, 0, err);
-    py.tupleSet(result, 1, zero_pos);
-    py.tupleSet(result, 2, zero_vel);
-    return result;
+/// (error, (x, y, z), (vx, vy, vz)), as python-sgp4 returns it
+fn sgp4Result(code: c_int, pv: [2][3]f64) [*c]c.PyObject {
+    const r = pv[0];
+    const v = pv[1];
+    return c.Py_BuildValue("i(ddd)(ddd)", code, r[0], r[1], r[2], v[0], v[1], v[2]);
 }
 
-fn buildSuccessResult(pv: [2][3]f64) [*c]c.PyObject {
-    // Return (0, (x,y,z), (vx,vy,vz))
-    const err = py.int(0) orelse return null;
-    const pos = py.vecTuple(pv[0]) orelse {
-        py.decref(err);
-        return null;
-    };
-    const vel = py.vecTuple(pv[1]) orelse {
-        py.decref(err);
-        py.decref(pos);
-        return null;
-    };
-    const result = py.tuple(3) orelse {
-        py.decref(err);
-        py.decref(pos);
-        py.decref(vel);
-        return null;
-    };
-    py.tupleSet(result, 0, err);
-    py.tupleSet(result, 1, pos);
-    py.tupleSet(result, 2, vel);
-    return result;
-}
+const SgpSimdN = astroz.Constellation.Sgp4Batch.batchSize;
 
-const SgpSimdN = Sgp4Batch.batchSize;
-
-/// Generic SIMD batch propagation for a single satellite (SGP4 or SDP4).
-/// Processes times in chunks of SgpSimdN via oma dispatch, remainder with scalar propagate.
+/// One satellite (SGP4 or SDP4) over many times: SIMD chunks through oma
+/// dispatch, then the remainder one at a time.
 fn propagateArray(comptime T: type, propagator: *const T, n: usize, epochJd: f64, jd_ptr: [*]const f64, fr_ptr: [*]const f64, pos_ptr: [*]f64, vel_ptr: [*]f64) void {
     const PVA = Sgp4.PosVelArray(SgpSimdN);
     var i: usize = 0;
-    // Process in SIMD chunks via dispatch
     while (i + SgpSimdN <= n) : (i += SgpSimdN) {
         var times: [SgpSimdN]f64 = undefined;
         for (0..SgpSimdN) |j| {
@@ -278,7 +194,6 @@ fn propagateArray(comptime T: type, propagator: *const T, n: usize, epochJd: f64
             for (0..SgpSimdN) |j| propagateOne(T, propagator, epochJd, jd_ptr, fr_ptr, pos_ptr, vel_ptr, i + j);
         }
     }
-    // Handle remainder with scalar propagation
     while (i < n) : (i += 1) propagateOne(T, propagator, epochJd, jd_ptr, fr_ptr, pos_ptr, vel_ptr, i);
 }
 
@@ -295,8 +210,6 @@ fn propagateOne(comptime T: type, propagator: *const T, epochJd: f64, jd_ptr: [*
     }
 }
 
-/// Instance method: sgp4_array_into(jd, fr, positions, velocities) -> None
-/// SIMD batch propagation writing directly into numpy buffers.
 fn satrec_sgp4_array_into(self_obj: [*c]c.PyObject, args: [*c]c.PyObject) callconv(.c) [*c]c.PyObject {
     const self: *SatrecObject = @ptrCast(@alignCast(self_obj));
     var jd_obj: [*c]c.PyObject = null;
@@ -306,7 +219,6 @@ fn satrec_sgp4_array_into(self_obj: [*c]c.PyObject, args: [*c]c.PyObject) callco
 
     if (c.PyArg_ParseTuple(args, "OOOO", &jd_obj, &fr_obj, &pos_obj, &vel_obj) == 0) return null;
 
-    // Get buffers
     var jd_buf = std.mem.zeroes(c.Py_buffer);
     var fr_buf = std.mem.zeroes(c.Py_buffer);
     var pos_buf = std.mem.zeroes(c.Py_buffer);
@@ -332,9 +244,7 @@ fn satrec_sgp4_array_into(self_obj: [*c]c.PyObject, args: [*c]c.PyObject) callco
     if (self.sgp4) |sgp4| {
         propagateArray(Sgp4, sgp4, n, epochJd, jd_ptr, fr_ptr, pos_ptr, vel_ptr);
     } else if (getSdp4(self)) |sdp4| {
-        // Use sorted carry for SDP4 — avoids re-integrating resonance from t=0
-        // stride=1 sat, offset=0 for single-satellite contiguous output
-        propagateArraySdp4SortedStrided(sdp4, n, epochJd, jd_ptr, fr_ptr, pos_ptr, vel_ptr, 3, 0);
+        propagateArraySdp4(sdp4, n, epochJd, jd_ptr, fr_ptr, pos_ptr, vel_ptr);
     } else {
         py.raiseRuntime("Satrec not initialized");
         return null;
@@ -365,7 +275,6 @@ const satrec_methods = [_]c.PyMethodDef{
     .{ .ml_name = null, .ml_meth = null, .ml_flags = 0, .ml_doc = null },
 };
 
-// Property getters - using comptime-generated wrappers like tle.zig
 fn makeGetter(comptime getter: fn (*const SatrecObject) [*c]c.PyObject) fn ([*c]c.PyObject, ?*anyopaque) callconv(.c) [*c]c.PyObject {
     return struct {
         fn get(self_obj: [*c]c.PyObject, _: ?*anyopaque) callconv(.c) [*c]c.PyObject {
@@ -446,15 +355,14 @@ fn getMo(tle: *const Tle) [*c]c.PyObject {
     return py.float(tle.mAnomaly * constants.deg2rad);
 }
 fn getNoKozai(tle: *const Tle) [*c]c.PyObject {
-    // Convert rev/day to rad/min: mMotion * 2π / 1440
+    // rev/day -> rad/min
     return py.float(tle.mMotion * constants.twoPi / constants.minutesPerDay);
 }
 fn getBstar(tle: *const Tle) [*c]c.PyObject {
     return py.float(tle.bstarDrag);
 }
 fn getNdot(tle: *const Tle) [*c]c.PyObject {
-    // First derivative of mean motion (rev/day^2 -> rad/min^2)
-    // The TLE stores it in rev/day^2 / 2
+    // rev/day^2 -> rad/min^2, keeping the TLE's divide-by-2
     return py.float(tle.firstDerMeanMotion * constants.twoPi / (constants.minutesPerDay * constants.minutesPerDay));
 }
 
@@ -477,33 +385,33 @@ fn getSgp4Elements(self: *const SatrecObject) ?*const Sgp4.Elements {
     return null;
 }
 
-fn getA(self: *const SatrecObject) [*c]c.PyObject {
-    const el = getSgp4Elements(self) orelse {
-        py.raiseRuntime("Satrec not initialized");
-        return null;
-    };
-    return py.float(el.a);
+fn makeElementsGetter(comptime getter: fn (*const Sgp4.Elements) f64) fn ([*c]c.PyObject, ?*anyopaque) callconv(.c) [*c]c.PyObject {
+    return struct {
+        fn get(self_obj: [*c]c.PyObject, _: ?*anyopaque) callconv(.c) [*c]c.PyObject {
+            const self: *SatrecObject = @ptrCast(@alignCast(self_obj));
+            const el = getSgp4Elements(self) orelse {
+                py.raiseRuntime("Satrec not initialized");
+                return null;
+            };
+            return py.float(getter(el));
+        }
+    }.get;
 }
-fn getAlta(self: *const SatrecObject) [*c]c.PyObject {
-    const el = getSgp4Elements(self) orelse {
-        py.raiseRuntime("Satrec not initialized");
-        return null;
-    };
-    return py.float(el.a * (1.0 + el.ecco) - 1.0);
+
+fn getA(el: *const Sgp4.Elements) f64 {
+    return el.a;
 }
-fn getAltp(self: *const SatrecObject) [*c]c.PyObject {
-    const el = getSgp4Elements(self) orelse {
-        py.raiseRuntime("Satrec not initialized");
-        return null;
-    };
-    return py.float(el.a * (1.0 - el.ecco) - 1.0);
+fn getAlta(el: *const Sgp4.Elements) f64 {
+    return el.a * (1.0 + el.ecco) - 1.0;
+}
+fn getAltp(el: *const Sgp4.Elements) f64 {
+    return el.a * (1.0 - el.ecco) - 1.0;
 }
 fn getIsDeepSpace(self: *const SatrecObject) [*c]c.PyObject {
     return c.PyBool_FromLong(if (self.sdp4 != null) @as(c_long, 1) else @as(c_long, 0));
 }
 
 const satrec_getset = [_]c.PyGetSetDef{
-    // TLE-derived attributes
     .{ .name = "satnum", .get = @ptrCast(&makeTleGetter(getSatnum)), .set = null, .doc = "NORAD catalog number", .closure = null },
     .{ .name = "satnum_str", .get = @ptrCast(&makeTleGetter(getSatnumStr)), .set = null, .doc = "Catalog number as written in a TLE (Alpha-5 above 99999)", .closure = null },
     .{ .name = "intldesg", .get = @ptrCast(&makeTleGetter(getIntldesg)), .set = null, .doc = "International designator as written in a TLE (e.g. 98067A)", .closure = null },
@@ -522,29 +430,21 @@ const satrec_getset = [_]c.PyGetSetDef{
     .{ .name = "no_kozai", .get = @ptrCast(&makeTleGetter(getNoKozai)), .set = null, .doc = "Mean motion (radians/minute, Kozai)", .closure = null },
     .{ .name = "bstar", .get = @ptrCast(&makeTleGetter(getBstar)), .set = null, .doc = "B* drag term", .closure = null },
     .{ .name = "ndot", .get = @ptrCast(&makeTleGetter(getNdot)), .set = null, .doc = "First derivative of mean motion (rad/min^2)", .closure = null },
-    // Satrec state attributes
     .{ .name = "jdsatepoch", .get = @ptrCast(&makeGetter(getJdsatepoch)), .set = null, .doc = "Epoch Julian date (integer part)", .closure = null },
     .{ .name = "jdsatepochF", .get = @ptrCast(&makeGetter(getJdsatepochF)), .set = null, .doc = "Epoch Julian date (fractional part)", .closure = null },
     .{ .name = "error", .get = @ptrCast(&makeGetter(getError)), .set = null, .doc = "Last error code (0 = success)", .closure = null },
     .{ .name = "t", .get = @ptrCast(&makeGetter(getT)), .set = null, .doc = "Last propagation time (minutes from epoch)", .closure = null },
-    // Derived orbital elements
-    .{ .name = "a", .get = @ptrCast(&makeGetter(getA)), .set = null, .doc = "Semi-major axis (Earth radii)", .closure = null },
-    .{ .name = "alta", .get = @ptrCast(&makeGetter(getAlta)), .set = null, .doc = "Apoapsis altitude (Earth radii)", .closure = null },
-    .{ .name = "altp", .get = @ptrCast(&makeGetter(getAltp)), .set = null, .doc = "Periapsis altitude (Earth radii)", .closure = null },
-    // Propagator type
+    .{ .name = "a", .get = @ptrCast(&makeElementsGetter(getA)), .set = null, .doc = "Semi-major axis (Earth radii)", .closure = null },
+    .{ .name = "alta", .get = @ptrCast(&makeElementsGetter(getAlta)), .set = null, .doc = "Apoapsis altitude (Earth radii)", .closure = null },
+    .{ .name = "altp", .get = @ptrCast(&makeElementsGetter(getAltp)), .set = null, .doc = "Periapsis altitude (Earth radii)", .closure = null },
     .{ .name = "is_deep_space", .get = @ptrCast(&makeGetter(getIsDeepSpace)), .set = null, .doc = "True if using SDP4 deep-space propagator", .closure = null },
     .{ .name = null, .get = null, .set = null, .doc = null, .closure = null },
 };
 
-// Module-level functions
-
-/// Batch SDP4 propagation with threading.
-/// sdp4_batch_propagate_into(satrecs, jd, fr, positions, velocities,
-///     output_stride=-1, sat_offset=0) -> None
-/// Propagates multiple SDP4 satellites in parallel using Zig threads.
-/// Default (output_stride=-1): satellite-major output (n_sdp4, n_times, 3).
-/// With output_stride/sat_offset: time-major output, writing satellite s at
-/// pos[t * output_stride * 3 + (sat_offset + s) * 3] for direct mixed-constellation use.
+/// sdp4_batch_propagate_into(satrecs, jd, fr, positions, velocities, output_stride=-1, sat_offset=0)
+/// Output is satellite-major (n_sdp4, n_times, 3) by default. With output_stride > 0
+/// it's time-major, with satellite s at column sat_offset + s, so the caller can
+/// write SDP4 results straight into a mixed constellation's array.
 pub fn pySdp4BatchPropagateInto(_: [*c]c.PyObject, args: [*c]c.PyObject, kwds: [*c]c.PyObject) callconv(.c) [*c]c.PyObject {
     var satrecs_obj: [*c]c.PyObject = null;
     var jd_obj: [*c]c.PyObject = null;
@@ -565,7 +465,6 @@ pub fn pySdp4BatchPropagateInto(_: [*c]c.PyObject, args: [*c]c.PyObject, kwds: [
     const num_sats: usize = @intCast(c.PySequence_Size(satrecs_obj));
     if (num_sats == 0) return py.none();
 
-    // Get buffers
     var jd_buf = std.mem.zeroes(c.Py_buffer);
     var fr_buf = std.mem.zeroes(c.Py_buffer);
     var pos_buf = std.mem.zeroes(c.Py_buffer);
@@ -586,7 +485,6 @@ pub fn pySdp4BatchPropagateInto(_: [*c]c.PyObject, args: [*c]c.PyObject, kwds: [
     const pos_ptr: [*]f64 = @ptrCast(@alignCast(pos_buf.buf));
     const vel_ptr: [*]f64 = @ptrCast(@alignCast(vel_buf.buf));
 
-    // Extract SDP4 propagators and epochs from Satrec objects
     const sdp4_ptrs = allocator.alloc(*const Sdp4, num_sats) catch {
         py.raiseRuntime("Out of memory");
         return null;
@@ -619,8 +517,6 @@ pub fn pySdp4BatchPropagateInto(_: [*c]c.PyObject, args: [*c]c.PyObject, kwds: [
         epochs[i] = satrec.jdsatepoch + satrec.jdsatepochF;
     }
 
-    // Propagate in parallel using threads
-    // Default: satellite-major (n_sdp4, n_times, 3). With output_stride: time-major, strided.
     const time_major = output_stride_arg > 0;
     const stride: usize = if (time_major) @intCast(output_stride_arg) else num_sats;
     const offset: usize = @intCast(sat_offset_arg);
@@ -647,7 +543,6 @@ fn sdp4BatchPropagate(
     const num_sats = sdp4_ptrs.len;
     const num_simd_batches = @divCeil(num_sats, SdpSimdN);
 
-    // Build SIMD batch elements by transposing groups of N Sdp4.Elements
     const batch_els = allocator.alloc(Sdp4Batch.Sdp4BatchElements(SdpSimdN), num_simd_batches) catch return;
     defer allocator.free(batch_els);
     const batch_epochs = allocator.alloc([SdpSimdN]f64, num_simd_batches) catch return;
@@ -667,7 +562,6 @@ fn sdp4BatchPropagate(
         batch_epochs[b] = ep;
     }
 
-    // Build origIndices: sequential from sat_offset
     const padded = num_simd_batches * SdpSimdN;
     const origIndices = allocator.alloc(u32, padded) catch return;
     defer allocator.free(origIndices);
@@ -689,10 +583,9 @@ fn sdp4BatchPropagate(
     ) catch return;
 }
 
-/// SDP4 sorted propagation writing to strided time-major output (scalar fallback).
-/// For satellite at column `sat_col`, time `t` writes to:
-///   pos_ptr[t * time_stride + sat_col * 3]
-fn propagateArraySdp4SortedStrided(
+/// Scalar SDP4 over many times. Carrying the resonance state between calls
+/// avoids re-integrating from t=0 for every time.
+fn propagateArraySdp4(
     propagator: *const Sdp4,
     n_times: usize,
     epochJd: f64,
@@ -700,25 +593,18 @@ fn propagateArraySdp4SortedStrided(
     fr_ptr: [*]const f64,
     pos_ptr: [*]f64,
     vel_ptr: [*]f64,
-    time_stride: usize,
-    sat_col: usize,
 ) void {
     var carry = Sdp4.ResonanceCarry{
         .atime = 0.0,
         .xli = propagator.elements.xlamo,
         .xni = propagator.elements.sgp4.noUnkozai,
     };
-    const col_offset = sat_col * 3;
     for (0..n_times) |i| {
-        const base = i * time_stride + col_offset;
+        const base = i * 3;
         const tsince = ((jd_ptr[i] + fr_ptr[i]) - epochJd) * constants.minutesPerDay;
         if (propagator.propagateCarry(tsince, &carry)) |result| {
-            pos_ptr[base + 0] = result[0][0];
-            pos_ptr[base + 1] = result[0][1];
-            pos_ptr[base + 2] = result[0][2];
-            vel_ptr[base + 0] = result[1][0];
-            vel_ptr[base + 1] = result[1][1];
-            vel_ptr[base + 2] = result[1][2];
+            pos_ptr[base..][0..3].* = result[0];
+            vel_ptr[base..][0..3].* = result[1];
         } else |_| {
             pos_ptr[base..][0..3].* = @splat(std.math.nan(f64));
             vel_ptr[base..][0..3].* = @splat(std.math.nan(f64));
@@ -747,19 +633,7 @@ pub fn pyJday(_: [*c]c.PyObject, args: [*c]c.PyObject) callconv(.c) [*c]c.PyObje
         second,
     );
 
-    const jd_obj = py.float(result.jd) orelse return null;
-    const fr_obj = py.float(result.fr) orelse {
-        py.decref(jd_obj);
-        return null;
-    };
-    const tup = py.tuple(2) orelse {
-        py.decref(jd_obj);
-        py.decref(fr_obj);
-        return null;
-    };
-    py.tupleSet(tup, 0, jd_obj);
-    py.tupleSet(tup, 1, fr_obj);
-    return tup;
+    return c.Py_BuildValue("(dd)", result.jd, result.fr);
 }
 
 /// days2mdhms(year, days) -> (month, day, hour, minute, second)
@@ -772,49 +646,18 @@ pub fn pyDays2mdhms(_: [*c]c.PyObject, args: [*c]c.PyObject) callconv(.c) [*c]c.
 
     const result = Datetime.days2mdhms(@intCast(year), days);
 
-    const month_obj = py.int(@intCast(result.month)) orelse return null;
-    const day_obj = py.int(@intCast(result.day)) orelse {
-        py.decref(month_obj);
-        return null;
-    };
-    const hour_obj = py.int(@intCast(result.hour)) orelse {
-        py.decref(month_obj);
-        py.decref(day_obj);
-        return null;
-    };
-    const minute_obj = py.int(@intCast(result.minute)) orelse {
-        py.decref(month_obj);
-        py.decref(day_obj);
-        py.decref(hour_obj);
-        return null;
-    };
-    const second_obj = py.float(result.second) orelse {
-        py.decref(month_obj);
-        py.decref(day_obj);
-        py.decref(hour_obj);
-        py.decref(minute_obj);
-        return null;
-    };
-
-    const tup = py.tuple(5) orelse {
-        py.decref(month_obj);
-        py.decref(day_obj);
-        py.decref(hour_obj);
-        py.decref(minute_obj);
-        py.decref(second_obj);
-        return null;
-    };
-    py.tupleSet(tup, 0, month_obj);
-    py.tupleSet(tup, 1, day_obj);
-    py.tupleSet(tup, 2, hour_obj);
-    py.tupleSet(tup, 3, minute_obj);
-    py.tupleSet(tup, 4, second_obj);
-    return tup;
+    return c.Py_BuildValue(
+        "(iiiid)",
+        @as(c_int, result.month),
+        @as(c_int, result.day),
+        @as(c_int, result.hour),
+        @as(c_int, result.minute),
+        result.second,
+    );
 }
 
-// ============================================================================
-// SatrecArray - Batch propagator using Sgp4Constellation for SIMD
-// ============================================================================
+// SatrecArray holds SGP4 satellites only; the Python wrapper sends deep-space
+// satellites through sdp4_batch_propagate_into instead.
 
 pub const SatrecArrayObject = shared.BatchObjectFields;
 
@@ -826,17 +669,7 @@ fn satrecarray_get_epochs(self_obj: [*c]c.PyObject, _: ?*anyopaque) callconv(.c)
         py.raiseRuntime("SatrecArray not initialized");
         return null;
     };
-    const num_sats = self.num_satellites;
-
-    const list = c.PyList_New(@intCast(num_sats)) orelse return null;
-    for (0..num_sats) |i| {
-        const jd_obj = py.float(epoch_jds[i]) orelse {
-            py.decref(list);
-            return null;
-        };
-        _ = c.PyList_SetItem(list, @intCast(i), jd_obj);
-    }
-    return list;
+    return py.listFromF64(epoch_jds[0..self.num_satellites]);
 }
 
 fn satrecarray_get_num_satellites(self_obj: [*c]c.PyObject, _: ?*anyopaque) callconv(.c) [*c]c.PyObject {
@@ -856,17 +689,11 @@ fn initSatrecArrayType() void {
     SatrecArrayType.tp_doc = "Batch SGP4 propagator for multiple satellites (python-sgp4 compatible).\n\nUse SatrecArray(satrecs) with a list of Satrec objects.";
     SatrecArrayType.tp_basicsize = @sizeOf(SatrecArrayObject);
     SatrecArrayType.tp_flags = c.Py_TPFLAGS_DEFAULT | c.Py_TPFLAGS_BASETYPE;
-    SatrecArrayType.tp_new = @ptrCast(&satrecarray_new);
+    SatrecArrayType.tp_new = c.PyType_GenericNew;
     SatrecArrayType.tp_init = @ptrCast(&satrecarray_init);
     SatrecArrayType.tp_dealloc = @ptrCast(&satrecarray_dealloc);
     SatrecArrayType.tp_methods = @constCast(&satrecarray_methods);
     SatrecArrayType.tp_getset = @constCast(&satrecarray_getset);
-}
-
-fn satrecarray_new(typ: [*c]c.PyTypeObject, _: [*c]c.PyObject, _: [*c]c.PyObject) callconv(.c) [*c]c.PyObject {
-    const self: *SatrecArrayObject = @ptrCast(@alignCast(c.PyType_GenericAlloc(typ, 0) orelse return null));
-    shared.initBatchFields(self);
-    return @ptrCast(self);
 }
 
 fn satrecarray_init(self_obj: [*c]c.PyObject, args: [*c]c.PyObject, _: [*c]c.PyObject) callconv(.c) c_int {
@@ -887,10 +714,8 @@ fn satrecarray_init(self_obj: [*c]c.PyObject, args: [*c]c.PyObject, _: [*c]c.PyO
         return -1;
     }
 
-    // Free old data if reinitializing
     shared.freeBatchFields(self);
 
-    // Extract TLEs and gravity model from Satrec objects
     const tles = allocator.alloc(Tle, num_sats) catch {
         py.raiseRuntime("Out of memory");
         return -1;
@@ -917,7 +742,7 @@ fn satrecarray_init(self_obj: [*c]c.PyObject, args: [*c]c.PyObject, _: [*c]c.PyO
             return -1;
         }).*;
 
-        // Use first satellite's gravity model
+        // The whole batch uses the first satellite's gravity model
         if (i == 0) grav_model = satrec.whichconst;
     }
 
@@ -932,8 +757,6 @@ fn satrecarray_dealloc(self_obj: [*c]c.PyObject) callconv(.c) void {
     if (py.pyType(self_obj)) |tp| if (tp.*.tp_free) |free| free(@as(?*anyopaque, @ptrCast(self)));
 }
 
-/// propagate_into(times, positions, velocities, epoch_offsets) -> None
-/// Fastest path - matches Sgp4Constellation.propagate_into exactly
 fn satrecarray_propagate_into(self_obj: [*c]c.PyObject, args: [*c]c.PyObject, kwds: [*c]c.PyObject) callconv(.c) [*c]c.PyObject {
     const self: *SatrecArrayObject = @ptrCast(@alignCast(self_obj));
     var times_obj: [*c]c.PyObject = null;
@@ -949,83 +772,7 @@ fn satrecarray_propagate_into(self_obj: [*c]c.PyObject, args: [*c]c.PyObject, kw
         return null;
     })[0..self.num_batches];
 
-    // Get buffers
-    var times_buf = std.mem.zeroes(c.Py_buffer);
-    var pos_buf = std.mem.zeroes(c.Py_buffer);
-    var vel_buf = std.mem.zeroes(c.Py_buffer);
-    var offsets_buf = std.mem.zeroes(c.Py_buffer);
-
-    if (c.PyObject_GetBuffer(times_obj, &times_buf, c.PyBUF_SIMPLE | c.PyBUF_FORMAT) < 0) return null;
-    defer c.PyBuffer_Release(&times_buf);
-
-    if (c.PyObject_GetBuffer(pos_obj, &pos_buf, c.PyBUF_WRITABLE | c.PyBUF_FORMAT) < 0) return null;
-    defer c.PyBuffer_Release(&pos_buf);
-
-    const num_times = @as(usize, @intCast(times_buf.len)) / @sizeOf(f64);
-    const num_sats = self.num_satellites;
-    const out_size = num_sats * num_times * 3;
-
-    if (@as(usize, @intCast(pos_buf.len)) < out_size * @sizeOf(f64)) {
-        py.raiseValue("positions array too small");
-        return null;
-    }
-
-    // Optional velocities
-    var have_vel = false;
-    if (vel_obj != null and !py.isNone(vel_obj)) {
-        if (c.PyObject_GetBuffer(vel_obj, &vel_buf, c.PyBUF_WRITABLE | c.PyBUF_FORMAT) < 0) return null;
-        have_vel = true;
-        if (@as(usize, @intCast(vel_buf.len)) < out_size * @sizeOf(f64)) {
-            c.PyBuffer_Release(&vel_buf);
-            py.raiseValue("velocities array too small");
-            return null;
-        }
-    }
-    defer if (have_vel) c.PyBuffer_Release(&vel_buf);
-
-    // Get epoch offsets (required for this fast path)
-    var epoch_offsets: []f64 = undefined;
-    var owned_offsets: ?[]f64 = null;
-    defer if (owned_offsets) |o| allocator.free(o);
-
-    if (offsets_obj != null and !py.isNone(offsets_obj)) {
-        if (c.PyObject_GetBuffer(offsets_obj, &offsets_buf, c.PyBUF_SIMPLE | c.PyBUF_FORMAT) < 0) return null;
-        defer c.PyBuffer_Release(&offsets_buf);
-        const ptr: [*]f64 = @ptrCast(@alignCast(offsets_buf.buf));
-        epoch_offsets = @constCast(ptr[0..self.padded_count]);
-    } else {
-        // Default: compute from stored epoch_jds assuming reference_jd = first epoch
-        const alloc = allocator.alloc(f64, self.padded_count) catch {
-            py.raiseRuntime("Out of memory");
-            return null;
-        };
-        owned_offsets = alloc;
-        for (0..self.padded_count) |i| {
-            alloc[i] = 0.0; // Zero offset = propagate relative to each satellite's epoch
-        }
-        epoch_offsets = alloc;
-    }
-
-    const times: [*]const f64 = @ptrCast(@alignCast(times_buf.buf));
-    const pos_out: [*]f64 = @ptrCast(@alignCast(pos_buf.buf));
-
-    astroz.Constellation.propagateConstellation(
-        batches,
-        num_sats,
-        times[0..num_times],
-        epoch_offsets,
-        pos_out[0..out_size],
-        if (have_vel) @as([*]f64, @ptrCast(@alignCast(vel_buf.buf)))[0..out_size] else null,
-        .teme,
-        0.0, // reference_jd not used for TEME
-        null, // no mask
-        .timeMajor,
-    ) catch {
-        py.raiseValue("Propagation failed");
-        return null;
-    };
-
-    return py.none();
+    return shared.propagateInto(self, batches, times_obj, pos_obj, vel_obj, offsets_obj, null, .{});
 }
 
 const satrecarray_methods = [_]c.PyMethodDef{

@@ -33,10 +33,8 @@ pub const Propagator = struct {
         var t = t0;
         const t_end = t0 + duration;
 
-        // Store initial state
         try trajectory.append(self.allocator, .{ .time = t, .state = state });
 
-        // Step through time
         while (t < t_end) {
             const step_dt = @min(dt, t_end - t);
             state = try self.integrator.step(state, t, step_dt, self.force);
@@ -67,12 +65,6 @@ pub const Propagator = struct {
     }
 };
 
-test "propagator compiles" {
-    // Just verify the types compile correctly
-    _ = Propagator;
-    _ = StateTime;
-}
-
 test "rk4 twobody orbit" {
     const Rk4 = @import("Integrator.zig").Rk4;
     const TwoBody = @import("ForceModel.zig").TwoBody;
@@ -87,26 +79,21 @@ test "rk4 twobody orbit" {
         ForceModel.wrap(TwoBody, &twobody),
     );
 
-    // Circular orbit at ~7000 km radius
-    // v_circular = sqrt(mu/r) ~= 7.55 km/s
     const r0 = 7000.0;
     const v0 = @sqrt(mu / r0);
     const initial = [6]f64{ r0, 0.0, 0.0, 0.0, v0, 0.0 };
 
-    // Propagate for one orbit period: T = 2*pi*sqrt(a^3/mu)
     const period = 2.0 * std.math.pi * @sqrt(r0 * r0 * r0 / mu);
 
     var trajectory = try propagator.propagate(initial, 0, period, 10.0);
     defer trajectory.deinit(std.testing.allocator);
 
-    // Should return to approximately the same position after one orbit
+    // one full circular orbit should land back near the start
     const final = trajectory.items[trajectory.items.len - 1].state;
     const final_r = @sqrt(final[0] * final[0] + final[1] * final[1] + final[2] * final[2]);
 
-    // Radius should be conserved (within numerical tolerance)
     try std.testing.expectApproxEqRel(r0, final_r, 1e-4);
 
-    // Should be back near starting position
-    try std.testing.expectApproxEqAbs(r0, final[0], 50.0); // within 50 km
+    try std.testing.expectApproxEqAbs(r0, final[0], 50.0);
     try std.testing.expectApproxEqAbs(0.0, final[1], 50.0);
 }

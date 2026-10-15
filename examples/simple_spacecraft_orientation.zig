@@ -16,46 +16,25 @@ pub fn main(init: std.process.Init) !void {
     var sc = Spacecraft.init("dummy_sc", testTle, 300.000, Spacecraft.SatelliteSize.Cube, constants.earth, allocator);
     defer sc.deinit();
 
-    sc.angularVelocity = .{ 0.0, 0.0, 0.0 };
-
-    const dt = 120.0; // 2 mins time step
-    const simulationTime = 3 * 24 * 60 * 60.0; // 3 days in seconds
-    const orbitalPeriod = 90 * 60.0; // 90 minutes orbital period
+    const dt = 120.0;
+    const simulationTime = 3 * 24 * 60 * 60.0;
+    const orbitalPeriod = 90 * 60.0;
     var t: f64 = 0;
 
+    std.debug.print("{s:>6} {s:>34} {s:>30}\n", .{ "hr", "quaternion", "angular velocity (rad/s)" });
     while (t < simulationTime) : (t += dt) {
-        // Simulate a dramatic torque effect
-        const torqueX = 0.001 * @sin(2 * std.math.pi * t / (orbitalPeriod * 2));
-        const torqueY = 0.0005 * @cos(2 * std.math.pi * t / (orbitalPeriod * 3));
-        const torqueZ = 0.0002 * @sin(2 * std.math.pi * t / orbitalPeriod);
+        // made-up periodic torques, applied directly to the angular velocity
+        sc.angularVelocity[0] += 0.001 * @sin(2 * std.math.pi * t / (orbitalPeriod * 2)) * dt;
+        sc.angularVelocity[1] += 0.0005 * @cos(2 * std.math.pi * t / (orbitalPeriod * 3)) * dt;
+        sc.angularVelocity[2] += 0.0002 * @sin(2 * std.math.pi * t / orbitalPeriod) * dt;
 
-        // Update angular velocity based on torque (simplified)
-        sc.angularVelocity[0] += torqueX * dt;
-        sc.angularVelocity[1] += torqueY * dt;
-        sc.angularVelocity[2] += torqueZ * dt;
-
-        // Update attitude
         sc.updateAttitude();
         sc.propagateAttitude(dt);
 
-        // Simulate simple circular orbit
-        const orbitRadius = 7000.0;
-        const x = orbitRadius * @cos(2 * std.math.pi * t / orbitalPeriod);
-        const y = orbitRadius * @sin(2 * std.math.pi * t / orbitalPeriod);
-        const z = 0.0;
-
-        std.log.debug("Showing orbiting info: {d},{d},{d},{d},{d},{d},{d},{d},{d},{d},{d}\n", .{
-            t,
-            sc.quaternion[0],
-            sc.quaternion[1],
-            sc.quaternion[2],
-            sc.quaternion[3],
-            sc.angularVelocity[0],
-            sc.angularVelocity[1],
-            sc.angularVelocity[2],
-            x,
-            y,
-            z,
-        });
+        if (@mod(t, 6 * 3600.0) == 0) {
+            const q = sc.quaternion;
+            const w = sc.angularVelocity;
+            std.debug.print("{d:6.0} [{d:7.4} {d:7.4} {d:7.4} {d:7.4}] [{d:8.4} {d:8.4} {d:8.4}]\n", .{ t / 3600.0, q[0], q[1], q[2], q[3], w[0], w[1], w[2] });
+        }
     }
 }

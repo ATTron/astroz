@@ -45,10 +45,8 @@ pub fn coarseScreen(
     const EMPTY: u32 = std.math.maxInt(u32);
 
     for (0..num_times) |t| {
-        // Reset hash table heads
         @memset(head, EMPTY);
 
-        // Assign satellites to cells and build hash chains
         for (0..num_sats) |s| {
             if (valid_mask) |m| {
                 if (m[s] == 0) {
@@ -75,7 +73,6 @@ pub fn coarseScreen(
             const h = spatialHash(cx, cy, cz) & TABLE_MASK;
             sat_hashes[s] = h;
 
-            // Insert into chain
             next[s] = head[h];
             head[h] = @intCast(s);
         }
@@ -92,7 +89,6 @@ pub fn coarseScreen(
             const scy = sat_cy[s];
             const scz = sat_cz[s];
 
-            // Check 27 neighbor cells
             var dcx: i32 = -1;
             while (dcx <= 1) : (dcx += 1) {
                 var dcy: i32 = -1;
@@ -138,7 +134,6 @@ pub fn coarseScreen(
 }
 
 fn spatialHash(cx: i32, cy: i32, cz: i32) u32 {
-    // Fast spatial hash combining cell coordinates
     var h: u32 = @bitCast(cx);
     h = h *% 2654435761; // Knuth's multiplicative hash
     h ^= @bitCast(cy);
@@ -148,7 +143,6 @@ fn spatialHash(cx: i32, cy: i32, cz: i32) u32 {
     return h;
 }
 
-/// Python wrapper for coarseScreen
 pub fn py_coarse_screen(_: [*c]c.PyObject, args: [*c]c.PyObject) callconv(.c) [*c]c.PyObject {
     var pos_obj: [*c]c.PyObject = null;
     var num_sats_long: c_long = 0;
@@ -159,7 +153,6 @@ pub fn py_coarse_screen(_: [*c]c.PyObject, args: [*c]c.PyObject) callconv(.c) [*
 
     const num_sats: usize = @intCast(num_sats_long);
 
-    // Get positions buffer
     var pos_buf = std.mem.zeroes(c.Py_buffer);
     if (c.PyObject_GetBuffer(pos_obj, &pos_buf, c.PyBUF_SIMPLE | c.PyBUF_FORMAT) < 0) return null;
     defer c.PyBuffer_Release(&pos_buf);
@@ -173,7 +166,6 @@ pub fn py_coarse_screen(_: [*c]c.PyObject, args: [*c]c.PyObject) callconv(.c) [*
     }
     const num_times = total_elements / (num_sats * 3);
 
-    // Get optional valid_mask
     var mask_buf = std.mem.zeroes(c.Py_buffer);
     var valid_mask: ?[*]const u8 = null;
     var have_mask = false;
@@ -198,7 +190,6 @@ pub fn py_coarse_screen(_: [*c]c.PyObject, args: [*c]c.PyObject) callconv(.c) [*
     };
     defer allocator.free(out_t_indices);
 
-    // Run the kernel
     const count = coarseScreen(
         positions,
         num_sats,
@@ -210,7 +201,6 @@ pub fn py_coarse_screen(_: [*c]c.PyObject, args: [*c]c.PyObject) callconv(.c) [*
         max_results,
     );
 
-    // Build Python result
     const pairs_list = c.PyList_New(@intCast(count)) orelse return null;
     for (0..count) |i| {
         const pair_tuple = py.tuple(2) orelse {
@@ -232,13 +222,5 @@ pub fn py_coarse_screen(_: [*c]c.PyObject, args: [*c]c.PyObject) callconv(.c) [*
         py.decref(pairs_list);
         return null;
     };
-
-    const result = py.tuple(2) orelse {
-        py.decref(pairs_list);
-        py.decref(times_list);
-        return null;
-    };
-    py.tupleSet(result, 0, pairs_list);
-    py.tupleSet(result, 1, times_list);
-    return result;
+    return c.Py_BuildValue("(NN)", pairs_list, times_list);
 }

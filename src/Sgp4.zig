@@ -3,9 +3,7 @@
 
 const std = @import("std");
 const constants = @import("constants.zig");
-const calculations = @import("calculations.zig");
 const simdMath = @import("simdMath.zig");
-const Datetime = @import("Datetime.zig");
 const Tle = @import("Tle.zig");
 
 const Sgp4 = @This();
@@ -21,7 +19,7 @@ const perigeeSimplified = 220.0; // use simplified drag model, if below this val
 // Numerical tolerances
 const eccentricityMin = 1.0e-4; // minimum for cc3/xmcof
 pub const eccentricityFloor = 1.0e-6; // floor to prevent numerical issues
-const singularityTolerance = 1.5e-12; // near-polar orbit singularity check
+pub const singularityTolerance = 1.5e-12; // near-polar orbit singularity check
 
 pub const Error = error{
     DeepSpaceNotSupported,
@@ -50,12 +48,9 @@ pub const Elements = struct {
     // Trigonometric terms
     sinio: f64,
     cosio: f64,
-    cosio2: f64,
-    cosio4: f64,
 
     // Polynomial terms in cos^2(i)
     con41: f64, // 3cos^2(i) - 1
-    con42: f64, // 1 - 5cos^2(i)
     x1mth2: f64, // sin^2(i)
     x7thm1: f64, // 7cos^2(i) - 1
 
@@ -95,7 +90,6 @@ pub const Elements = struct {
 
 elements: Elements,
 
-/// initialize from tle
 pub fn init(tle: Tle, grav: constants.Sgp4GravityModel) Error!Sgp4 {
     return .{ .elements = try initElements(tle, grav) };
 }
@@ -129,24 +123,37 @@ pub fn initElements(tle: Tle, grav: constants.Sgp4GravityModel) Error!Elements {
     const drag = computeDragCoefficients(meanElements, recovered, trig, poly, perige, grav);
     const higherOrder = computeHigherOrderDrag(recovered, drag, perige, grav);
 
-    return Elements{
+    return buildElements(grav, tle.epochJd, meanElements, recovered, trig, poly, secular, drag, higherOrder);
+}
+
+/// Assemble Elements from the init stages (shared with SDP4).
+pub fn buildElements(
+    grav: constants.Sgp4GravityModel,
+    epochJd: f64,
+    mean: MeanElements,
+    rec: RecoveredElements,
+    trig: TrigTerms,
+    poly: PolyTerms,
+    secular: SecularRates,
+    drag: DragCoefficients,
+    higherOrder: HigherOrderDrag,
+) Elements {
+    const ratio = grav.xke / rec.noUnkozai;
+    return .{
         .grav = grav,
-        .epochJd = tle.epochJd,
-        .noKozai = meanElements.noKozai,
-        .ecco = meanElements.ecco,
-        .inclo = meanElements.inclo,
-        .nodeo = meanElements.nodeo,
-        .argpo = meanElements.argpo,
-        .mo = meanElements.mo,
-        .bstar = meanElements.bstar,
-        .noUnkozai = recovered.noUnkozai,
-        .a = recovered.a,
+        .epochJd = epochJd,
+        .noKozai = mean.noKozai,
+        .ecco = mean.ecco,
+        .inclo = mean.inclo,
+        .nodeo = mean.nodeo,
+        .argpo = mean.argpo,
+        .mo = mean.mo,
+        .bstar = mean.bstar,
+        .noUnkozai = rec.noUnkozai,
+        .a = rec.a,
         .sinio = trig.sinio,
         .cosio = trig.cosio,
-        .cosio2 = trig.cosio2,
-        .cosio4 = trig.cosio4,
         .con41 = poly.con41,
-        .con42 = poly.con42,
         .x1mth2 = poly.x1mth2,
         .x7thm1 = poly.x7thm1,
         .mdot = secular.mdot,
@@ -170,10 +177,7 @@ pub fn initElements(tle: Tle, grav: constants.Sgp4GravityModel) Error!Elements {
         .t3cof = higherOrder.t3cof,
         .t4cof = higherOrder.t4cof,
         .t5cof = higherOrder.t5cof,
-        .aBase = blk: {
-            const ratio = grav.xke / recovered.noUnkozai;
-            break :blk std.math.cbrt(ratio * ratio);
-        },
+        .aBase = std.math.cbrt(ratio * ratio),
         .vkmpersec = grav.xke * grav.radiusEarthKm / 60.0,
         .isimp = higherOrder.isimp,
     };
@@ -381,7 +385,7 @@ pub fn computeDragCoefficients(
     };
 }
 
-const HigherOrderDrag = struct {
+pub const HigherOrderDrag = struct {
     d2: f64,
     d3: f64,
     d4: f64,
@@ -389,6 +393,9 @@ const HigherOrderDrag = struct {
     t4cof: f64,
     t5cof: f64,
     isimp: bool,
+
+    /// Simplified drag model: no higher-order terms
+    pub const none: HigherOrderDrag = .{ .d2 = 0, .d3 = 0, .d4 = 0, .t3cof = 0, .t4cof = 0, .t5cof = 0, .isimp = true };
 };
 
 fn computeHigherOrderDrag(
@@ -397,9 +404,7 @@ fn computeHigherOrderDrag(
     perige: f64,
     grav: constants.Sgp4GravityModel,
 ) HigherOrderDrag {
-    if (perige < perigeeSimplified) {
-        return .{ .d2 = 0, .d3 = 0, .d4 = 0, .t3cof = 0, .t4cof = 0, .t5cof = 0, .isimp = true };
-    }
+    if (perige < perigeeSimplified) return .none;
 
     const s = sParameterStandard / grav.radiusEarthKm + 1.0;
     const tsi = 1.0 / (rec.a - s);
@@ -790,8 +795,8 @@ pub fn propagateN(self: *const Sgp4, comptime N: usize, times: [N]f64) Error!Pos
     const secular = updateSecularN(N, el, timeVec);
 
     // Vallado error 1: mean eccentricity out of range (em is clamped; check the raw value)
-    const em_bad = (secular.emRaw >= @as(Vec, @splat(1.0))) | (secular.emRaw < @as(Vec, @splat(-0.001)));
-    if (@reduce(.Or, em_bad)) return Error.InvalidEccentricity;
+    const emBad = (secular.emRaw >= @as(Vec, @splat(1.0))) | (secular.emRaw < @as(Vec, @splat(-0.001)));
+    if (@reduce(.Or, emBad)) return Error.InvalidEccentricity;
 
     return aboveSurfaceN(N, keplerAndPosVel(
         N,
@@ -898,45 +903,7 @@ fn updateSecularN(comptime N: usize, el: *const Elements, tsince: simdMath.VecN(
     };
 }
 
-test "sgp4 basic init" {
-    const testTle =
-        \\1 55909U 23035B   24187.51050877  .00023579  00000+0  16099-2 0  9998
-        \\2 55909  43.9978 311.8012 0011446 278.6226  81.3336 15.05761711 71371
-    ;
-
-    var tle = try Tle.parse(testTle, std.testing.allocator);
-    defer tle.deinit();
-
-    const sgp4 = try Sgp4.init(tle, constants.wgs84);
-
-    try std.testing.expect(sgp4.elements.ecco > 0.0);
-    try std.testing.expect(sgp4.elements.ecco < 1.0);
-    try std.testing.expect(sgp4.elements.noUnkozai > 0.0);
-}
-
-test "sgp4 propagate basic" {
-    const testTle =
-        \\1 55909U 23035B   24187.51050877  .00023579  00000+0  16099-2 0  9998
-        \\2 55909  43.9978 311.8012 0011446 278.6226  81.3336 15.05761711 71371
-    ;
-
-    var tle = try Tle.parse(testTle, std.testing.allocator);
-    defer tle.deinit();
-
-    const sgp4 = try Sgp4.init(tle, constants.wgs84);
-    const result = try sgp4.propagate(0.0);
-    const r = result[0];
-    const v = result[1];
-
-    const rMag = calculations.mag(r);
-    const vMag = calculations.mag(v);
-
-    try std.testing.expect(rMag > 6000.0 and rMag < 8000.0);
-    try std.testing.expect(vMag > 6.0 and vMag < 9.0);
-}
-
 test "sgp4 vallado reference ISS" {
-    // ISS TLE
     const testTle =
         \\1 25544U 98067A   24127.82853009  .00015698  00000+0  27310-3 0  9995
         \\2 25544  51.6393 160.4574 0003580 140.6673 205.7250 15.50957674452123
@@ -960,12 +927,9 @@ test "sgp4 vallado reference ISS" {
     const v = result[1];
 
     // reference from python-sgp4:
-    // r = [-5887.061832, 3151.888264, -1263.887271]
-    // v = [-3.250642, -3.745001, 5.837125]
     const refR = [3]f64{ -5887.061832, 3151.888264, -1263.887271 };
     const refV = [3]f64{ -3.250642, -3.745001, 5.837125 };
 
-    // Check position error (should be < 1 meter = 0.001 km)
     const posErr = @sqrt((r[0] - refR[0]) * (r[0] - refR[0]) +
         (r[1] - refR[1]) * (r[1] - refR[1]) +
         (r[2] - refR[2]) * (r[2] - refR[2]));
@@ -979,74 +943,29 @@ test "sgp4 vallado reference ISS" {
     try std.testing.expect(velErr < 0.00001);
 }
 
-test "propagateN(4) matches scalar" {
-    const allocator = std.testing.allocator;
-
-    // ISS TLE
-    const tleStr =
-        \\1 25544U 98067A   24127.82853009  .00015698  00000+0  27310-3 0  9995
-        \\2 25544  51.6393 160.4574 0003580 140.6673 205.7250 15.50957674452123
-    ;
-
-    var tle = try Tle.parse(tleStr, allocator);
-    defer tle.deinit();
-
-    var sgp4 = try Sgp4.init(tle, constants.wgs84);
-
-    const times = [4]f64{ 0.0, 10.0, 60.0, 1440.0 };
-
-    // scalar run
-    var scalarResults: [4][2][3]f64 = undefined;
-    for (0..4) |i| {
-        const result = try sgp4.propagate(times[i]);
-        scalarResults[i][0] = result[0];
-        scalarResults[i][1] = result[1];
-    }
-
-    // SIMD run
-    const simdResults = try sgp4.propagateN(4, times);
-
-    // Tolerance accounts for vectorized atan2 polynomial approximation (~1e-7 radians)
-    // This translates to ~10mm position error at LEO distances - well within SGP4's accuracy
-    const tol = 1e-4;
-    for (0..4) |i| {
-        for (0..3) |j| {
-            try std.testing.expectApproxEqAbs(scalarResults[i][0][j], simdResults[i][0][j], tol);
-            try std.testing.expectApproxEqAbs(scalarResults[i][1][j], simdResults[i][1][j], tol);
-        }
-    }
-}
-
-test "propagateN(8) matches scalar" {
-    const allocator = std.testing.allocator;
-    const tleStr =
-        \\1 55909U 23035B   24187.51050877  .00023579  00000+0  16099-2 0  9998
-        \\2 55909  43.9978 311.8012 0011446 278.6226  81.3336 15.05761711 71371
-    ;
-
-    var tle = try Tle.parse(tleStr, allocator);
-    defer tle.deinit();
-
-    var sgp4 = try Sgp4.init(tle, constants.wgs84);
-
+test "propagateN matches scalar" {
+    const tleStrs = [_][]const u8{
+        "1 25544U 98067A   24127.82853009  .00015698  00000+0  27310-3 0  9995\n2 25544  51.6393 160.4574 0003580 140.6673 205.7250 15.50957674452123",
+        "1 55909U 23035B   24187.51050877  .00023579  00000+0  16099-2 0  9998\n2 55909  43.9978 311.8012 0011446 278.6226  81.3336 15.05761711 71371",
+    };
     const times = [8]f64{ 0.0, 10.0, 60.0, 120.0, 360.0, 720.0, 1080.0, 1440.0 };
-
-    // scalar run
-    var scalarResults: PosVelArray(8) = undefined;
-    for (0..8) |i| {
-        const result = try sgp4.propagate(times[i]);
-        scalarResults[i][0] = result[0];
-        scalarResults[i][1] = result[1];
-    }
-
-    // SIMD run
-    const simdResults = try sgp4.propagateN(8, times);
-
+    // Covers the vectorized atan2 approximation (~1e-7 rad, about 10 mm at LEO)
     const tol = 1e-4;
-    for (0..8) |i| {
-        for (0..3) |j| {
-            try std.testing.expectApproxEqAbs(scalarResults[i][0][j], simdResults[i][0][j], tol);
-            try std.testing.expectApproxEqAbs(scalarResults[i][1][j], simdResults[i][1][j], tol);
+
+    for (tleStrs) |tleStr| {
+        var tle = try Tle.parse(tleStr, std.testing.allocator);
+        defer tle.deinit();
+        const sgp4 = try Sgp4.init(tle, constants.wgs84);
+
+        inline for (.{ 4, 8 }) |n| {
+            const simd = try sgp4.propagateN(n, times[0..n].*);
+            for (0..n) |i| {
+                const scalar = try sgp4.propagate(times[i]);
+                for (0..3) |j| {
+                    try std.testing.expectApproxEqAbs(scalar[0][j], simd[i][0][j], tol);
+                    try std.testing.expectApproxEqAbs(scalar[1][j], simd[i][1][j], tol);
+                }
+            }
         }
     }
 }

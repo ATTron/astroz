@@ -15,7 +15,5 @@ pub fn main(init: std.process.Init) !void {
     defer tle.deinit();
     const wcs = WorldCoordinateSystem.fromTle(tle, 0.0, astroz.constants.earth);
 
-    std.log.debug("WCS OUTPUT: {any}", .{wcs});
-
-    tle.output();
+    std.debug.print("ECEF at epoch: x={d:.1} y={d:.1} z={d:.1} km\n", .{ wcs.x, wcs.y, wcs.z });
 }

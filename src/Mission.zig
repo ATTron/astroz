@@ -1,4 +1,4 @@
-//! Base struct for mission planning
+//! Interplanetary transfer planning between two bodies.
 const std = @import("std");
 const log = std.log;
 
@@ -343,10 +343,8 @@ test "mission planning Earth-Mars transfer" {
 test "mission planning parameter validation" {
     const testing = std.testing;
 
-    try testing.expectError(ValidationError.ValueError, MissionParameters.init(constants.earth, constants.mars, -1.0, // Invalid negative time
-        null, "hohmann"));
+    try testing.expectError(ValidationError.ValueError, MissionParameters.init(constants.earth, constants.mars, -1.0, null, "hohmann"));
 
-    // Zero time should be valid for examples/demonstrations
     const validParams = try MissionParameters.init(
         constants.earth,
         constants.mars,
@@ -517,19 +515,16 @@ test "planMission with Hohmann transfer" {
 
     const plan = try mission.planMission(params);
 
-    // Verify it's a Hohmann transfer
     try testing.expect(plan.transfer == .hohmann);
 
-    // Check transfer parameters
     const hohmannTransfer = plan.transfer.hohmann;
     try testing.expect(hohmannTransfer.totalDeltaV > 0);
     try testing.expectApproxEqRel(5.6, hohmannTransfer.totalDeltaV, 0.1);
     try testing.expectApproxEqRel(259.0, hohmannTransfer.transferTimeDays, 1.0);
 
-    // Check synodic period (Earth-Mars synodic period is ~780 days)
+    // Earth-Mars synodic period is ~780 days
     try testing.expect(plan.synodicPeriodDays > 700 and plan.synodicPeriodDays < 800);
 
-    // Verify body information is preserved
     try testing.expectEqual(constants.earth, plan.departureBody);
     try testing.expectEqual(constants.mars, plan.arrivalBody);
 }
@@ -552,15 +547,13 @@ test "planMission with bi-elliptic transfer" {
 
     const plan = try mission.planMission(params);
 
-    // Verify it's a bi-elliptic transfer
     try testing.expect(plan.transfer == .biElliptic);
 
-    // Check transfer parameters
     const biEllipticTransfer = plan.transfer.biElliptic;
     try testing.expect(biEllipticTransfer.totalDeltaV > 0);
     try testing.expect(biEllipticTransfer.totalTimeDays > 0);
 
-    // Bi-elliptic should take longer than Hohmann
+    // longer than the Hohmann transfer
     try testing.expect(biEllipticTransfer.totalTimeDays > 259.0);
 }
 

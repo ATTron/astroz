@@ -21,16 +21,10 @@ fn initType() void {
     TleType.tp_doc = "Two-Line Element set.\n\nArgs:\n    tle_string: TLE string (both lines)";
     TleType.tp_basicsize = @sizeOf(TleObject);
     TleType.tp_flags = c.Py_TPFLAGS_DEFAULT | c.Py_TPFLAGS_BASETYPE;
-    TleType.tp_new = @ptrCast(&tle_new);
+    TleType.tp_new = c.PyType_GenericNew;
     TleType.tp_init = @ptrCast(&tle_init);
     TleType.tp_dealloc = @ptrCast(&tle_dealloc);
     TleType.tp_getset = @constCast(&tle_getset);
-}
-
-fn tle_new(typ: [*c]c.PyTypeObject, _: [*c]c.PyObject, _: [*c]c.PyObject) callconv(.c) [*c]c.PyObject {
-    const self: *TleObject = @ptrCast(@alignCast(c.PyType_GenericAlloc(typ, 0) orelse return null));
-    self.tle = null;
-    return @ptrCast(self);
 }
 
 fn tle_init(self_obj: [*c]c.PyObject, args: [*c]c.PyObject, _: [*c]c.PyObject) callconv(.c) c_int {
@@ -65,7 +59,6 @@ fn tle_dealloc(self_obj: [*c]c.PyObject) callconv(.c) void {
     if (py.pyType(self_obj)) |tp| if (tp.*.tp_free) |free| free(@ptrCast(self));
 }
 
-// Comptime-generated property getters
 fn makeGetter(comptime getter: fn (*const Tle) [*c]c.PyObject) fn ([*c]c.PyObject, ?*anyopaque) callconv(.c) [*c]c.PyObject {
     return struct {
         fn get(self_obj: [*c]c.PyObject, _: ?*anyopaque) callconv(.c) [*c]c.PyObject {

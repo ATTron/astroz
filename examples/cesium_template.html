@@ -146,9 +146,7 @@
         const referenceEpoch = new Date('{{REFERENCE_EPOCH}}');
         const startFrame = {{START_FRAME}};
 
-        // Frames loaded from binary file
         let frames = null;
-        let dataLoaded = false;
         const chunkNames = {{CHUNK_NAMES}};
 
         const constellationColors = {
@@ -157,7 +155,6 @@
             SSO: 'rgb(255,130,130)', LEO53: 'rgb(140,220,200)', Other: 'rgb(180,180,190)'
         };
 
-        // Format time from frame index to HH:MM UTC
         function formatFrameTime(frameIdx) {
             const epochTime = new Date(referenceEpoch.getTime() + frameIdx * 60 * 1000);
             const hh = String(epochTime.getUTCHours()).padStart(2, '0');
@@ -168,7 +165,6 @@
         }
         const constellationVisible = { ISS: true, Starlink: true, OneWeb: true, Planet: true, Spire: true, Iridium: true, SSO: true, LEO53: true, Other: true };
 
-        // Load binary position data
         async function loadPositionData() {
             const loadingDiv = document.createElement('div');
             loadingDiv.id = 'loadingOverlay';
@@ -183,19 +179,15 @@
             try {
                 // Load chunked gzipped files and reassemble
                 const chunks = [];
-                let totalLoaded = 0;
-                const estimatedTotal = chunkNames.length * 50 * 1024 * 1024; // ~50MB per chunk
 
                 for (let i = 0; i < chunkNames.length; i++) {
                     const response = await fetch(`cesium_positions.bin.gz.part_${chunkNames[i]}`);
                     if (!response.ok) throw new Error(`Chunk ${chunkNames[i]} not found`);
                     const chunk = await response.arrayBuffer();
                     chunks.push(new Uint8Array(chunk));
-                    totalLoaded += chunk.byteLength;
                     document.getElementById('loadProgress').textContent = Math.round((i + 1) / chunkNames.length * 100) + '%';
                 }
 
-                // Combine chunks
                 const totalLength = chunks.reduce((sum, c) => sum + c.length, 0);
                 const combined = new Uint8Array(totalLength);
                 let offset = 0;
@@ -204,7 +196,6 @@
                     offset += chunk.length;
                 }
 
-                // Decompress
                 document.getElementById('loadProgress').textContent = 'Decompressing...';
                 const decompressed = await new Response(
                     new Blob([combined]).stream().pipeThrough(new DecompressionStream('gzip'))
@@ -212,7 +203,6 @@
                 frames = new Float32Array(decompressed);
 
                 document.getElementById('loadProgress').textContent = 'Initializing...';
-                dataLoaded = true;
                 loadingDiv.remove();
                 initializeVisualization();
             } catch (err) {
@@ -220,9 +210,7 @@
             }
         }
 
-        // Initialize visualization after data is loaded
         function initializeVisualization() {
-        // Setup viewer
         const viewer = new Cesium.Viewer('cesiumContainer', {
             imageryProvider: new Cesium.UrlTemplateImageryProvider({ url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', credit: 'Esri' }),
             baseLayerPicker: false, geocoder: false, homeButton: false, sceneModePicker: false,
@@ -243,7 +231,6 @@
         baseLayer.brightness = 0.75; baseLayer.contrast = 1.1; baseLayer.saturation = 0.85;
         viewer.camera.setView({ destination: Cesium.Cartesian3.fromDegrees(-30, 25, 22000000) });
 
-        // Create points
         const pointCollection = viewer.scene.primitives.add(new Cesium.PointPrimitiveCollection());
         const points = [];
         let issIndex = -1, issEntity = null;
@@ -310,7 +297,6 @@
         const seekSlider = document.getElementById('seekSlider');
         const seekVal = document.getElementById('seekVal');
 
-        // Initialize seek display
         seekSlider.value = startFrame;
         seekVal.textContent = formatFrameTime(startFrame);
 
@@ -458,7 +444,6 @@
         satInfoPanel.querySelector('.sat-close').addEventListener('click', () => satInfoPanel.classList.remove('visible'));
         } // end initializeVisualization
 
-        // Start loading data
         loadPositionData();
     </script>
 </body>
