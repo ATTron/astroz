@@ -115,9 +115,13 @@ fn writeWaypoints(self: *const Mission, w: *std.Io.Writer, limit: ?u8) std.Io.Wr
 }
 
 fn writeTrajectories(self: *const Mission, w: *std.Io.Writer, limit: ?u8) std.Io.Writer.Error!void {
-    const points = self.trajectoryPredictions.items;
-    for (points[0..if (limit) |l| @min(l, points.len) else points.len]) |point| {
+    var printed: usize = 0;
+    for (self.trajectoryPredictions.items) |point| {
+        if (limit) |l| if (printed >= l) break;
+        // trajectoryPredictions also holds the planets' positions and the waypoints
+        if (!std.mem.eql(u8, point.label, "trajectory")) continue;
         try w.print("Day {d:>6.1}: Transfer at ({d:>8.0}, {d:>8.0}) km\n", .{ point.time, point.position.x(), point.position.y() });
+        printed += 1;
     }
 }
 
