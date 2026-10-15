@@ -5,7 +5,6 @@ import time
 import numpy as np
 from astroz.api import Satrec, SatrecArray, WGS72
 
-# ISS TLE lines
 LINE1 = "1 25544U 98067A   24127.82853009  .00015698  00000+0  27310-3 0  9995"
 LINE2 = "2 25544  51.6393 160.4574 0003580 140.6673 205.7250 15.50957674452123"
 
@@ -17,12 +16,12 @@ def main():
     print(f"Inclination: {np.degrees(sat.inclo):.2f}°")
     print(f"Eccentricity: {sat.ecco:.6f}")
 
-    # Single propagation at epoch + 30 minutes
+    # One time: epoch + 30 minutes
     jd, fr = sat.jdsatepoch, sat.jdsatepochF + 30.0 / 1440.0
     error, pos, vel = sat.sgp4(jd, fr)
     print(f"Position at t=30min: {pos[0]:.1f}, {pos[1]:.1f}, {pos[2]:.1f} km")
 
-    # Batch propagation (1 day at 1-minute intervals)
+    # Many times at once: one day at 1-minute steps
     n = 1440
     sat_array = SatrecArray([sat])
 
@@ -38,9 +37,9 @@ def main():
         f"Batch: {n:,} points in {elapsed * 1000:.1f} ms ({elapsed / n * 1e6:.2f} μs/prop)"
     )
 
-    # Verify altitude (positions shape: n_sats, n_times, 3)
-    altitudes = np.linalg.norm(positions[0, :, :], axis=1) - 6371.0
-    print(f"ISS altitude: {altitudes.min():.0f}-{altitudes.max():.0f} km")
+    # positions is (n_sats, n_times, 3) in km, TEME
+    radius = np.linalg.norm(positions[0], axis=1)
+    print(f"Orbit radius over the day: {radius.min():.0f}-{radius.max():.0f} km")
 
 
 if __name__ == "__main__":
