@@ -73,7 +73,8 @@ pub fn init(pl: []const u8, allocator: std.mem.Allocator, config: ?[]const u8) !
     }
     const endOfData = if (header.trailer) payloadRange.end + 4 else payloadRange.end;
 
-    _ = allocator.resize(stream, endOfData);
+    // Drop anything past the packet; keep the slice in step so deinit frees the right length
+    if (endOfData < stream.len and allocator.resize(stream, endOfData)) stream = stream[0..endOfData];
     return .{
         .header = header,
         .streamId = streamId,

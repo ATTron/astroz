@@ -16,7 +16,7 @@ pub const simdMath = @import("simdMath.zig");
 const dispatch = @import("dispatch.zig");
 const WCS = @import("WorldCoordinateSystem.zig");
 
-const Error = Sgp4.Error;
+pub const Error = Sgp4.Error || error{OutputTooSmall};
 
 pub const batchSize: usize = Sgp4Batch.batchSize;
 const BatchResults = Sgp4.PosVelArray(batchSize);
@@ -78,8 +78,8 @@ const GmstTable = struct {
 
 fn checkOutputLen(numSatellites: usize, numTimes: usize, resultsPos: []f64, resultsVel: ?[]f64) Error!void {
     const required = numSatellites * numTimes * 3;
-    if (resultsPos.len < required) return Error.SatelliteDecayed;
-    if (resultsVel) |rv| if (rv.len < required) return Error.SatelliteDecayed;
+    if (resultsPos.len < required) return Error.OutputTooSmall;
+    if (resultsVel) |rv| if (rv.len < required) return Error.OutputTooSmall;
 }
 
 /// Cached thread count to avoid repeated syscalls
@@ -723,6 +723,17 @@ test "timeMajor vs satelliteMajor produce identical results" {
             }
         }
     }
+}
+
+test "too-small output buffer is reported as such" {
+    var tles = try parseTles(3, .{ leoTle1, leoTle2, leoTle3 });
+    defer for (&tles) |*t| t.deinit();
+    var c = try Constellation.init(testing.allocator, &tles, constants.wgs72);
+    defer c.deinit();
+    const jdArr = [_]f64{@floor(tles[0].epochJd)};
+    const frArr = [_]f64{0.5};
+    var pos: [2 * 3]f64 = undefined; // room for 2 satellites, not 3
+    try testing.expectError(error.OutputTooSmall, c.propagate(&jdArr, &frArr, &pos, null, .teme, .timeMajor));
 }
 
 test "all-SGP4 constellation" {

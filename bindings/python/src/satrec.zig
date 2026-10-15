@@ -574,7 +574,10 @@ pub fn pySdp4BatchPropagateInto(_: [*c]c.PyObject, args: [*c]c.PyObject, kwds: [
     const offset: usize = @intCast(sat_offset_arg);
     const layout: astroz.Constellation.Layout = if (time_major) .timeMajor else .satelliteMajor;
     sdp4BatchPropagate(sdp4_ptrs, epochs, n_times, stride, offset, layout, bufs.jd.ptr, bufs.fr.ptr, bufs.pos.ptr, bufs.vel.ptr) catch |e| {
-        py.raiseRuntime(shared.sgp4ErrorMsg(e));
+        py.raiseRuntime(switch (e) {
+            error.OutputTooSmall => "Output arrays are too small",
+            else => |err| shared.sgp4ErrorMsg(err),
+        });
         return null;
     };
 
@@ -594,7 +597,7 @@ fn sdp4BatchPropagate(
     fr_ptr: [*]const f64,
     pos_ptr: [*]f64,
     vel_ptr: [*]f64,
-) Sgp4.Error!void {
+) astroz.Constellation.Error!void {
     const num_sats = sdp4_ptrs.len;
     const num_simd_batches = @divCeil(num_sats, SdpSimdN);
 
