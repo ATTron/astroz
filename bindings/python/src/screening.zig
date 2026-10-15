@@ -11,7 +11,7 @@ const allocator = shared.allocator;
 
 /// Gets a C-contiguous buffer whose items are `itemsize` bytes with one of the
 /// struct format codes in `codes` (byte-order prefixes are allowed). Raises
-/// TypeError naming `what` otherwise.
+/// TypeError naming `what` otherwise. float64 arrays use shared.getF64Buffer.
 fn getTypedBuffer(obj: [*c]c.PyObject, buf: *c.Py_buffer, comptime codes: []const u8, itemsize: usize, comptime what: [:0]const u8) bool {
     if (c.PyObject_GetBuffer(obj, buf, c.PyBUF_C_CONTIGUOUS | c.PyBUF_FORMAT) < 0) return false;
     const format: []const u8 = if (buf.format) |f| std.mem.span(f) else "B";
@@ -43,21 +43,18 @@ pub fn pyScreenCandidates(_: [*c]c.PyObject, args: [*c]c.PyObject, kwds: [*c]c.P
     const n: usize = @intCast(num_sats);
 
     var pos_buf = std.mem.zeroes(c.Py_buffer);
-    if (!getTypedBuffer(pos_obj, &pos_buf, "d", 8, "positions must be a contiguous float64 array")) return null;
+    const pos_flat = shared.getF64Buffer(pos_obj, &pos_buf, false) orelse return null;
     defer c.PyBuffer_Release(&pos_buf);
     var vel_buf = std.mem.zeroes(c.Py_buffer);
-    if (!getTypedBuffer(vel_obj, &vel_buf, "d", 8, "velocities must be a contiguous float64 array")) return null;
+    const vel_flat = shared.getF64Buffer(vel_obj, &vel_buf, false) orelse return null;
     defer c.PyBuffer_Release(&vel_buf);
 
-    const row = @sizeOf([3]f64) * @max(n, 1);
-    const len: usize = @intCast(pos_buf.len);
-    if (len != @as(usize, @intCast(vel_buf.len)) or len % row != 0) {
+    if (pos_flat.len != vel_flat.len or pos_flat.len % (3 * @max(n, 1)) != 0) {
         py.raiseValue("positions and velocities must both have shape (n_times, num_sats, 3)");
         return null;
     }
-    const states = len / @sizeOf([3]f64);
-    const pos: []const [3]f64 = @as([*]const [3]f64, @ptrCast(@alignCast(pos_buf.buf)))[0..states];
-    const vel: []const [3]f64 = @as([*]const [3]f64, @ptrCast(@alignCast(vel_buf.buf)))[0..states];
+    const pos: []const [3]f64 = @ptrCast(pos_flat);
+    const vel: []const [3]f64 = @ptrCast(vel_flat);
 
     var primary_buf = std.mem.zeroes(c.Py_buffer);
     var primary: ?[]const bool = null;
