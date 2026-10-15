@@ -168,6 +168,13 @@ pub fn build(b: *std.Build) void {
             .{ .name = "cspice", .module = cspice_mod },
         },
     });
+    // translate-c crashes on CPython 3.13+'s pyatomic_gcc.h when it uses Zig's
+    // bundled macOS headers, which it does whenever a target is passed (the
+    // wheels pin aarch64-macos.13.0). Translating against the host SDK avoids
+    // that, and only the deployment version differs, not the struct layout.
+    const host = b.graph.host.result;
+    const python_c_target = if (target.result.os.tag == .macos and host.os.tag == .macos and
+        target.result.cpu.arch == host.cpu.arch) b.graph.host else target;
     const python_c: Translator = .init(translate_c_dep, .{
         .name = "python",
         .c_source_file = b.addWriteFiles().add("python.h",
@@ -175,9 +182,10 @@ pub fn build(b: *std.Build) void {
             \\#include <Python.h>
             \\
         ),
-        .target = target,
+        .target = python_c_target,
         .optimize = optimize,
     });
+    python_c.mod.resolved_target = target;
     if (python_include) |dir| {
         python_c.addIncludePath(.{ .cwd_relative = dir });
     } else {
