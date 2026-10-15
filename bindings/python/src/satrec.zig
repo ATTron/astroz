@@ -14,6 +14,7 @@ const constants = astroz.constants;
 
 const allocator = shared.allocator;
 
+pub const WGS72OLD = shared.WGS72OLD;
 pub const WGS72 = shared.WGS72;
 pub const WGS84 = shared.WGS84;
 
@@ -50,6 +51,12 @@ fn getSdp4(self: *const SatrecObject) ?*const Sdp4 {
 
 fn satrec_dealloc(self_obj: [*c]c.PyObject) callconv(.c) void {
     const self: *SatrecObject = @ptrCast(@alignCast(self_obj));
+    freeModel(self);
+    if (py.pyType(self_obj)) |tp| if (tp.*.tp_free) |free| free(@as(?*anyopaque, @ptrCast(self)));
+}
+
+/// Frees the element set and propagator, leaving an empty Satrec.
+fn freeModel(self: *SatrecObject) void {
     if (self.sgp4) |s| allocator.destroy(s);
     if (getSdp4(self)) |sdp4| allocator.destroy(sdp4);
     if (self.tle) |t| {
@@ -57,7 +64,9 @@ fn satrec_dealloc(self_obj: [*c]c.PyObject) callconv(.c) void {
         tle_copy.deinit();
         allocator.destroy(t);
     }
-    if (py.pyType(self_obj)) |tp| if (tp.*.tp_free) |free| free(@as(?*anyopaque, @ptrCast(self)));
+    self.sgp4 = null;
+    self.sdp4 = null;
+    self.tle = null;
 }
 
 fn satrec_twoline2rv(cls: [*c]c.PyObject, args: [*c]c.PyObject, kwds: [*c]c.PyObject) callconv(.c) [*c]c.PyObject {
@@ -69,12 +78,21 @@ fn satrec_twoline2rv(cls: [*c]c.PyObject, args: [*c]c.PyObject, kwds: [*c]c.PyOb
     const kwlist = [_:null]?[*:0]const u8{ "line1", "line2", "whichconst", null };
     if (c.PyArg_ParseTupleAndKeywords(args, kwds, "ss|i", @ptrCast(@constCast(&kwlist)), &line1_ptr, &line2_ptr, &whichconst) == 0)
         return null;
+    _ = shared.getGravity(whichconst) orelse return null;
 
     const tle = Tle.parseLines(std.mem.span(line1_ptr), std.mem.span(line2_ptr), allocator) catch |err| {
         py.raiseValue(if (err == error.CatalogNumberMismatch) "TLE lines 1 and 2 have different catalog numbers" else "Failed to parse TLE lines");
         return null;
     };
-    return satrecFromTle(tle, whichconst);
+    const obj = satrecFromTle(tle, whichconst) orelse return null;
+    // Rebuild the epoch split from the TLE's year and day, rounding the fraction
+    // to the 8 decimals a TLE holds, as python-sgp4 does
+    const self: *SatrecObject = @ptrCast(@alignCast(obj));
+    const year: u16 = if (tle.epochYear < 57) 2000 + tle.epochYear else 1900 + tle.epochYear;
+    const day = @floor(tle.epochDay);
+    self.jdsatepoch = Datetime.yearDoyToJulianDate(year, day);
+    self.jdsatepochF = @round((tle.epochDay - day) * 1e8) / 1e8;
+    return obj;
 }
 
 /// Builds a Satrec that takes ownership of `tle`.
@@ -84,14 +102,24 @@ fn satrecFromTle(tle: Tle, whichconst: c_int) [*c]c.PyObject {
         tle_copy.deinit();
         return null;
     }));
-    self.whichconst = whichconst;
+    if (!initModel(self, tle, whichconst)) {
+        py.decref(@as(*c.PyObject, @ptrCast(self)));
+        return null;
+    }
+    return @ptrCast(self);
+}
 
+/// Takes ownership of `tle` and builds its SGP4 or SDP4 propagator. A failed
+/// init is recorded as a python-sgp4 error code; false (with an exception set)
+/// only on out-of-memory.
+fn initModel(self: *SatrecObject, tle: Tle, whichconst: c_int) bool {
+    self.whichconst = whichconst;
+    self.errorCode = 0;
     const tle_ptr = allocator.create(Tle) catch {
         py.raiseRuntime("Out of memory");
         var tle_copy = tle;
         tle_copy.deinit();
-        py.decref(@as(*c.PyObject, @ptrCast(self)));
-        return null;
+        return false;
     };
     tle_ptr.* = tle;
     self.tle = tle_ptr;
@@ -100,37 +128,118 @@ fn satrecFromTle(tle: Tle, whichconst: c_int) [*c]c.PyObject {
     self.jdsatepoch = @floor(tle.epochJd - 0.5) + 0.5;
     self.jdsatepochF = tle.epochJd - self.jdsatepoch;
 
-    const grav = shared.getGravity(whichconst);
+    const grav = shared.getGravity(whichconst).?; // callers check it first
     const sgp4 = Sgp4.init(tle, grav) catch |e| switch (e) {
         error.DeepSpaceNotSupported => {
             const sdp4 = Sdp4.init(tle, grav) catch |e2| {
                 self.errorCode = shared.sgp4ErrorCode(e2);
-                return @ptrCast(self);
+                return true;
             };
             const sdp4_ptr = allocator.create(Sdp4) catch {
                 py.raiseRuntime("Out of memory");
-                py.decref(@as(*c.PyObject, @ptrCast(self)));
-                return null;
+                return false;
             };
             sdp4_ptr.* = sdp4;
             self.sdp4 = @ptrCast(sdp4_ptr);
-            return @ptrCast(self);
+            return true;
         },
         else => {
             self.errorCode = shared.sgp4ErrorCode(e);
-            return @ptrCast(self);
+            return true;
         },
     };
-
     const sgp4_ptr = allocator.create(Sgp4) catch {
         py.raiseRuntime("Out of memory");
-        py.decref(@as(*c.PyObject, @ptrCast(self)));
-        return null;
+        return false;
     };
     sgp4_ptr.* = sgp4;
     self.sgp4 = sgp4_ptr;
+    return true;
+}
 
-    return @ptrCast(self);
+/// sgp4init(whichconst, opsmode, satnum, epoch, bstar, ndot, nddot, ecco, argpo, inclo, mo, no_kozai, nodeo)
+/// as python-sgp4: epoch in days since 1949 December 31 00:00 UT, angles in
+/// radians, mean motion in rad/min. Keeps classification, intldesg, elnum,
+/// revnum and ephtype if they were set beforehand.
+fn satrec_sgp4init(self_obj: [*c]c.PyObject, args: [*c]c.PyObject) callconv(.c) [*c]c.PyObject {
+    const self: *SatrecObject = @ptrCast(@alignCast(self_obj));
+    var whichconst: c_int = 0;
+    var opsmode: [*c]const u8 = null;
+    var satnum_obj: [*c]c.PyObject = null;
+    var epoch: f64 = 0;
+    var el: Tle.MeanElements = undefined;
+    if (c.PyArg_ParseTuple(args, "isOdddddddddd", &whichconst, &opsmode, &satnum_obj, &epoch, &el.bstar, &el.ndot, &el.nddot, &el.ecco, &el.argpo, &el.inclo, &el.mo, &el.noKozai, &el.nodeo) == 0)
+        return null;
+    _ = shared.getGravity(whichconst) orelse return null;
+    if (!std.mem.eql(u8, std.mem.span(opsmode), "i")) {
+        py.raiseValue("astroz implements only the improved operation mode, 'i'");
+        return null;
+    }
+    el.satelliteNumber = satnumFrom(satnum_obj) orelse return null;
+
+    // Like python-sgp4: a whole day plus a fraction, the fraction rounded to a
+    // TLE's 8 decimals when the epoch has no more digits than that
+    const whole = @floor(epoch);
+    var fraction = epoch - whole;
+    if (@round(epoch * 1e8) / 1e8 == epoch) fraction = @round(fraction * 1e8) / 1e8;
+    const jdWhole = whole + 2433281.5;
+    el.epochJd = jdWhole + fraction;
+
+    var tle = Tle.fromMeanElements(el, allocator) catch {
+        py.raiseRuntime("Out of memory");
+        return null;
+    };
+    if (self.tle) |old| {
+        const designator = allocator.dupe(u8, old.intlDesignator) catch {
+            tle.deinit();
+            py.raiseRuntime("Out of memory");
+            return null;
+        };
+        allocator.free(tle.intlDesignator);
+        tle.intlDesignator = designator;
+        tle.classification = old.classification;
+        tle.elemNumber = old.elemNumber;
+        tle.revNum = old.revNum;
+        tle.ephemType = old.ephemType;
+    }
+    freeModel(self);
+    if (!initModel(self, tle, whichconst)) return null;
+    self.jdsatepoch = jdWhole;
+    self.jdsatepochF = fraction;
+    return py.none();
+}
+
+/// A catalog number from an int or a TLE field string (Alpha-5 allowed).
+fn satnumFrom(obj: [*c]c.PyObject) ?u32 {
+    if (c.PyLong_Check(obj) != 0) {
+        const n = c.PyLong_AsLong(obj);
+        if (n < 0 or n > std.math.maxInt(u32)) {
+            if (c.PyErr_Occurred() == null) py.raiseValue("satnum out of range");
+            return null;
+        }
+        return @intCast(n);
+    }
+    if (c.PyUnicode_Check(obj) != 0) {
+        const text = c.PyUnicode_AsUTF8(obj) orelse return null;
+        return Tle.parseSatelliteNumber(std.mem.trim(u8, std.mem.span(text), " ")) catch {
+            py.raiseValue("satnum is not a valid catalog number");
+            return null;
+        };
+    }
+    py.raiseType("satnum must be an int or a string");
+    return null;
+}
+
+/// The element set, creating an empty one so metadata can be set before sgp4init.
+fn ensureTle(self: *SatrecObject) ?*Tle {
+    if (self.tle) |t| return t;
+    const t = allocator.create(Tle) catch {
+        py.raiseRuntime("Out of memory");
+        return null;
+    };
+    t.* = std.mem.zeroInit(Tle, .{ .classification = 'U', .intlDesignator = &.{}, .allocator = allocator });
+    self.tle = t;
+    return t;
 }
 
 fn satrec_from_omm(cls: [*c]c.PyObject, args: [*c]c.PyObject, kwds: [*c]c.PyObject) callconv(.c) [*c]c.PyObject {
@@ -142,6 +251,7 @@ fn satrec_from_omm(cls: [*c]c.PyObject, args: [*c]c.PyObject, kwds: [*c]c.PyObje
     const kwlist = [_:null]?[*:0]const u8{ "json", "whichconst", null };
     if (c.PyArg_ParseTupleAndKeywords(args, kwds, "s#|i", @ptrCast(@constCast(&kwlist)), &text_ptr, &text_len, &whichconst) == 0)
         return null;
+    _ = shared.getGravity(whichconst) orelse return null;
 
     const tles = shared.parseOmm(text_ptr[0..@intCast(text_len)]) orelse return null;
     defer allocator.free(tles);
@@ -168,25 +278,29 @@ fn satrec_sgp4(self_obj: [*c]c.PyObject, args: [*c]c.PyObject) callconv(.c) [*c]
 
     if (c.PyArg_ParseTuple(args, "dd", &jd, &fr) == 0) return null;
 
-    const epochJd = self.jdsatepoch + self.jdsatepochF;
-    const tsince = (jd + fr - epochJd) * constants.minutesPerDay;
+    // Kept apart, as python-sgp4 does, so the epoch fraction stays precise
+    const tsince = (jd - self.jdsatepoch) * constants.minutesPerDay + (fr - self.jdsatepochF) * constants.minutesPerDay;
     self.t = tsince;
 
-    const zero: [2][3]f64 = .{ @splat(0), @splat(0) };
-    const propagated = if (self.sgp4) |sgp4|
-        sgp4.propagate(tsince)
+    const nan: [2][3]f64 = .{ @splat(std.math.nan(f64)), @splat(std.math.nan(f64)) };
+    const detailed = if (self.sgp4) |sgp4|
+        sgp4.propagateDetailed(tsince)
     else if (getSdp4(self)) |sdp4|
-        sdp4.propagate(tsince)
+        sdp4.propagateDetailed(tsince)
     else {
-        self.errorCode = 6;
-        return sgp4Result(self.errorCode, zero);
+        if (self.errorCode == 0) {
+            py.raiseRuntime("Satrec not initialized");
+            return null;
+        }
+        return sgp4Result(self.errorCode, nan);
     };
-    const pv = propagated catch |e| {
+    const d = detailed catch |e| {
         self.errorCode = shared.sgp4ErrorCode(e);
-        return sgp4Result(self.errorCode, zero);
+        return sgp4Result(self.errorCode, nan);
     };
-    self.errorCode = 0;
-    return sgp4Result(0, pv);
+    // Like python-sgp4, a decayed satellite (6) still gets its position
+    self.errorCode = if (d.decayed) 6 else 0;
+    return sgp4Result(self.errorCode, d.pv);
 }
 
 /// (error, (x, y, z), (vx, vy, vz)), as python-sgp4 returns it
@@ -316,6 +430,12 @@ const satrec_methods = [_]c.PyMethodDef{
         .ml_meth = @ptrCast(&satrec_from_omm),
         .ml_flags = c.METH_CLASS | c.METH_VARARGS | c.METH_KEYWORDS,
         .ml_doc = "from_omm(json, whichconst=WGS72) -> list[Satrec]\n\nOne Satrec per record in CCSDS OMM JSON (a single object or an array).",
+    },
+    .{
+        .ml_name = "sgp4init",
+        .ml_meth = @ptrCast(&satrec_sgp4init),
+        .ml_flags = c.METH_VARARGS,
+        .ml_doc = "sgp4init(whichconst, opsmode, satnum, epoch, bstar, ndot, nddot, ecco, argpo, inclo, mo, no_kozai, nodeo) -> None\n\nInitialize from mean elements, as python-sgp4: epoch in days since 1949-12-31 00:00 UT, angles in radians, mean motion in rad/min.",
     },
     .{
         .ml_name = "sgp4",
@@ -464,6 +584,60 @@ fn getAlta(el: *const Sgp4.Elements) f64 {
 fn getAltp(el: *const Sgp4.Elements) f64 {
     return el.a * (1.0 - el.ecco) - 1.0;
 }
+fn getMethod(self: *const SatrecObject) [*c]c.PyObject {
+    return c.PyUnicode_FromString(if (self.sdp4 != null) "d" else "n");
+}
+fn getOperationmode(_: *const SatrecObject) [*c]c.PyObject {
+    return c.PyUnicode_FromString("i");
+}
+fn getNoUnkozai(el: *const Sgp4.Elements) f64 {
+    return el.noUnkozai;
+}
+
+fn makeTleSetter(comptime setter: fn (*Tle, [*c]c.PyObject) bool) fn ([*c]c.PyObject, [*c]c.PyObject, ?*anyopaque) callconv(.c) c_int {
+    return struct {
+        fn set(self_obj: [*c]c.PyObject, value: [*c]c.PyObject, _: ?*anyopaque) callconv(.c) c_int {
+            if (value == null) {
+                py.raiseType("can't delete this attribute");
+                return -1;
+            }
+            const self: *SatrecObject = @ptrCast(@alignCast(self_obj));
+            const tle = ensureTle(self) orelse return -1;
+            return if (setter(tle, value)) 0 else -1;
+        }
+    }.set;
+}
+fn setClassification(tle: *Tle, value: [*c]c.PyObject) bool {
+    const text = c.PyUnicode_AsUTF8(value) orelse return false;
+    const s = std.mem.span(text);
+    tle.classification = if (s.len > 0) s[0] else 'U';
+    return true;
+}
+fn setIntldesg(tle: *Tle, value: [*c]c.PyObject) bool {
+    const text = c.PyUnicode_AsUTF8(value) orelse return false;
+    const copy = allocator.dupe(u8, std.mem.span(text)) catch {
+        py.raiseRuntime("Out of memory");
+        return false;
+    };
+    allocator.free(tle.intlDesignator);
+    tle.intlDesignator = copy;
+    return true;
+}
+fn intSetter(comptime T: type, comptime field: []const u8) fn (*Tle, [*c]c.PyObject) bool {
+    return struct {
+        fn set(tle: *Tle, value: [*c]c.PyObject) bool {
+            const n = c.PyLong_AsLong(value);
+            if (n == -1 and c.PyErr_Occurred() != null) return false;
+            if (n < 0 or n > std.math.maxInt(T)) {
+                py.raiseValue(field ++ " out of range");
+                return false;
+            }
+            @field(tle, field) = @intCast(n);
+            return true;
+        }
+    }.set;
+}
+
 fn getIsDeepSpace(self: *const SatrecObject) [*c]c.PyObject {
     return c.PyBool_FromLong(if (self.sdp4 != null) @as(c_long, 1) else @as(c_long, 0));
 }
@@ -471,11 +645,11 @@ fn getIsDeepSpace(self: *const SatrecObject) [*c]c.PyObject {
 const satrec_getset = [_]c.PyGetSetDef{
     .{ .name = "satnum", .get = @ptrCast(&makeTleGetter(getSatnum)), .set = null, .doc = "NORAD catalog number", .closure = null },
     .{ .name = "satnum_str", .get = @ptrCast(&makeTleGetter(getSatnumStr)), .set = null, .doc = "Catalog number as written in a TLE (Alpha-5 above 99999)", .closure = null },
-    .{ .name = "intldesg", .get = @ptrCast(&makeTleGetter(getIntldesg)), .set = null, .doc = "International designator as written in a TLE (e.g. 98067A)", .closure = null },
-    .{ .name = "classification", .get = @ptrCast(&makeTleGetter(getClassification)), .set = null, .doc = "Classification (U, C or S)", .closure = null },
-    .{ .name = "elnum", .get = @ptrCast(&makeTleGetter(getElnum)), .set = null, .doc = "Element set number", .closure = null },
-    .{ .name = "revnum", .get = @ptrCast(&makeTleGetter(getRevnum)), .set = null, .doc = "Revolution number at epoch", .closure = null },
-    .{ .name = "ephtype", .get = @ptrCast(&makeTleGetter(getEphtype)), .set = null, .doc = "Ephemeris type", .closure = null },
+    .{ .name = "intldesg", .get = @ptrCast(&makeTleGetter(getIntldesg)), .set = @ptrCast(&makeTleSetter(setIntldesg)), .doc = "International designator as written in a TLE (e.g. 98067A)", .closure = null },
+    .{ .name = "classification", .get = @ptrCast(&makeTleGetter(getClassification)), .set = @ptrCast(&makeTleSetter(setClassification)), .doc = "Classification (U, C or S)", .closure = null },
+    .{ .name = "elnum", .get = @ptrCast(&makeTleGetter(getElnum)), .set = @ptrCast(&makeTleSetter(intSetter(u32, "elemNumber"))), .doc = "Element set number", .closure = null },
+    .{ .name = "revnum", .get = @ptrCast(&makeTleGetter(getRevnum)), .set = @ptrCast(&makeTleSetter(intSetter(u32, "revNum"))), .doc = "Revolution number at epoch", .closure = null },
+    .{ .name = "ephtype", .get = @ptrCast(&makeTleGetter(getEphtype)), .set = @ptrCast(&makeTleSetter(intSetter(u8, "ephemType"))), .doc = "Ephemeris type", .closure = null },
     .{ .name = "nddot", .get = @ptrCast(&makeTleGetter(getNddot)), .set = null, .doc = "Second derivative of mean motion (rad/min^3)", .closure = null },
     .{ .name = "epochyr", .get = @ptrCast(&makeTleGetter(getEpochyr)), .set = null, .doc = "Epoch year (2-digit)", .closure = null },
     .{ .name = "epochdays", .get = @ptrCast(&makeTleGetter(getEpochdays)), .set = null, .doc = "Epoch day of year (fractional)", .closure = null },
@@ -494,6 +668,9 @@ const satrec_getset = [_]c.PyGetSetDef{
     .{ .name = "a", .get = @ptrCast(&makeElementsGetter(getA)), .set = null, .doc = "Semi-major axis (Earth radii)", .closure = null },
     .{ .name = "alta", .get = @ptrCast(&makeElementsGetter(getAlta)), .set = null, .doc = "Apoapsis altitude (Earth radii)", .closure = null },
     .{ .name = "altp", .get = @ptrCast(&makeElementsGetter(getAltp)), .set = null, .doc = "Periapsis altitude (Earth radii)", .closure = null },
+    .{ .name = "method", .get = @ptrCast(&makeGetter(getMethod)), .set = null, .doc = "Propagator: 'n' for SGP4 (near-earth), 'd' for SDP4 (deep space)", .closure = null },
+    .{ .name = "operationmode", .get = @ptrCast(&makeGetter(getOperationmode)), .set = null, .doc = "Operation mode; astroz implements the improved mode, 'i'", .closure = null },
+    .{ .name = "no_unkozai", .get = @ptrCast(&makeElementsGetter(getNoUnkozai)), .set = null, .doc = "Brouwer (un-Kozai'd) mean motion (rad/min)", .closure = null },
     .{ .name = "is_deep_space", .get = @ptrCast(&makeGetter(getIsDeepSpace)), .set = null, .doc = "True if using SDP4 deep-space propagator", .closure = null },
     .{ .name = null, .get = null, .set = null, .doc = null, .closure = null },
 };
@@ -802,7 +979,8 @@ fn satrecarray_init(self_obj: [*c]c.PyObject, args: [*c]c.PyObject, _: [*c]c.PyO
         if (i == 0) grav_model = satrec.whichconst;
     }
 
-    const result = shared.buildBatches(tles, shared.getGravity(grav_model)) orelse return -1;
+    const grav = shared.getGravity(grav_model) orelse return -1;
+    const result = shared.buildBatches(tles, grav) orelse return -1;
     shared.storeBatchResult(self, result, num_sats);
     return 0;
 }

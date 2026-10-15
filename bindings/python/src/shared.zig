@@ -44,19 +44,34 @@ pub const BatchSize = astroz.Constellation.batchSize;
 
 pub const BatchElements = astroz.Constellation.Sgp4Batch.BatchElements(BatchSize);
 
-pub const WGS84: c_int = 0;
+// python-sgp4's numbering (sgp4.api.WGS72OLD/WGS72/WGS84)
+pub const WGS72OLD: c_int = 0;
 pub const WGS72: c_int = 1;
+pub const WGS84: c_int = 2;
 
-pub fn getGravity(grav_model: c_int) constants.Sgp4GravityModel {
-    return if (grav_model == WGS72) constants.wgs72 else constants.wgs84;
+/// The gravity model for a python-sgp4 `whichconst`, or null with ValueError set.
+pub fn getGravity(grav_model: c_int) ?constants.Sgp4GravityModel {
+    return switch (grav_model) {
+        WGS72OLD => constants.wgs72old,
+        WGS72 => constants.wgs72,
+        WGS84 => constants.wgs84,
+        else => {
+            py.raiseValue("gravity model must be WGS72OLD (0), WGS72 (1) or WGS84 (2)");
+            return null;
+        },
+    };
 }
 
+/// python-sgp4's message for each error code (sgp4.api.SGP4_ERRORS)
 pub fn sgp4ErrorMsg(e: Sgp4.Error) [:0]const u8 {
     return switch (e) {
-        Sgp4.Error.DeepSpaceNotSupported => "Deep space not supported",
-        Sgp4.Error.InvalidEccentricity => "Invalid eccentricity",
-        Sgp4.Error.SatelliteDecayed => "Satellite decayed",
-        Sgp4.Error.OutOfMemory => "Out of memory",
+        error.InvalidEccentricity => "mean eccentricity is outside the range 0.0 to 1.0",
+        error.NegativeMeanMotion => "nm is less than zero",
+        error.PerturbedEccentricity => "perturbed eccentricity is outside the range 0.0 to 1.0",
+        error.NegativeSemilatusRectum => "semilatus rectum is less than zero",
+        error.SatelliteDecayed => "mrt is less than 1.0 which indicates the satellite has decayed",
+        error.DeepSpaceNotSupported => "deep space not supported",
+        error.OutOfMemory => "out of memory",
     };
 }
 
@@ -85,10 +100,13 @@ pub fn parseOmm(json: []const u8) ?[]astroz.Tle {
 /// python-sgp4 error codes
 pub fn sgp4ErrorCode(e: Sgp4.Error) c_int {
     return switch (e) {
-        Sgp4.Error.InvalidEccentricity => 1,
-        Sgp4.Error.DeepSpaceNotSupported => 3,
-        Sgp4.Error.OutOfMemory => 4,
-        Sgp4.Error.SatelliteDecayed => 6,
+        error.InvalidEccentricity => 1,
+        error.NegativeMeanMotion => 2,
+        error.PerturbedEccentricity => 3,
+        error.NegativeSemilatusRectum => 4,
+        error.SatelliteDecayed => 6,
+        // Not propagation failures: SDP4 takes deep-space orbits, and init doesn't allocate
+        error.DeepSpaceNotSupported, error.OutOfMemory => -1,
     };
 }
 

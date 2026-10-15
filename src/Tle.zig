@@ -304,7 +304,8 @@ fn parseImpliedExponent(line: []const u8, start: usize) !f64 {
 // Alpha-5: the letter stands for the leading two digits, skipping I and O (A = 10, J = 18, Z = 33)
 const alpha5Letters = "ABCDEFGHJKLMNPQRSTUVWXYZ";
 
-fn parseSatelliteNumber(field: []const u8) !u32 {
+/// A TLE catalog-number field: digits, or Alpha-5 ("A0000" = 100000).
+pub fn parseSatelliteNumber(field: []const u8) !u32 {
     if (field.len == 5 and std.ascii.isUpper(field[0])) {
         const letter = std.mem.indexOfScalar(u8, alpha5Letters, field[0]) orelse
             return error.InvalidCharacter;
@@ -324,6 +325,82 @@ pub fn satelliteNumberString(number: u32, buf: *[10]u8) []const u8 {
     if (number < 100_000) return std.fmt.bufPrint(buf, "{d:0>5}", .{number}) catch unreachable;
     if (number <= 339_999) return std.fmt.bufPrint(buf, "{c}{d:0>4}", .{ alpha5Letters[number / 10_000 - 10], number % 10_000 }) catch unreachable;
     return std.fmt.bufPrint(buf, "{d}", .{number}) catch unreachable;
+}
+
+/// Mean elements in SGP4's internal units, as Vallado's sgp4init takes them.
+pub const MeanElements = struct {
+    satelliteNumber: u32,
+    epochJd: f64,
+    bstar: f64,
+    /// First and second derivatives of mean motion, rad/min^2 and rad/min^3,
+    /// with the TLE's divide-by-2 and divide-by-6
+    ndot: f64,
+    nddot: f64,
+    ecco: f64,
+    /// Radians
+    argpo: f64,
+    inclo: f64,
+    mo: f64,
+    nodeo: f64,
+    /// Kozai mean motion, rad/min
+    noKozai: f64,
+};
+
+/// An element set built from mean elements rather than parsed text: no
+/// international designator, classification U, element number and revolution 0.
+/// The caller owns the result.
+pub fn fromMeanElements(el: MeanElements, allocator: std.mem.Allocator) !Tle {
+    var year: u16 = @intFromFloat(@floor((el.epochJd - constants.j2000Jd) / 365.25) + 2000.0);
+    while (DateTime.yearDoyToJulianDate(year, 1.0) > el.epochJd) year -= 1;
+    while (DateTime.yearDoyToJulianDate(year + 1, 1.0) <= el.epochJd) year += 1;
+    const perMin = constants.twoPi / constants.minutesPerDay;
+
+    return .{
+        .satelliteNumber = el.satelliteNumber,
+        .classification = 'U',
+        .intlDesignator = try allocator.dupe(u8, ""),
+        .epochYear = year % 100,
+        .epochDay = el.epochJd - DateTime.yearDoyToJulianDate(year, 1.0) + 1.0,
+        .epoch = j2000Seconds(el.epochJd),
+        .epochJd = el.epochJd,
+        .firstDerMeanMotion = el.ndot / perMin * constants.minutesPerDay,
+        .secondDerMeanMotion = el.nddot / perMin * constants.minutesPerDay * constants.minutesPerDay,
+        .bstarDrag = el.bstar,
+        .ephemType = 0,
+        .elemNumber = 0,
+        .inclination = el.inclo * constants.rad2deg,
+        .rightAscension = el.nodeo * constants.rad2deg,
+        .eccentricity = el.ecco,
+        .perigee = el.argpo * constants.rad2deg,
+        .mAnomaly = el.mo * constants.rad2deg,
+        .mMotion = el.noKozai / perMin,
+        .revNum = 0,
+        .allocator = allocator,
+    };
+}
+
+test "fromMeanElements round-trips a parsed TLE" {
+    var parsed = try Tle.parse("1 25544U 98067A   24127.82853009  .00015698  00000+0  27310-3 0  9995\n2 25544  51.6393 160.4574 0003580 140.6673 205.7250 15.50957674452123", std.testing.allocator);
+    defer parsed.deinit();
+    const perMin = constants.twoPi / constants.minutesPerDay;
+    var built = try fromMeanElements(.{
+        .satelliteNumber = parsed.satelliteNumber,
+        .epochJd = parsed.epochJd,
+        .bstar = parsed.bstarDrag,
+        .ndot = parsed.firstDerMeanMotion * perMin / constants.minutesPerDay,
+        .nddot = parsed.secondDerMeanMotion * perMin / (constants.minutesPerDay * constants.minutesPerDay),
+        .ecco = parsed.eccentricity,
+        .argpo = parsed.perigee * constants.deg2rad,
+        .inclo = parsed.inclination * constants.deg2rad,
+        .mo = parsed.mAnomaly * constants.deg2rad,
+        .nodeo = parsed.rightAscension * constants.deg2rad,
+        .noKozai = parsed.mMotion * perMin,
+    }, std.testing.allocator);
+    defer built.deinit();
+    try std.testing.expectEqual(parsed.epochYear, built.epochYear);
+    try std.testing.expectApproxEqAbs(parsed.epochDay, built.epochDay, 1e-9);
+    try std.testing.expectApproxEqRel(parsed.mMotion, built.mMotion, 1e-15);
+    try std.testing.expectApproxEqRel(parsed.firstDerMeanMotion, built.firstDerMeanMotion, 1e-12);
 }
 
 fn j2000Seconds(jd: f64) f64 {

@@ -5,8 +5,9 @@ Change the import and existing code keeps working::
     from sgp4.api import Satrec, SatrecArray, jday   # before
     from astroz.api import Satrec, SatrecArray, jday  # after
 
-Units and error codes match python-sgp4 (radians, Earth radii, 0 = success).
-A few rarely used attributes (intermediate osculating elements, element
+``sgp4.exporter`` and ``sgp4.omm`` have counterparts in ``astroz.exporter`` and
+``astroz.omm``. Units, gravity constants and error codes match python-sgp4. A
+few rarely used attributes (osculating elements after propagation, element
 rates) aren't implemented; see the README for the list.
 """
 
@@ -16,13 +17,31 @@ from ._astroz import (
     SatrecArray as _SatrecArray,
     jday,
     days2mdhms,
+    WGS72OLD,
     WGS72,
     WGS84,
     sdp4_batch_propagate_into as _sdp4_batch_propagate_into,
 )
 
-WGS72OLD = WGS72
 accelerated = True
+
+
+def _fill_errors(natives, jd, fr, r, v, velocities=True):
+    """Error codes for a batch result, as python-sgp4 reports them.
+
+    The SIMD paths only return NaN when a propagation fails, so rerun just those
+    (satellite, time) entries one at a time: that gives the real code, and for a
+    decayed satellite (6) the position python-sgp4 still returns. ``r`` and ``v``
+    are (n_sats, n_times, 3) and are updated in place.
+    """
+    e = np.zeros(r.shape[:2], dtype=np.uint8)
+    for i, k in np.argwhere(np.isnan(r[..., 0])):
+        code, rk, vk = natives[i].sgp4(jd[k], fr[k])
+        e[i, k] = code
+        r[i, k] = rk
+        if velocities:
+            v[i, k] = vk
+    return e
 
 
 def _time_arrays(jd, fr):
@@ -34,16 +53,16 @@ def _time_arrays(jd, fr):
 class Satrec:
     """SGP4/SDP4 satellite record, a drop-in for sgp4.api.Satrec.
 
-    Create one with ``Satrec.twoline2rv(line1, line2)``. Deep-space orbits
-    use SDP4 automatically.
+    Create one with ``Satrec.twoline2rv(line1, line2)``, or ``Satrec()`` then
+    ``sgp4init(...)`` from mean elements. Deep-space orbits use SDP4 automatically.
     """
 
-    def __init__(self, _native):
-        self._native = _native
+    def __init__(self, _native=None):
+        self._native = _native if _native is not None else _Satrec()
 
     @classmethod
     def twoline2rv(cls, line1, line2, whichconst=WGS72):
-        """Create a Satrec from TLE lines. ``whichconst`` is WGS72 or WGS84."""
+        """Create a Satrec from TLE lines. ``whichconst`` is WGS72OLD, WGS72 or WGS84."""
         return cls(_Satrec.twoline2rv(line1, line2, whichconst))
 
     def sgp4(self, jd, fr):
@@ -63,7 +82,7 @@ class Satrec:
         r = np.empty((n, 3), dtype=np.float64)
         v = np.empty((n, 3), dtype=np.float64)
         self._native.sgp4_array_into(jd, fr, r, v)
-        e = np.where(np.isnan(r[:, 0]), 6, 0).astype(np.uint8)
+        e = _fill_errors([self._native], jd, fr, r[None], v[None])[0]
         return e, r, v
 
     def __getattr__(self, name):
@@ -71,30 +90,36 @@ class Satrec:
             raise AttributeError(name)
         return getattr(self._native, name)
 
+    def __setattr__(self, name, value):
+        if name == "_native":
+            object.__setattr__(self, name, value)
+        else:
+            setattr(self._native, name, value)
+
 
 class SatrecArray:
     """Propagates many satellites at once, a drop-in for sgp4.api.SatrecArray.
 
     Near-earth satellites go through SIMD SGP4 batches and deep-space ones
-    through threaded SDP4; mixed lists are fine. A satellite whose elements
-    SGP4/SDP4 rejected gets its own error code and NaN, as in python-sgp4.
+    through threaded SDP4; mixed lists are fine. Error codes match python-sgp4,
+    including for a satellite whose elements SGP4/SDP4 rejected.
     """
 
     def __init__(self, satrecs):
         natives = [s._native if isinstance(s, Satrec) else s for s in satrecs]
+        self._natives = natives
         self._num_sats = len(natives)
 
         self._sgp4_indices = []
         self._sdp4_indices = []
         self._sdp4_natives = []
-        self._failed = []  # (index, error code)
         sgp4_natives = []
         for i, sat in enumerate(natives):
             if sat.is_deep_space:
                 self._sdp4_indices.append(i)
                 self._sdp4_natives.append(sat)
             elif sat.error != 0:
-                self._failed.append((i, sat.error))
+                pass  # rejected at init: NaN rows, coded by _fill_errors
             else:
                 self._sgp4_indices.append(i)
                 sgp4_natives.append(sat)
@@ -135,8 +160,9 @@ class SatrecArray:
             r = r_tm.transpose(1, 0, 2)
             v = v_tm.transpose(1, 0, 2) if velocities else np.zeros(shape, dtype=np.float64)
         else:
-            r = np.empty(shape, dtype=np.float64)
-            v = np.empty(shape, dtype=np.float64) if velocities else np.zeros(shape, dtype=np.float64)
+            # NaN rows stay for satellites rejected at init; _fill_errors codes them
+            r = np.full(shape, np.nan)
+            v = np.full(shape, np.nan) if velocities else np.zeros(shape, dtype=np.float64)
             if self._zig is not None:
                 r[self._sgp4_indices] = r_tm.transpose(1, 0, 2)
                 if velocities:
@@ -150,12 +176,7 @@ class SatrecArray:
                 if velocities:
                     v[self._sdp4_indices] = sdp4_v
 
-        # Failed propagations come back as NaN; python-sgp4 reports those as 6 (decayed)
-        e = np.where(np.isnan(r[..., 0]), 6, 0).astype(np.uint8)
-        for i, code in self._failed:
-            r[i] = np.nan
-            v[i] = np.nan if velocities else 0.0
-            e[i] = code
+        e = _fill_errors(self._natives, jd, fr, r, v, velocities)
         return e, r, v
 
 

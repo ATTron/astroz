@@ -10,8 +10,9 @@ from typing import Dict, List, Optional, Sequence, Tuple
 import numpy as np
 import numpy.typing as npt
 
-WGS84: int
+WGS72OLD: int  # python-sgp4 numbering: WGS72OLD 0, WGS72 1, WGS84 2
 WGS72: int
+WGS84: int
 
 EARTH_MU: float
 """Earth gravitational parameter (km^3/s^2), WGS84."""
@@ -200,6 +201,12 @@ class Satrec:
     @classmethod
     def from_omm(cls, json: str, whichconst: int = WGS72) -> list["Satrec"]:
         """One Satrec per record in CCSDS OMM JSON (one object or an array)."""
+    def sgp4init(
+        self, whichconst: int, opsmode: str, satnum: int | str, epoch: float, bstar: float, ndot: float,
+        nddot: float, ecco: float, argpo: float, inclo: float, mo: float, no_kozai: float, nodeo: float,
+    ) -> None:
+        """Initialize from mean elements, as python-sgp4: ``epoch`` in days since 1949-12-31 00:00 UT,
+        angles in radians, mean motion in rad/min. ``opsmode`` must be ``'i'``."""
     def sgp4(
         self, jd: float, fr: float
     ) -> Tuple[int, Tuple[float, float, float], Tuple[float, float, float]]:
@@ -216,16 +223,11 @@ class Satrec:
     def satnum(self) -> int: ...
     @property
     def satnum_str(self) -> str: ...
-    @property
-    def intldesg(self) -> str: ...
-    @property
-    def classification(self) -> str: ...
-    @property
-    def elnum(self) -> int: ...
-    @property
-    def revnum(self) -> int: ...
-    @property
-    def ephtype(self) -> int: ...
+    intldesg: str
+    classification: str
+    elnum: int
+    revnum: int
+    ephtype: int
     @property
     def epochyr(self) -> int: ...
     @property
@@ -268,6 +270,14 @@ class Satrec:
     @property
     def altp(self) -> float:
         """Periapsis altitude in Earth radii."""
+    @property
+    def no_unkozai(self) -> float:
+        """Brouwer (un-Kozai'd) mean motion, radians per minute."""
+    @property
+    def method(self) -> str:
+        """``'n'`` for SGP4 (near-earth), ``'d'`` for SDP4 (deep space)."""
+    @property
+    def operationmode(self) -> str: ...
     @property
     def error(self) -> int: ...
     @property
