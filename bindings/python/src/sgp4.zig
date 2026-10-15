@@ -157,35 +157,62 @@ fn constellation_from_tle_text(cls: [*c]c.PyObject, args: [*c]c.PyObject, kwds: 
         return null;
     }
 
-    const text = text_ptr[0..@intCast(text_len)];
-    const grav = shared.getGravity(grav_model);
-
     var tles: std.ArrayList(astroz.Tle) = .empty;
-    defer tles.deinit(allocator);
+    defer deinitTles(&tles);
 
-    var iter = astroz.Tle.MultiIterator.init(text);
+    var iter = astroz.Tle.MultiIterator.init(text_ptr[0..@intCast(text_len)]);
     while (iter.next()) |pair| {
         const tle = astroz.Tle.parseLines(pair.line1, pair.line2, allocator) catch continue;
-
-        // Deep-space TLEs can't go into an SGP4 batch
-        const period = astroz.constants.minutesPerDay / tle.mMotion;
-        if (period <= astroz.constants.sgp4DeepSpaceThresholdMinutes) {
-            tles.append(allocator, tle) catch {
-                py.raiseRuntime("Out of memory");
-                return null;
-            };
-        } else {
+        tles.append(allocator, tle) catch {
             var tle_mut = tle;
             tle_mut.deinit();
-        }
+            py.raiseRuntime("Out of memory");
+            return null;
+        };
+    }
+    return constellationFromTles(&tles, grav_model);
+}
+
+fn constellation_from_omm(cls: [*c]c.PyObject, args: [*c]c.PyObject, kwds: [*c]c.PyObject) callconv(.c) [*c]c.PyObject {
+    _ = cls;
+    var text_ptr: [*c]const u8 = null;
+    var text_len: c.Py_ssize_t = 0;
+    var grav_model: c_int = 0;
+
+    const kwlist = [_:null]?[*:0]const u8{ "json", "gravity_model", null };
+    if (c.PyArg_ParseTupleAndKeywords(args, kwds, "s#|i", @ptrCast(@constCast(&kwlist)), &text_ptr, &text_len, &grav_model) == 0)
+        return null;
+
+    const parsed = shared.parseOmm(text_ptr[0..@intCast(text_len)]) orelse return null;
+    var tles: std.ArrayList(astroz.Tle) = .fromOwnedSlice(parsed);
+    defer deinitTles(&tles);
+    return constellationFromTles(&tles, grav_model);
+}
+
+fn deinitTles(tles: *std.ArrayList(astroz.Tle)) void {
+    for (tles.items) |*t| t.deinit();
+    tles.deinit(allocator);
+}
+
+/// Batches the near-earth TLEs; deep-space ones can't go into an SGP4 batch and are skipped.
+fn constellationFromTles(tles: *std.ArrayList(astroz.Tle), grav_model: c_int) [*c]c.PyObject {
+    var near: std.ArrayList(astroz.Tle) = .empty;
+    defer near.deinit(allocator);
+    for (tles.items) |tle| {
+        const period = astroz.constants.minutesPerDay / tle.mMotion;
+        if (period > astroz.constants.sgp4DeepSpaceThresholdMinutes) continue;
+        near.append(allocator, tle) catch {
+            py.raiseRuntime("Out of memory");
+            return null;
+        };
     }
 
-    if (tles.items.len == 0) {
-        py.raiseValue("No valid near-earth TLEs found in text");
+    if (near.items.len == 0) {
+        py.raiseValue("No valid near-earth TLEs found");
         return null;
     }
 
-    const result = shared.buildBatches(tles.items, grav) orelse return null;
+    const result = shared.buildBatches(near.items, shared.getGravity(grav_model)) orelse return null;
 
     const self: *Sgp4ConstellationObject = @ptrCast(@alignCast(
         c.PyType_GenericAlloc(&Sgp4ConstellationType, 0) orelse {
@@ -194,7 +221,7 @@ fn constellation_from_tle_text(cls: [*c]c.PyObject, args: [*c]c.PyObject, kwds: 
             return null;
         },
     ));
-    shared.storeBatchResult(self, result, tles.items.len);
+    shared.storeBatchResult(self, result, near.items.len);
 
     return @ptrCast(self);
 }
@@ -293,6 +320,12 @@ const constellation_methods = [_]c.PyMethodDef{
         .ml_meth = @ptrCast(&constellation_from_tle_text),
         .ml_flags = c.METH_CLASS | c.METH_VARARGS | c.METH_KEYWORDS,
         .ml_doc = "from_tle_text(text, gravity_model=WGS84) -> Sgp4Constellation\n\nParse all TLEs from text in one call.",
+    },
+    .{
+        .ml_name = "from_omm",
+        .ml_meth = @ptrCast(&constellation_from_omm),
+        .ml_flags = c.METH_CLASS | c.METH_VARARGS | c.METH_KEYWORDS,
+        .ml_doc = "from_omm(json, gravity_model=WGS84) -> Sgp4Constellation\n\nBuild from CCSDS OMM JSON (a single object or an array).",
     },
     .{ .ml_name = null, .ml_meth = null, .ml_flags = 0, .ml_doc = null },
 };

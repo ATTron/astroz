@@ -99,77 +99,6 @@ def _parse_tle_pairs(tle_text):
     return pairs
 
 
-def _tle_exp(val):
-    """TLE implied-decimal exponent field, e.g. 0.00027310 -> ' 27310-3'."""
-    import math
-
-    if val == 0:
-        return " 00000+0"
-    sign = "-" if val < 0 else " "
-    av = abs(val)
-    exp = math.floor(math.log10(av)) + 1
-    mantissa = round(av * 10 ** (5 - exp))
-    return f"{sign}{int(mantissa):05d}{exp:+d}"
-
-
-def _with_checksum(line):
-    line = line[:68].ljust(68)
-    return line + str(sum(int(c) if c.isdigit() else (1 if c == "-" else 0) for c in line) % 10)
-
-
-def _omm_to_tle_pairs(json_text):
-    """(line1, line2) pairs from OMM JSON (one object or an array)."""
-    import json
-
-    data = json.loads(json_text)
-    if isinstance(data, dict):
-        data = [data]
-
-    pairs = []
-    for rec in data:
-        norad = rec["NORAD_CAT_ID"]
-        cls = rec.get("CLASSIFICATION_TYPE", "U") or "U"
-        intl = rec.get("OBJECT_ID", "00000A") or "00000A"
-        epoch_str = rec["EPOCH"]
-        ndot = rec.get("MEAN_MOTION_DOT", 0) or 0
-        nddot = rec.get("MEAN_MOTION_DDOT", 0) or 0
-        bstar = rec["BSTAR"]
-        etype = rec.get("EPHEMERIS_TYPE", 0) or 0
-        elset = rec.get("ELEMENT_SET_NO", 0) or 0
-        inc = rec["INCLINATION"]
-        raan = rec["RA_OF_ASC_NODE"]
-        ecc = rec["ECCENTRICITY"]
-        argp = rec["ARG_OF_PERICENTER"]
-        ma = rec["MEAN_ANOMALY"]
-        mm = rec["MEAN_MOTION"]
-        revnum = rec.get("REV_AT_EPOCH", 0) or 0
-
-        dt = datetime.fromisoformat(epoch_str).replace(tzinfo=None)
-        yy = dt.year % 100
-        doy = (dt - datetime(dt.year, 1, 1)).total_seconds() / 86400.0 + 1.0
-
-        # OBJECT_ID "1998-067A" -> TLE "98067A  "
-        if "-" in intl:
-            parts = intl.split("-", 1)
-            intl_year = parts[0][-2:]
-            rest = parts[1]
-            intl_tle = f"{intl_year}{rest:<6s}"
-        else:
-            intl_tle = f"{intl:<8s}"
-
-        # ndot has no leading zero: " .00015698"
-        ndot_sign = "-" if ndot < 0 else " "
-        ndot_frac = f"{abs(ndot):.8f}"
-        ndot_str = f"{ndot_sign}{ndot_frac[1:]}"
-
-        l1 = f"1 {norad:05d}{cls[0]} {intl_tle} {yy:02d}{doy:012.8f} {ndot_str} {_tle_exp(nddot)} {_tle_exp(bstar)} {etype} {elset:4d}"
-        ecc_str = f"{ecc:.7f}"[2:]  # "0.0011446" -> "0011446"
-        l2 = f"2 {norad:05d} {inc:8.4f} {raan:8.4f} {ecc_str} {argp:8.4f} {ma:8.4f} {mm:11.8f}{revnum:5d}"
-        pairs.append((_with_checksum(l1), _with_checksum(l2)))
-
-    return pairs
-
-
 def _start_jd(start_time):
     """Julian date of start_time (default: now, UTC)."""
     if start_time is None:
@@ -294,10 +223,20 @@ class Constellation:
     """
 
     def __init__(self, source=None, *, norad_id=None):
-        tle_text, fmt = _load_tle_text(source, norad_id)
-        pairs = _omm_to_tle_pairs(tle_text) if fmt == "json" else _parse_tle_pairs(tle_text)
+        text, fmt = _load_tle_text(source, norad_id)
 
         # Output order is SGP4 satellites first, then SDP4
+        self._zig = None
+        if fmt == "json":
+            sats = _Satrec.from_omm(text)
+            self._sdp4_satrecs = [s for s in sats if s.is_deep_space]
+            self._total_sats = len(sats)
+            self._n_sgp4 = len(sats) - len(self._sdp4_satrecs)
+            if self._n_sgp4:
+                self._zig = _Sgp4Constellation.from_omm(text)
+            return
+
+        pairs = _parse_tle_pairs(text)
         sgp4_lines = []
         self._sdp4_satrecs = []
         self._total_sats = len(pairs)
@@ -311,8 +250,6 @@ class Constellation:
                 sgp4_lines.append(l2)
 
         self._n_sgp4 = len(sgp4_lines) // 2
-
-        self._zig = None
         if sgp4_lines:
             self._zig = _Sgp4Constellation.from_tle_text("\n".join(sgp4_lines))
 

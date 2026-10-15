@@ -29,6 +29,28 @@ pub fn sgp4ErrorMsg(e: Sgp4.Error) [:0]const u8 {
     };
 }
 
+/// Parses CCSDS OMM JSON, a single object or an array, into TLEs the caller owns.
+/// Raises ValueError and returns null if the JSON is not valid OMM.
+pub fn parseOmm(json: []const u8) ?[]astroz.Tle {
+    const trimmed = std.mem.trimStart(u8, json, " \t\r\n");
+    if (std.mem.startsWith(u8, trimmed, "{")) {
+        const tles = allocator.alloc(astroz.Tle, 1) catch {
+            py.raiseRuntime("Out of memory");
+            return null;
+        };
+        tles[0] = astroz.Tle.parseOmm(trimmed, allocator) catch {
+            allocator.free(tles);
+            py.raiseValue("Failed to parse OMM JSON");
+            return null;
+        };
+        return tles;
+    }
+    return astroz.Tle.parseOmmArray(trimmed, allocator) catch {
+        py.raiseValue("Failed to parse OMM JSON");
+        return null;
+    };
+}
+
 /// python-sgp4 error codes
 pub fn sgp4ErrorCode(e: Sgp4.Error) c_int {
     return switch (e) {
