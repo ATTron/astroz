@@ -288,7 +288,7 @@ pub fn propagateBatchDirect(comptime N: usize, el: *const Sdp4BatchElements(N), 
     em = em - tempe;
 
     const eccFloor: Vec = @splat(Sgp4.eccentricityFloor);
-    bad = bad | (em >= one) | (em < @as(Vec, @splat(-0.001))) | (am < @as(Vec, @splat(0.95)));
+    bad = bad | (em >= one) | (em < @as(Vec, @splat(-0.001)));
     em = @select(f64, bad, eccFloor, @max(em, eccFloor));
 
     mm = mm + el.noUnkozai * templ;

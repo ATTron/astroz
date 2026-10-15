@@ -21,9 +21,15 @@ const eccentricityMin = 1.0e-4; // minimum for cc3/xmcof
 pub const eccentricityFloor = 1.0e-6; // floor to prevent numerical issues
 pub const singularityTolerance = 1.5e-12; // near-polar orbit singularity check
 
+/// The propagation failures match Vallado's (and python-sgp4's) error codes:
+/// InvalidEccentricity 1, NegativeMeanMotion 2, PerturbedEccentricity 3,
+/// NegativeSemilatusRectum 4, SatelliteDecayed 6.
 pub const Error = error{
     DeepSpaceNotSupported,
     InvalidEccentricity,
+    NegativeMeanMotion,
+    PerturbedEccentricity,
+    NegativeSemilatusRectum,
     SatelliteDecayed,
     OutOfMemory,
 };
@@ -99,6 +105,14 @@ pub fn propagate(self: *const Sgp4, tsince: f64) Error![2][3]f64 {
     return propagateElements(&self.elements, tsince);
 }
 
+/// A state as Vallado's sgp4() reports it: a decayed satellite (error 6) still
+/// gets its position and velocity, while errors 1-4 stop propagation.
+pub const Detailed = struct { pv: [2][3]f64, decayed: bool };
+
+pub fn propagateDetailed(self: *const Sgp4, tsince: f64) Error!Detailed {
+    return propagateElementsDetailed(&self.elements, tsince);
+}
+
 pub fn initElements(tle: Tle, grav: constants.Sgp4GravityModel) Error!Elements {
     const meanElements = extractMeanElements(tle);
 
@@ -107,9 +121,6 @@ pub fn initElements(tle: Tle, grav: constants.Sgp4GravityModel) Error!Elements {
     }
 
     const recovered = recoverMeanMotion(meanElements, grav);
-
-    const rp = recovered.a * (1.0 - meanElements.ecco);
-    if (rp < 1.0) return Error.SatelliteDecayed;
 
     const period = constants.twoPi / recovered.noUnkozai;
     if (period > constants.sgp4DeepSpaceThresholdMinutes) {
@@ -422,15 +433,22 @@ fn computeHigherOrderDrag(
 }
 
 fn propagateElements(el: *const Elements, tsince: f64) Error![2][3]f64 {
+    const d = try propagateElementsDetailed(el, tsince);
+    if (d.decayed) return Error.SatelliteDecayed;
+    return d.pv;
+}
+
+fn propagateElementsDetailed(el: *const Elements, tsince: f64) Error!Detailed {
     const secular = updateSecular(el, tsince);
     // Vallado error 1: mean eccentricity out of range
     if (secular.emRaw >= 1.0 or secular.emRaw < -0.001) return Error.InvalidEccentricity;
     const nm = el.grav.xke / std.math.pow(f64, secular.a, 1.5);
     const kepler = solveKepler(el, secular);
+    // Vallado error 4
+    if (kepler.pl < 0.0) return Error.NegativeSemilatusRectum;
     const corrected = applyShortPeriodCorrections(el, kepler, nm);
     // Vallado error 6: below the Earth's surface
-    if (corrected.r < 1.0) return Error.SatelliteDecayed;
-    return computePositionVelocity(el, corrected);
+    return .{ .pv = computePositionVelocity(el, corrected), .decayed = corrected.r < 1.0 };
 }
 
 pub const SecularState = struct {

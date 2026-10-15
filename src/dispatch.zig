@@ -45,6 +45,9 @@ fn decode(rc: c_int) Sgp4.Error {
         2 => error.InvalidEccentricity,
         3 => error.DeepSpaceNotSupported,
         4 => error.OutOfMemory,
+        5 => error.NegativeMeanMotion,
+        6 => error.PerturbedEccentricity,
+        7 => error.NegativeSemilatusRectum,
         else => unreachable,
     };
 }
