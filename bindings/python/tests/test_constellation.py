@@ -97,6 +97,7 @@ def test_rejected_record_is_nan_and_does_not_break_the_rest():
     c = astroz.Constellation(json.dumps([SARAMAGO, decayed]))
     assert c.num_satellites == 2
     assert len(c.epochs) == 2
+    assert c.satnums == [100000, 100001]  # good one first, rejected one last
     pos, vel = astroz.propagate(c, [0.0, 10.0], start_time=NEAR_EPOCH, output="teme", velocities=True)
     assert np.isfinite(pos[:, 0]).all() and np.isfinite(vel[:, 0]).all()
     assert np.isnan(pos[:, 1]).all() and np.isnan(vel[:, 1]).all()

@@ -54,7 +54,7 @@ def near_earth_tles(data):
         if period > 225:  # near-earth only
             continue
         tle_lines += [line1, line2]
-        satnum = line1[2:7].strip()
+        satnum = int(line1[2:7])  # CelesTrak TLEs never use Alpha-5
         meta[satnum] = {
             "name": name.strip(),
             "constellation": classify_satellite(name, inc),
@@ -111,7 +111,7 @@ def main():
     # constellation's order, so look the metadata up by catalog number, and
     # drop any satellite SGP4 rejected (its column is NaN).
     keep = np.isfinite(positions).all(axis=(0, 2))
-    satellites = [meta[sat.satnum_str] for sat, ok in zip(const._satrecs, keep) if ok]
+    satellites = [meta[n] for n, ok in zip(const.satnums, keep) if ok]
     positions = positions[:, keep] * 1000.0
     num_sats = len(satellites)
 

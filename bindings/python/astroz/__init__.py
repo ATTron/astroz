@@ -245,6 +245,11 @@ class Constellation:
         return self._total_sats
 
     @property
+    def satnums(self):
+        """NORAD catalog number of each output column (the same order as ``epochs``)."""
+        return [s.satnum for s in self._satrecs]
+
+    @property
     def epochs(self):
         """TLE epoch for each satellite as Julian Date."""
         epochs = []

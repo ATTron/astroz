@@ -124,40 +124,24 @@ const vel = result[1]; // [vx, vy, vz] km/s
 
 Run them all with `zig build example`, or only compile them with `zig build build-examples`.
 
-Spacecraft operations
+Zig
 
-- [Force model propagation](examples/maneuver_planning.zig): TwoBody and J2 combined with `ForceModel.wrap()` and `Composite`, integrated with Dormand-Prince 8(7).
-- [Constellation phasing](examples/constellation_phasing.zig): sun-synchronous orbit design and plane separation from J2 RAAN drift.
-- [Spacecraft orientation](examples/simple_spacecraft_orientation.zig): attitude propagation.
-
-Orbital mechanics
-
-- [Transfers and mission planning](examples/transfer_propagation.zig): interplanetary Hohmann vs bi-elliptic comparison and trajectory propagation.
-- [Orbit maneuvers](examples/orbit_maneuvers.zig): impulse, plane change and phase change maneuvers on a TLE orbit.
-- [Monte Carlo](examples/simple_monte_carlo.zig): transfer statistics under uncertainty.
-- [Propagation](examples/propagation.zig): SGP4 directly, through the propagator interface, and through `Satellite`.
-- [SPICE propagation](examples/spice_propagation.zig): LEO propagation with TwoBody, J2, SRP and third-body forces using SPICE Sun/Moon ephemeris (needs `-Denable-cspice=true` and `zig build fetch-kernels`).
-- [Cesium visualization](examples/README.md) ([live demo](https://attron.github.io/astroz-demo/)): the active catalog propagated and rendered in Cesium.
-
-Telemetry and data handling
-
-- [Parse VITA49](examples/parse_vita49.zig): VITA Radio Transport packet streams.
-- [Parse CCSDS](examples/parse_ccsds.zig): CCSDS space packets from a file.
-- [Create CCSDS packets](examples/create_ccsds_packet.zig): build telemetry packets.
-
-Astronomy
-
-- [FITS to image](examples/parse_fits_file.zig): read FITS image data and write a PNG.
+- [sgp4.zig](examples/sgp4.zig): TLE and OMM parsing (including six-digit catalog numbers), SGP4 one time and eight at once with SIMD, `Satellite` picking SGP4 or SDP4, and the Earth-fixed position.
+- [constellation.zig](examples/constellation.zig): a mixed near-earth and deep-space constellation propagated in batches, then screened for close approaches with `Screening`.
+- [numerical_propagation.zig](examples/numerical_propagation.zig): one orbit propagated with two-body (RK4 and Dormand-Prince 8(7)), with J2, and with J2, solar radiation pressure and Sun/Moon gravity. Uses SPICE ephemeris when built with `-Denable-cspice=true` after `zig build fetch-kernels`.
+- [spacecraft.zig](examples/spacecraft.zig): impulse, plane change and phase change maneuvers and how they change the orbit, then attitude propagation.
+- [mission_design.zig](examples/mission_design.zig): Earth to Mars by Hohmann and bi-elliptic transfer, the transfer propagated, and Monte Carlo statistics on it.
+- [packets.zig](examples/packets.zig): building and parsing CCSDS packets and parsing a VITA 49 stream.
+- [astronomy.zig](examples/astronomy.zig): star precession and reading a FITS image into a PNG.
 
   <img src="assets/fits.png" width="450" height="400" alt="sample FITS image rendered as PNG"/>
-
-- [Star precession](examples/precess_star.zig): precess coordinates to a target epoch.
-- [WCS from a TLE](examples/wcs.zig): World Coordinate System values from orbital elements.
 
 Python
 
 - [python_sgp4.py](examples/python_sgp4.py): the python-sgp4 compatible API.
-- [conjunction_screening.py](examples/conjunction_screening.py): screening a constellation for close approaches.
+- [constellation.py](examples/constellation.py): loading a constellation from CelesTrak or a TLE/OMM file, propagating to Earth-fixed and geodetic coordinates, and screening it for close approaches.
+- [orbital_mechanics.py](examples/orbital_mechanics.py): circular-orbit numbers, Hohmann and bi-elliptic transfers, Lambert's problem and numerical propagation with J2.
+- [Cesium visualization](examples/README.md) ([live demo](https://attron.github.io/astroz-demo/)): the active catalog propagated and rendered in Cesium.
 
 <!-- MARKDOWN LINKS -->
 

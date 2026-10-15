@@ -8,9 +8,11 @@ from astroz import (
     EARTH_J2,
     EARTH_MU,
     EARTH_R_EQ,
+    SUN_MU,
     bi_elliptic_transfer,
     escape_velocity,
     hohmann_transfer,
+    lambert,
     orbital_period,
     orbital_velocity,
     propagate_numerical,
@@ -39,6 +41,19 @@ def main():
     _, with_j2 = propagate_numerical(state, 0.0, 86400.0, 600.0, EARTH_MU, j2=EARTH_J2, r_eq=EARTH_R_EQ)
     gap = np.linalg.norm(np.asarray(two_body)[-1, :3] - np.asarray(with_j2)[-1, :3])
     print(f"After one day, J2 moves the satellite {gap:.0f} km from the two-body position")
+
+    # Lambert: Earth's orbit to Mars' distance, 135 degrees around in 250 days
+    au = 1.495978707e8
+    r1 = (au, 0.0, 0.0)
+    r2 = (1.524 * au * math.cos(math.radians(135)), 1.524 * au * math.sin(math.radians(135)), 0.0)
+    tof = 250 * 86400.0
+    sol = lambert(SUN_MU, r1, r2, tof)
+    v1 = sol["departure_velocity"]
+    print(f"Lambert: depart at {np.linalg.norm(v1):.2f} km/s, arrive at "
+          f"{np.linalg.norm(sol['arrival_velocity']):.2f} km/s, a = {sol['sma'] / au:.3f} AU")
+    _, states = propagate_numerical((*r1, *v1), 0.0, tof, 86400.0, SUN_MU)
+    miss = np.linalg.norm(np.asarray(states)[-1, :3] - np.asarray(r2))
+    print(f"  propagating that departure for 250 days lands {miss:.0f} km from the target")
 
 
 if __name__ == "__main__":
