@@ -213,94 +213,12 @@ fn constellationFromTles(tles: *std.ArrayList(astroz.Tle), grav_model: c_int) [*
     return @ptrCast(self);
 }
 
-fn constellation_screen_conjunction(self_obj: [*c]c.PyObject, args: [*c]c.PyObject, kwds: [*c]c.PyObject) callconv(.c) [*c]c.PyObject {
-    const self: *Sgp4ConstellationObject = @ptrCast(@alignCast(self_obj));
-
-    var times_obj: [*c]c.PyObject = null;
-    var target_idx_long: c_long = 0;
-    var threshold: f64 = 10.0;
-    var offsets_obj: [*c]c.PyObject = null;
-    var reference_jd: f64 = 0.0;
-
-    const kwlist = [_:null]?[*:0]const u8{
-        "times", "target_idx", "threshold", "epoch_offsets", "reference_jd", null,
-    };
-    if (c.PyArg_ParseTupleAndKeywords(args, kwds, "Ol|dOd", @ptrCast(@constCast(&kwlist)), &times_obj, &target_idx_long, &threshold, &offsets_obj, &reference_jd) == 0)
-        return null;
-
-    const batches = (self.batches orelse {
-        py.raiseRuntime("Constellation not initialized");
-        return null;
-    })[0..self.num_batches];
-
-    const target_idx: usize = @intCast(target_idx_long);
-    if (target_idx >= self.num_satellites) {
-        py.raiseValue("target_idx out of range");
-        return null;
-    }
-
-    var times_buf = std.mem.zeroes(c.Py_buffer);
-    if (c.PyObject_GetBuffer(times_obj, &times_buf, c.PyBUF_SIMPLE | c.PyBUF_FORMAT) < 0) return null;
-    defer c.PyBuffer_Release(&times_buf);
-
-    const num_times = @as(usize, @intCast(times_buf.len)) / @sizeOf(f64);
-    const times: [*]const f64 = @ptrCast(@alignCast(times_buf.buf));
-
-    var offsets_buf = std.mem.zeroes(c.Py_buffer);
-    var offsets = shared.prepareOffsets(offsets_obj, &offsets_buf, self.num_satellites, self.padded_count) orelse return null;
-    defer offsets.deinit();
-    defer if (!offsets.owned) c.PyBuffer_Release(&offsets_buf);
-
-    const target_epoch_offset = offsets.data[target_idx];
-
-    const out_min_dists = allocator.alloc(f64, self.num_satellites) catch {
-        py.raiseRuntime("Out of memory");
-        return null;
-    };
-    defer allocator.free(out_min_dists);
-
-    const out_min_t_indices = allocator.alloc(u32, self.num_satellites) catch {
-        py.raiseRuntime("Out of memory");
-        return null;
-    };
-    defer allocator.free(out_min_t_indices);
-
-    astroz.Constellation.screenConstellation(
-        batches,
-        self.num_satellites,
-        times[0..num_times],
-        offsets.data,
-        target_idx,
-        target_epoch_offset,
-        threshold,
-        reference_jd,
-        out_min_dists,
-        out_min_t_indices,
-    ) catch {
-        py.raiseValue("Screening failed");
-        return null;
-    };
-
-    const dists_list = py.listFromF64(out_min_dists) orelse return null;
-    const indices_list = py.listFromU32(out_min_t_indices) orelse {
-        py.decref(dists_list);
-        return null;
-    };
-    return c.Py_BuildValue("(NN)", dists_list, indices_list);
-}
-
 const constellation_methods = [_]c.PyMethodDef{
     .{
         .ml_name = "propagate_into",
         .ml_meth = @ptrCast(&constellation_propagate_into),
         .ml_flags = c.METH_VARARGS | c.METH_KEYWORDS,
         .ml_doc = "propagate_into(times, positions, velocities=None, *, epoch_offsets=None, output='teme', reference_jd=0.0) -> None\n\nPropagates all satellites. positions shape: (num_sats, num_times, 3)",
-    },
-    .{
-        .ml_name = "screen_conjunction",
-        .ml_meth = @ptrCast(&constellation_screen_conjunction),
-        .ml_flags = c.METH_VARARGS | c.METH_KEYWORDS,
-        .ml_doc = "screen_conjunction(times, target_idx, threshold=10.0, *, epoch_offsets=None, reference_jd=0.0) -> (min_distances, min_t_indices)\n\nFused propagate+screen: find minimum distance to target for each satellite.",
     },
     .{
         .ml_name = "from_tle_text",

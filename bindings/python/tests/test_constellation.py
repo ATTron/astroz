@@ -8,6 +8,7 @@ digits than TLE columns do.
 """
 
 import json
+import math
 from datetime import datetime, timezone
 
 import numpy as np
@@ -77,8 +78,7 @@ def test_invalid_omm_raises():
         astroz.Constellation(json.dumps([{"NORAD_CAT_ID": 1}]))
 
 
-def _near_epoch():
-    return datetime(2026, 7, 14, 21, 45, 21, tzinfo=timezone.utc)
+NEAR_EPOCH = datetime(2026, 7, 14, 21, 45, 21, tzinfo=timezone.utc)  # SARAMAGO's epoch
 
 
 def test_period_near_deep_space_boundary_loads():
@@ -88,7 +88,7 @@ def test_period_near_deep_space_boundary_loads():
                          for i in range(21)]
     c = astroz.Constellation(json.dumps(recs))
     assert c.num_satellites == len(recs)
-    pos = astroz.propagate(c, [0.0], start_time=_near_epoch(), output="teme")
+    pos = astroz.propagate(c, [0.0], start_time=NEAR_EPOCH, output="teme")
     assert np.isfinite(pos).all()
 
 
@@ -97,10 +97,11 @@ def test_rejected_record_is_nan_and_does_not_break_the_rest():
     c = astroz.Constellation(json.dumps([SARAMAGO, decayed]))
     assert c.num_satellites == 2
     assert len(c.epochs) == 2
-    pos, vel = astroz.propagate(c, [0.0, 10.0], start_time=_near_epoch(), output="teme", velocities=True)
+    pos, vel = astroz.propagate(c, [0.0, 10.0], start_time=NEAR_EPOCH, output="teme", velocities=True)
     assert np.isfinite(pos[:, 0]).all() and np.isfinite(vel[:, 0]).all()
     assert np.isnan(pos[:, 1]).all() and np.isnan(vel[:, 1]).all()
-    astroz.screen(c, [0.0, 10.0], start_time=_near_epoch(), threshold=10.0)
+    events = astroz.screen(c, 10.0, threshold=10.0, start_time=NEAR_EPOCH)
+    assert not np.isin(1, events.i) and not np.isin(1, events.j)
 
 
 def test_propagate_matches_python_sgp4_wgs72():
@@ -114,3 +115,87 @@ def test_propagate_matches_python_sgp4_wgs72():
         assert err == 0
         got = astroz.propagate(TLE_81011, [minutes], start_time=start, output="teme")[0, 0]
         assert np.abs(got - np.array(r)).max() < 1e-3  # km
+
+
+def _shell(n, seed):
+    """Random near-circular orbits in a thin shell around 550 km, so plenty of pairs pass close."""
+    rng = np.random.default_rng(seed)
+    return [dict(SARAMAGO, NORAD_CAT_ID=300000 + k, MEAN_MOTION=15.05 + rng.normal(0, 0.01),
+                 ECCENTRICITY=float(rng.uniform(1e-4, 2e-3)), INCLINATION=float(rng.uniform(40, 100)),
+                 RA_OF_ASC_NODE=float(rng.uniform(0, 360)), ARG_OF_PERICENTER=float(rng.uniform(0, 360)),
+                 MEAN_ANOMALY=float(rng.uniform(0, 360)), BSTAR=1e-5, MEAN_MOTION_DOT=0)
+            for k in range(n)]
+
+
+def _brute_force(c, start, minutes, threshold):
+    """Every closest approach within threshold: scan each pair at 1 s, then golden-section
+    refine each local minimum with the scalar propagator. Shares no code with screen()."""
+    sats = c._satrecs
+    jd0 = astroz._start_jd(start)
+    jd_day, fr0 = float(math.floor(jd0)), jd0 - math.floor(jd0)
+    t = np.arange(0, minutes * 60 + 1, 1.0)
+    pos = np.empty((len(sats), len(t), 3))
+    for s, sat in enumerate(sats):
+        sat.sgp4_array_into(np.full(len(t), jd_day), fr0 + t / 86400, pos[s], np.empty((len(t), 3)))
+
+    def dist(i, j, sec):
+        ri, rj, v = np.empty((1, 3)), np.empty((1, 3)), np.empty((1, 3))
+        jd, fr = np.array([jd_day]), np.array([fr0 + sec / 86400])
+        sats[i].sgp4_array_into(jd, fr, ri, v)
+        sats[j].sgp4_array_into(jd, fr, rj, v)
+        return float(np.linalg.norm(ri - rj))
+
+    events = {}
+    golden = (math.sqrt(5) - 1) / 2
+    for i in range(len(sats) - 1):
+        d = np.linalg.norm(pos[i][None] - pos[i + 1:], axis=2)
+        interior = (d[:, 1:-1] < d[:, :-2]) & (d[:, 1:-1] <= d[:, 2:]) & (d[:, 1:-1] < threshold + 10)
+        for jj, k in zip(*np.nonzero(interior)):
+            j, lo, hi = i + 1 + jj, t[k], t[k + 2]
+            for _ in range(60):
+                m1, m2 = hi - golden * (hi - lo), lo + golden * (hi - lo)
+                lo, hi = (lo, m2) if dist(i, j, m1) < dist(i, j, m2) else (m1, hi)
+            sec = 0.5 * (lo + hi)
+            if dist(i, j, sec) <= threshold:
+                events[(i, j, round(sec))] = dist(i, j, sec)
+    return events
+
+
+@pytest.mark.parametrize("step", [1.0, 10.0])
+def test_screen_finds_every_encounter(step, monkeypatch):
+    c = astroz.Constellation(json.dumps(_shell(120, 7)))
+    start = datetime(2026, 7, 14, 22, 0, tzinfo=timezone.utc)
+    want = _brute_force(c, start, 120, 25.0)
+    assert len(want) > 5
+    # Tiny chunks, so encounters also land on chunk boundaries
+    monkeypatch.setattr(astroz, "_SCREEN_STATE_BUDGET", 120 * 48 * 3)
+    ev = astroz.screen(c, 120, threshold=25.0, step=step, start_time=start)
+    got = {(int(i), int(j), round(t * 60)): d for i, j, t, d in zip(ev.i, ev.j, ev.time, ev.distance)}
+    assert got.keys() == want.keys()
+    for k in want:
+        # Refinement evaluates several times at once through the SIMD path, which
+        # differs from the scalar path by centimetres; astroz allows 1 m for that.
+        assert abs(got[k] - want[k]) < 1e-3  # km
+    assert np.all(np.diff(ev.time) >= 0) and np.all(ev.speed > 0)
+
+
+def test_screen_target_limits_pairs():
+    c = astroz.Constellation(json.dumps(_shell(120, 7)))
+    start = datetime(2026, 7, 14, 22, 0, tzinfo=timezone.utc)
+    every = astroz.screen(c, 120, threshold=25.0, start_time=start)
+    target = int(every.i[0])
+    some = astroz.screen(c, 120, threshold=25.0, target=target, start_time=start)
+    involved = (every.i == target) | (every.j == target)
+    assert len(some.i) == involved.sum() > 0
+    assert np.all((some.i == target) | (some.j == target))
+
+
+def test_screen_stays_inside_the_window():
+    c = astroz.Constellation(json.dumps(_shell(120, 7)))
+    start = datetime(2026, 7, 14, 22, 0, tzinfo=timezone.utc)
+    every = astroz.screen(c, 120, threshold=25.0, start_time=start)
+    cut = float(np.median(every.time))
+    # 7-minute steps don't divide the window, so the grid runs past it
+    part = astroz.screen(c, cut, threshold=25.0, step=7.0, start_time=start)
+    assert len(part.i) == np.sum(every.time <= cut) > 0
+    assert np.all(part.time <= cut)

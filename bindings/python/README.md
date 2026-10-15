@@ -95,18 +95,20 @@ positions, velocities = propagate("starlink", times, velocities=True)
 
 ```python
 from astroz import screen
-import numpy as np
 
-times = np.arange(1440)
+events = screen("starlink", 1440, threshold=5.0)  # one day, 5 km
+for i, j, t, d in zip(events.i, events.j, events.time, events.distance):
+    print(f"{i} and {j} pass {d:.3f} km apart at t+{t:.1f} min")
 
-# Single target (propagates and screens in one pass, no full position array)
-min_dists, min_t_indices = screen("starlink", times, threshold=50.0, target=0)
-# Returns per-satellite minimum distance to target and time index
-
-# All-vs-all screening
-pairs, t_indices = screen("starlink", times, threshold=10.0)
-# Returns all conjunction events within threshold
+# Only encounters involving satellite 0
+mine = screen("starlink", 1440, threshold=5.0, target=0)
 ```
+
+`screen` returns every closest approach within the threshold, with its exact
+time, miss distance (km) and relative speed (km/s). Satellites are sampled on a
+grid (`step`, 1 minute by default), but each pair is checked with a bound on
+how far it can move between samples, so encounters between grid points are not
+missed. A coarser `step` is faster and still finds every encounter.
 
 ## Migrating from python-sgp4
 

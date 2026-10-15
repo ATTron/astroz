@@ -71,7 +71,8 @@ class SatrecArray:
     """Propagates many satellites at once, a drop-in for sgp4.api.SatrecArray.
 
     Near-earth satellites go through SIMD SGP4 batches and deep-space ones
-    through threaded SDP4; mixed lists are fine.
+    through threaded SDP4; mixed lists are fine. A satellite whose elements
+    SGP4/SDP4 rejected gets its own error code and NaN, as in python-sgp4.
     """
 
     def __init__(self, satrecs):
@@ -81,11 +82,14 @@ class SatrecArray:
         self._sgp4_indices = []
         self._sdp4_indices = []
         self._sdp4_natives = []
+        self._failed = []  # (index, error code)
         sgp4_natives = []
         for i, sat in enumerate(natives):
             if sat.is_deep_space:
                 self._sdp4_indices.append(i)
                 self._sdp4_natives.append(sat)
+            elif sat.error != 0:
+                self._failed.append((i, sat.error))
             else:
                 self._sgp4_indices.append(i)
                 sgp4_natives.append(sat)
@@ -122,7 +126,7 @@ class SatrecArray:
             v_tm = np.empty(tm_shape, dtype=np.float64) if velocities else None
             self._zig.propagate_into(times, r_tm, v_tm, epoch_offsets=epoch_offsets)
 
-        if self._zig is not None and not self._sdp4_natives:
+        if self._zig is not None and len(self._sgp4_indices) == self._num_sats:
             # All SGP4: hand back transposed views of the time-major output
             r = r_tm.transpose(1, 0, 2)
             v = v_tm.transpose(1, 0, 2) if velocities else np.zeros(shape, dtype=np.float64)
@@ -144,6 +148,10 @@ class SatrecArray:
 
         # Failed propagations come back as NaN; python-sgp4 reports those as 6 (decayed)
         e = np.where(np.isnan(r[..., 0]), 6, 0).astype(np.uint8)
+        for i, code in self._failed:
+            r[i] = np.nan
+            v[i] = np.nan if velocities else 0.0
+            e[i] = code
         return e, r, v
 
 

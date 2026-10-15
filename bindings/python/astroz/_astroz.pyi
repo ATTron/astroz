@@ -32,16 +32,19 @@ def jday(
 def days2mdhms(year: int, days: float) -> Tuple[int, int, int, int, float]:
     """Fractional day of year (1.0 = Jan 1 00:00) to (month, day, hour, minute, second)."""
 
-def coarse_screen(
+def screen_candidates(
     positions: npt.NDArray[np.float64],
+    velocities: npt.NDArray[np.float64],
     num_sats: int,
+    dt: float,
     threshold: float,
-    valid_mask: Optional[npt.NDArray[np.uint8]] = None,
-) -> Tuple[List[Tuple[int, int]], List[int]]:
-    """All-pairs screen of precomputed positions.
+    primary: Optional[npt.NDArray[np.bool_]] = None,
+) -> bytes:
+    """Candidate intervals that may hold a closest approach within ``threshold`` km.
 
-    Returns the satellite index pairs closer than ``threshold`` km and the
-    time index of each.
+    ``positions`` and ``velocities`` are time-major ``(n_times, num_sats, 3)``
+    TEME states on a grid ``dt`` seconds apart. Returns ``(i, j, step)`` triples
+    packed as uint32; read them with ``np.frombuffer(..., np.uint32).reshape(-1, 3)``.
     """
 
 def sdp4_batch_propagate_into(
@@ -172,15 +175,6 @@ class Sgp4Constellation:
         (the last two need ``reference_jd``). ``output_stride`` widens the
         satellite axis so other results can share the array.
         """
-    def screen_conjunction(
-        self,
-        times: npt.NDArray[np.float64],
-        target_idx: int,
-        threshold: float = 10.0,
-        epoch_offsets: Optional[npt.NDArray[np.float64]] = None,
-        reference_jd: float = 0.0,
-    ) -> Tuple[List[float], List[int]]:
-        """Minimum distance from each satellite to ``target_idx`` and its time index."""
 
 class Satrec:
     """python-sgp4 compatible satellite record (SGP4 or SDP4)."""
