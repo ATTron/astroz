@@ -196,9 +196,8 @@ pub inline fn readArray(comptime N: usize, src: *const VecN(N)) [N]f64 {
     return @as(*const [N]f64, @ptrCast(src)).*;
 }
 
-/// x^(2/3) for x > 0. A fixed number of Newton steps for the cube root only
-/// converged for x up to a few hundred, which put long-period deep-space orbits
-/// (mean motions of a fraction of a rev/day) hundreds of km off.
+/// x^(2/3) for x > 0, exact at any size: SDP4 calls it with xke/nm, which
+/// reaches the thousands for orbits out near the Moon.
 pub fn pow23N(comptime N: usize, x: VecN(N)) VecN(N) {
     const twoThirds: VecN(N) = @splat(2.0 / 3.0);
     return @exp(@log(x) * twoThirds);
