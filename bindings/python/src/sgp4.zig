@@ -6,6 +6,7 @@ const c = py.c;
 const shared = @import("shared.zig");
 const astroz = @import("astroz");
 const tle_mod = @import("tle.zig");
+const satrec_mod = @import("satrec.zig");
 
 const allocator = shared.allocator;
 const BatchSize = shared.BatchSize;
@@ -36,7 +37,7 @@ fn constellation_init(self_obj: [*c]c.PyObject, args: [*c]c.PyObject, kwds: [*c]
         return -1;
 
     if (c.PySequence_Check(tles_obj) == 0) {
-        py.raiseType("First argument must be a sequence of Tle objects");
+        py.raiseType("First argument must be a sequence of Tle or Satrec objects");
         return -1;
     }
 
@@ -61,13 +62,15 @@ fn constellation_init(self_obj: [*c]c.PyObject, args: [*c]c.PyObject, kwds: [*c]
         };
         defer py.decref(item);
 
-        if (c.PyObject_TypeCheck(item, &tle_mod.TleType) == 0) {
-            py.raiseType("All items must be Tle objects");
+        const tle_ptr = if (c.PyObject_TypeCheck(item, &tle_mod.TleType) != 0)
+            @as(*tle_mod.TleObject, @ptrCast(@alignCast(item))).tle
+        else if (c.PyObject_TypeCheck(item, &satrec_mod.SatrecType) != 0)
+            @as(*satrec_mod.SatrecObject, @ptrCast(@alignCast(item))).tle
+        else {
+            py.raiseType("All items must be Tle or Satrec objects");
             return -1;
-        }
-
-        const tle_obj_ptr = @as(*tle_mod.TleObject, @ptrCast(@alignCast(item)));
-        tles[i] = (tle_obj_ptr.tle orelse {
+        };
+        tles[i] = (tle_ptr orelse {
             py.raiseValue("TLE not initialized");
             return -1;
         }).*;
@@ -170,22 +173,6 @@ fn constellation_from_tle_text(cls: [*c]c.PyObject, args: [*c]c.PyObject, kwds: 
             return null;
         };
     }
-    return constellationFromTles(&tles, grav_model);
-}
-
-fn constellation_from_omm(cls: [*c]c.PyObject, args: [*c]c.PyObject, kwds: [*c]c.PyObject) callconv(.c) [*c]c.PyObject {
-    _ = cls;
-    var text_ptr: [*c]const u8 = null;
-    var text_len: c.Py_ssize_t = 0;
-    var grav_model: c_int = 0;
-
-    const kwlist = [_:null]?[*:0]const u8{ "json", "gravity_model", null };
-    if (c.PyArg_ParseTupleAndKeywords(args, kwds, "s#|i", @ptrCast(@constCast(&kwlist)), &text_ptr, &text_len, &grav_model) == 0)
-        return null;
-
-    const parsed = shared.parseOmm(text_ptr[0..@intCast(text_len)]) orelse return null;
-    var tles: std.ArrayList(astroz.Tle) = .fromOwnedSlice(parsed);
-    defer deinitTles(&tles);
     return constellationFromTles(&tles, grav_model);
 }
 
@@ -320,12 +307,6 @@ const constellation_methods = [_]c.PyMethodDef{
         .ml_meth = @ptrCast(&constellation_from_tle_text),
         .ml_flags = c.METH_CLASS | c.METH_VARARGS | c.METH_KEYWORDS,
         .ml_doc = "from_tle_text(text, gravity_model=WGS84) -> Sgp4Constellation\n\nParse all TLEs from text in one call.",
-    },
-    .{
-        .ml_name = "from_omm",
-        .ml_meth = @ptrCast(&constellation_from_omm),
-        .ml_flags = c.METH_CLASS | c.METH_VARARGS | c.METH_KEYWORDS,
-        .ml_doc = "from_omm(json, gravity_model=WGS84) -> Sgp4Constellation\n\nBuild from CCSDS OMM JSON (a single object or an array).",
     },
     .{ .ml_name = null, .ml_meth = null, .ml_flags = 0, .ml_doc = null },
 };
