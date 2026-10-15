@@ -142,7 +142,7 @@ pub fn runHohmannSimulation(self: *MonteCarlo) !void {
             .uncertainty = appliedUncertainty,
         });
 
-        if ((i + 1) % (self.config.numSimulations / 10) == 0) {
+        if ((i + 1) % @max(self.config.numSimulations / 10, 1) == 0) {
             const progress = @as(f64, @floatFromInt(i + 1)) / @as(f64, @floatFromInt(self.config.numSimulations)) * 100.0;
             log.debug("Progress: {d:.0}% ({d}/{d} simulations)", .{ progress, i + 1, self.config.numSimulations });
         }
@@ -300,4 +300,24 @@ test "Monte Carlo basic functionality" {
     try testing.expect(stats.successRate > 0.8);
     try testing.expect(stats.meanDeltaV > 0.0);
     try testing.expect(stats.stdDeltaV > 0.0);
+}
+
+test "Monte Carlo with fewer than ten simulations" {
+    var mc = MonteCarlo.init(std.testing.allocator, .{
+        .numSimulations = 3,
+        .uncertainty = .{
+            .departureRadiusUncertainty = 0.01,
+            .arrivalRadiusUncertainty = 0.01,
+            .muUncertainty = 0.005,
+            .launchWindowDays = 1.0,
+            .measurementNoise = 0.001,
+        },
+        .seed = 1,
+        .departureBody = constants.earth,
+        .arrivalBody = constants.mars,
+        .baseMu = constants.sun.mu,
+    });
+    defer mc.deinit();
+    try mc.runHohmannSimulation();
+    try std.testing.expectEqual(3, mc.results.items.len);
 }
