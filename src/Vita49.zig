@@ -24,14 +24,13 @@ pub fn init(pl: []const u8, allocator: std.mem.Allocator, config: ?[]const u8) !
         return Error.InsufficientData;
     }
     const header = try Header.init(stream[0..4].*);
-    var streamId: ?u32 = undefined;
-    var classId: ?ClassId = undefined;
-    var payload: []const u8 = undefined;
-    var trailer: ?Trailer = undefined;
+    var streamId: ?u32 = null;
+    var classId: ?ClassId = null;
+    var trailer: ?Trailer = null;
     var iStart: usize = 4;
     var fStart: usize = 4;
-    var iTimestamp: ?u32 = undefined;
-    var fTimestamp: ?u64 = undefined;
+    var iTimestamp: ?u32 = null;
+    var fTimestamp: ?u64 = null;
     var payloadRange = try getPayloadRange(header, true);
 
     switch (header.packetType) {
@@ -56,31 +55,26 @@ pub fn init(pl: []const u8, allocator: std.mem.Allocator, config: ?[]const u8) !
         classId = ClassId.init(stream[8..16].*);
         iStart += 8;
         fStart += 8;
-    } else {
-        classId = null;
     }
     if (header.trailer) {
         trailer = Trailer.init(stream[payloadRange.end..]);
     }
-    payload = stream[payloadRange.start..payloadRange.end];
+    const payload = stream[payloadRange.start..payloadRange.end];
     if (header.tsi != Tsi.none) {
         var tmpArray: [4]u8 = undefined;
         @memcpy(&tmpArray, stream[iStart .. iStart + 4]);
         iTimestamp = std.mem.readInt(u32, &tmpArray, .little);
         fStart += 4;
-    } else {
-        iTimestamp = null;
     }
     if (header.tsf != Tsf.none) {
         var tmpArray: [8]u8 = undefined;
         @memcpy(&tmpArray, stream[fStart .. fStart + 8]);
         fTimestamp = std.mem.readInt(u64, &tmpArray, .little);
-    } else {
-        fTimestamp = null;
     }
     const endOfData = if (header.trailer) payloadRange.end + 4 else payloadRange.end;
 
-    _ = allocator.resize(stream, endOfData);
+    // Drop anything past the packet; keep the slice in step so deinit frees the right length
+    if (endOfData < stream.len and allocator.resize(stream, endOfData)) stream = stream[0..endOfData];
     return .{
         .header = header,
         .streamId = streamId,
@@ -253,6 +247,26 @@ test "Test Vita49 Packet w/o trailer" {
     try std.testing.expectEqual(128, vita49_packet.fTimestamp);
     try std.testing.expectEqual(4660, vita49_packet.streamId.?);
     try std.testing.expectEqual(1193046, vita49_packet.classId.?.oui);
+    try std.testing.expectEqualStrings("Hello, VITA 49!", vita49_packet.payload);
+}
+
+test "Vita49 packet without stream id, class id, timestamps or trailer" {
+    const packet = [_]u8{
+        0x00, 0x00, 0x05, 0x00, // signal data without stream id, 5 words
+        'H',  'e',  'l',  'l',
+        'o',  ',',  ' ',  'V',
+        'I',  'T',  'A',  ' ',
+        '4',  '9',  '!',  0x00,
+    };
+
+    var vita49_packet = try Vita49.init(&packet, std.testing.allocator, null);
+    defer vita49_packet.deinit();
+
+    try std.testing.expect(vita49_packet.streamId == null);
+    try std.testing.expect(vita49_packet.classId == null);
+    try std.testing.expect(vita49_packet.iTimestamp == null);
+    try std.testing.expect(vita49_packet.fTimestamp == null);
+    try std.testing.expect(vita49_packet.trailer == null);
     try std.testing.expectEqualStrings("Hello, VITA 49!", vita49_packet.payload);
 }
 

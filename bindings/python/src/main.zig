@@ -13,6 +13,7 @@ const propagator = @import("propagator.zig");
 
 var module_methods = [_]c.PyMethodDef{
     .{ .ml_name = "screen_candidates", .ml_meth = @ptrCast(&screening.pyScreenCandidates), .ml_flags = c.METH_VARARGS | c.METH_KEYWORDS, .ml_doc = "screen_candidates(positions, velocities, num_sats, dt, threshold, primary=None) -> bytes\n\nCandidate (i, j, step) intervals, packed as uint32 triples, that may hold a closest approach within threshold km. positions/velocities are time-major (n_times, num_sats, 3) TEME on a grid dt seconds apart." },
+    .{ .ml_name = "refine_candidates", .ml_meth = @ptrCast(&screening.pyRefineCandidates), .ml_flags = c.METH_VARARGS | c.METH_KEYWORDS, .ml_doc = "refine_candidates(satrecs, candidates, jd0, dt) -> bytes\n\nTime of closest approach in each (i, j, step) candidate from screen_candidates, with satrecs[s] propagating satellite s. Returns float64 quadruples (time s, distance km, speed km/s, converged)." },
     .{ .ml_name = "jday", .ml_meth = @ptrCast(&satrec.pyJday), .ml_flags = c.METH_VARARGS, .ml_doc = "jday(year, month, day, hour, minute, second) -> (jd, fr)\n\nConvert calendar date to Julian date (integer and fractional parts)." },
     .{ .ml_name = "days2mdhms", .ml_meth = @ptrCast(&satrec.pyDays2mdhms), .ml_flags = c.METH_VARARGS, .ml_doc = "days2mdhms(year, days) -> (month, day, hour, minute, second)\n\nConvert day of year to month, day, hour, minute, second." },
     .{ .ml_name = "sdp4_batch_propagate_into", .ml_meth = @ptrCast(&satrec.pySdp4BatchPropagateInto), .ml_flags = c.METH_VARARGS | c.METH_KEYWORDS, .ml_doc = "sdp4_batch_propagate_into(satrecs, jd, fr, positions, velocities, output_stride=-1, sat_offset=0) -> None\n\nBatch SDP4 propagation with threading." },
@@ -54,6 +55,7 @@ pub export fn PyInit__astroz() ?*c.PyObject {
     py.incref(@as(*c.PyObject, @ptrCast(&satrec.SatrecArrayType)));
     if (c.PyModule_AddObject(m, "SatrecArray", @ptrCast(&satrec.SatrecArrayType)) < 0) return null;
 
+    if (c.PyModule_AddStringConstant(m, "__version__", astroz.version.ptr) < 0) return null;
     if (c.PyModule_AddIntConstant(m, "WGS72", satrec.WGS72) < 0) return null;
     if (c.PyModule_AddIntConstant(m, "WGS84", satrec.WGS84) < 0) return null;
 

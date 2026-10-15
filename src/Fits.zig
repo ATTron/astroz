@@ -56,6 +56,7 @@ pub fn open(file_path: []const u8, io: std.Io, allocator: std.mem.Allocator) !Fi
 
 pub fn open_and_parse(file_path: []const u8, io: std.Io, allocator: std.mem.Allocator, options: ParseOptions) !Fits {
     var fits_file = try Fits.open(file_path, io, allocator);
+    errdefer fits_file.close();
     var image_count: usize = 0;
     var ascii_table_count: usize = 0;
     var binary_table_count: usize = 0;
@@ -135,7 +136,7 @@ pub fn readTable(self: *Fits, hdu_number: c_int, output_path: ?[]const u8) !void
     while (i <= cols) : (i += 1) {
         var ttype: [cfitsio.FLEN_VALUE]u8 = undefined;
         var tunit: [cfitsio.FLEN_VALUE]u8 = undefined;
-        var typechar: [1]u8 = undefined;
+        var typechar: [4]u8 = undefined; // NUL-terminated, e.g. "D" or "PE"
         var repeat: c_long = undefined;
         var scale: f64 = undefined;
         var zero: f64 = undefined;
@@ -208,7 +209,8 @@ fn readPixels(self: *Fits, hdu_number: c_int) !?Pixels {
     _ = cfitsio.fits_movabs_hdu(self.fptr, hdu_number, null, &status);
     try check(status);
 
-    var naxes: [2]c_long = undefined;
+    // Left untouched for an image with NAXIS = 0, such as an empty primary HDU
+    var naxes: [2]c_long = .{ 0, 0 };
     _ = cfitsio.fits_get_img_size(self.fptr, 2, &naxes, &status);
     try check(status);
 

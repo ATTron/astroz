@@ -240,6 +240,44 @@ fn propagateOne(comptime T: type, propagator: *const T, epochJd: f64, jd_ptr: [*
     }
 }
 
+/// The jd, fr, positions and velocities arrays shared by the *_into functions.
+const TimeBuffers = struct {
+    jd: []f64,
+    fr: []f64,
+    pos: []f64,
+    vel: []f64,
+    bufs: [4]c.Py_buffer,
+
+    /// Raises unless all four are float64, fr matches jd, and positions/velocities
+    /// hold at least `columns` satellites' worth of states for every time.
+    fn get(jd_obj: [*c]c.PyObject, fr_obj: [*c]c.PyObject, pos_obj: [*c]c.PyObject, vel_obj: [*c]c.PyObject, columns: usize) ?TimeBuffers {
+        var t: TimeBuffers = undefined;
+        t.bufs = @splat(std.mem.zeroes(c.Py_buffer));
+        const objs = [_][*c]c.PyObject{ jd_obj, fr_obj, pos_obj, vel_obj };
+        var slices: [4][]f64 = undefined;
+        const names = .{ "jd", "fr", "positions", "velocities" };
+        inline for (objs, &slices, names, 0..) |obj, *slice, name, k| {
+            // positions and velocities are written to
+            slice.* = shared.getBuffer(f64, name, obj, &t.bufs[k], k >= 2) orelse {
+                for (t.bufs[0..k]) |*b| c.PyBuffer_Release(b);
+                return null;
+            };
+        }
+        t.jd, t.fr, t.pos, t.vel = slices;
+        const need = t.jd.len * columns * 3;
+        if (t.fr.len != t.jd.len or t.pos.len < need or t.vel.len < need) {
+            t.release();
+            py.raiseValue(if (t.fr.len != t.jd.len) "jd and fr must have the same length" else "positions/velocities array too small");
+            return null;
+        }
+        return t;
+    }
+
+    fn release(t: *TimeBuffers) void {
+        for (&t.bufs) |*b| c.PyBuffer_Release(b);
+    }
+};
+
 fn satrec_sgp4_array_into(self_obj: [*c]c.PyObject, args: [*c]c.PyObject) callconv(.c) [*c]c.PyObject {
     const self: *SatrecObject = @ptrCast(@alignCast(self_obj));
     var jd_obj: [*c]c.PyObject = null;
@@ -249,32 +287,15 @@ fn satrec_sgp4_array_into(self_obj: [*c]c.PyObject, args: [*c]c.PyObject) callco
 
     if (c.PyArg_ParseTuple(args, "OOOO", &jd_obj, &fr_obj, &pos_obj, &vel_obj) == 0) return null;
 
-    var jd_buf = std.mem.zeroes(c.Py_buffer);
-    var fr_buf = std.mem.zeroes(c.Py_buffer);
-    var pos_buf = std.mem.zeroes(c.Py_buffer);
-    var vel_buf = std.mem.zeroes(c.Py_buffer);
+    var bufs = TimeBuffers.get(jd_obj, fr_obj, pos_obj, vel_obj, 1) orelse return null;
+    defer bufs.release();
 
-    if (c.PyObject_GetBuffer(jd_obj, &jd_buf, c.PyBUF_SIMPLE | c.PyBUF_FORMAT) < 0) return null;
-    defer c.PyBuffer_Release(&jd_buf);
-    if (c.PyObject_GetBuffer(fr_obj, &fr_buf, c.PyBUF_SIMPLE | c.PyBUF_FORMAT) < 0) return null;
-    defer c.PyBuffer_Release(&fr_buf);
-    if (c.PyObject_GetBuffer(pos_obj, &pos_buf, c.PyBUF_WRITABLE | c.PyBUF_FORMAT) < 0) return null;
-    defer c.PyBuffer_Release(&pos_buf);
-    if (c.PyObject_GetBuffer(vel_obj, &vel_buf, c.PyBUF_WRITABLE | c.PyBUF_FORMAT) < 0) return null;
-    defer c.PyBuffer_Release(&vel_buf);
-
-    const n = @as(usize, @intCast(jd_buf.len)) / @sizeOf(f64);
+    const n = bufs.jd.len;
     const epochJd = self.jdsatepoch + self.jdsatepochF;
-
-    const jd_ptr: [*]const f64 = @ptrCast(@alignCast(jd_buf.buf));
-    const fr_ptr: [*]const f64 = @ptrCast(@alignCast(fr_buf.buf));
-    const pos_ptr: [*]f64 = @ptrCast(@alignCast(pos_buf.buf));
-    const vel_ptr: [*]f64 = @ptrCast(@alignCast(vel_buf.buf));
-
     if (self.sgp4) |sgp4| {
-        propagateArray(Sgp4, sgp4, n, epochJd, jd_ptr, fr_ptr, pos_ptr, vel_ptr);
+        propagateArray(Sgp4, sgp4, n, epochJd, bufs.jd.ptr, bufs.fr.ptr, bufs.pos.ptr, bufs.vel.ptr);
     } else if (getSdp4(self)) |sdp4| {
-        propagateArraySdp4(sdp4, n, epochJd, jd_ptr, fr_ptr, pos_ptr, vel_ptr);
+        propagateArraySdp4(sdp4, n, epochJd, bufs.jd.ptr, bufs.fr.ptr, bufs.pos.ptr, bufs.vel.ptr);
     } else {
         py.raiseRuntime("Satrec not initialized");
         return null;
@@ -501,25 +522,18 @@ pub fn pySdp4BatchPropagateInto(_: [*c]c.PyObject, args: [*c]c.PyObject, kwds: [
     const num_sats: usize = @intCast(c.PySequence_Size(satrecs_obj));
     if (num_sats == 0) return py.none();
 
-    var jd_buf = std.mem.zeroes(c.Py_buffer);
-    var fr_buf = std.mem.zeroes(c.Py_buffer);
-    var pos_buf = std.mem.zeroes(c.Py_buffer);
-    var vel_buf = std.mem.zeroes(c.Py_buffer);
-
-    if (c.PyObject_GetBuffer(jd_obj, &jd_buf, c.PyBUF_SIMPLE | c.PyBUF_FORMAT) < 0) return null;
-    defer c.PyBuffer_Release(&jd_buf);
-    if (c.PyObject_GetBuffer(fr_obj, &fr_buf, c.PyBUF_SIMPLE | c.PyBUF_FORMAT) < 0) return null;
-    defer c.PyBuffer_Release(&fr_buf);
-    if (c.PyObject_GetBuffer(pos_obj, &pos_buf, c.PyBUF_WRITABLE | c.PyBUF_FORMAT) < 0) return null;
-    defer c.PyBuffer_Release(&pos_buf);
-    if (c.PyObject_GetBuffer(vel_obj, &vel_buf, c.PyBUF_WRITABLE | c.PyBUF_FORMAT) < 0) return null;
-    defer c.PyBuffer_Release(&vel_buf);
-
-    const n_times = @as(usize, @intCast(jd_buf.len)) / @sizeOf(f64);
-    const jd_ptr: [*]const f64 = @ptrCast(@alignCast(jd_buf.buf));
-    const fr_ptr: [*]const f64 = @ptrCast(@alignCast(fr_buf.buf));
-    const pos_ptr: [*]f64 = @ptrCast(@alignCast(pos_buf.buf));
-    const vel_ptr: [*]f64 = @ptrCast(@alignCast(vel_buf.buf));
+    if (output_stride_arg > 0 and @as(usize, @intCast(sat_offset_arg)) + num_sats > @as(usize, @intCast(output_stride_arg))) {
+        py.raiseValue("sat_offset + len(satrecs) must not exceed output_stride");
+        return null;
+    }
+    if (sat_offset_arg < 0 or (output_stride_arg <= 0 and sat_offset_arg != 0)) {
+        py.raiseValue("sat_offset needs output_stride and must be >= 0");
+        return null;
+    }
+    const columns: usize = if (output_stride_arg > 0) @intCast(output_stride_arg) else num_sats;
+    var bufs = TimeBuffers.get(jd_obj, fr_obj, pos_obj, vel_obj, columns) orelse return null;
+    defer bufs.release();
+    const n_times = bufs.jd.len;
 
     const sdp4_ptrs = allocator.alloc(*const Sdp4, num_sats) catch {
         py.raiseRuntime("Out of memory");
@@ -557,7 +571,13 @@ pub fn pySdp4BatchPropagateInto(_: [*c]c.PyObject, args: [*c]c.PyObject, kwds: [
     const stride: usize = if (time_major) @intCast(output_stride_arg) else num_sats;
     const offset: usize = @intCast(sat_offset_arg);
     const layout: astroz.Constellation.Layout = if (time_major) .timeMajor else .satelliteMajor;
-    sdp4BatchPropagate(sdp4_ptrs, epochs, n_times, stride, offset, layout, jd_ptr, fr_ptr, pos_ptr, vel_ptr);
+    sdp4BatchPropagate(sdp4_ptrs, epochs, n_times, stride, offset, layout, bufs.jd.ptr, bufs.fr.ptr, bufs.pos.ptr, bufs.vel.ptr) catch |e| {
+        py.raiseRuntime(switch (e) {
+            error.OutputTooSmall => "Output arrays are too small",
+            else => |err| shared.sgp4ErrorMsg(err),
+        });
+        return null;
+    };
 
     return py.none();
 }
@@ -575,13 +595,13 @@ fn sdp4BatchPropagate(
     fr_ptr: [*]const f64,
     pos_ptr: [*]f64,
     vel_ptr: [*]f64,
-) void {
+) astroz.Constellation.Error!void {
     const num_sats = sdp4_ptrs.len;
     const num_simd_batches = @divCeil(num_sats, SdpSimdN);
 
-    const batch_els = allocator.alloc(Sdp4Batch.Sdp4BatchElements(SdpSimdN), num_simd_batches) catch return;
+    const batch_els = try allocator.alloc(Sdp4Batch.Sdp4BatchElements(SdpSimdN), num_simd_batches);
     defer allocator.free(batch_els);
-    const batch_epochs = allocator.alloc([SdpSimdN]f64, num_simd_batches) catch return;
+    const batch_epochs = try allocator.alloc([SdpSimdN]f64, num_simd_batches);
     defer allocator.free(batch_epochs);
 
     const grav = sdp4_ptrs[0].elements.sgp4.grav;
@@ -599,12 +619,12 @@ fn sdp4BatchPropagate(
     }
 
     const padded = num_simd_batches * SdpSimdN;
-    const origIndices = allocator.alloc(u32, padded) catch return;
+    const origIndices = try allocator.alloc(u32, padded);
     defer allocator.free(origIndices);
     for (origIndices, 0..) |*v, i| v.* = @intCast(sat_offset + i);
 
     const out_size = output_stride * n_times * 3;
-    astroz.Constellation.propagateSdp4Constellation(
+    try astroz.Constellation.propagateSdp4Constellation(
         batch_els,
         batch_epochs,
         num_sats,
@@ -616,7 +636,7 @@ fn sdp4BatchPropagate(
         vel_ptr[0..out_size],
         .teme,
         layout,
-    ) catch return;
+    );
 }
 
 /// Scalar SDP4 over many times. Carrying the resonance state between calls

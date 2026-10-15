@@ -24,6 +24,8 @@ SUN_MU: float
 MOON_MU: float
 """Moon gravitational parameter (km^3/s^2)."""
 
+__version__: str
+
 def jday(
     year: int, month: int, day: int, hour: int, minute: int, second: float
 ) -> Tuple[float, float]:
@@ -45,6 +47,20 @@ def screen_candidates(
     ``positions`` and ``velocities`` are time-major ``(n_times, num_sats, 3)``
     TEME states on a grid ``dt`` seconds apart. Returns ``(i, j, step)`` triples
     packed as uint32; read them with ``np.frombuffer(..., np.uint32).reshape(-1, 3)``.
+    """
+
+def refine_candidates(
+    satrecs: Sequence["Satrec"],
+    candidates: npt.NDArray[np.uint32],
+    jd0: float,
+    dt: float,
+) -> bytes:
+    """Time of closest approach in each ``(i, j, step)`` candidate from ``screen_candidates``.
+
+    ``satrecs[s]`` propagates satellite ``s`` and the grid started at ``jd0``.
+    Returns float64 quadruples (time in seconds after ``jd0``, distance km,
+    speed km/s, converged 1.0/0.0); read them with
+    ``np.frombuffer(...).reshape(-1, 4)``.
     """
 
 def sdp4_batch_propagate_into(

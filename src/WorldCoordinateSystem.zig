@@ -179,7 +179,7 @@ test WorldCoordinateSystem {
     defer testTle.deinit();
     const wcs = WorldCoordinateSystem.fromTle(testTle, 0.0, constants.earth);
 
-    try std.testing.expectApproxEqAbs(wcs.x, 4628.0, 1.0);
-    try std.testing.expectApproxEqAbs(wcs.y, -5164.8, 1.0);
-    try std.testing.expectApproxEqAbs(wcs.z, 7.2, 1.0);
+    try std.testing.expectApproxEqAbs(4622.2, wcs.x, 1.0);
+    try std.testing.expectApproxEqAbs(-5158.2, wcs.y, 1.0);
+    try std.testing.expectApproxEqAbs(7.2, wcs.z, 1.0);
 }

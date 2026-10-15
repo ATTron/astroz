@@ -119,13 +119,10 @@ pub fn hohmannTransfer(mu: f64, r1: f64, r2: f64) HohmannTransfer {
     };
 }
 
+/// Semi-major axis (km) from mean motion in rad/min, by Kepler's third law.
 pub fn meanMotionToSemiMajorAxis(mMotion: f64) f64 {
-    const secondsPerDay = constants.minutesPerDay * 60.0;
-    return std.math.pow(
-        f64,
-        (constants.earth.mu / (mMotion * constants.twoPi / secondsPerDay) * 2.0 * 2.0),
-        1.0 / 3.0,
-    );
+    const n = mMotion / 60.0; // rad/s
+    return std.math.cbrt(constants.earth.mu / (n * n));
 }
 
 pub fn matVecMul3(m: [3][3]f64, v: [3]f64) [3]f64 {
@@ -522,4 +519,15 @@ test "propagateAttitude" {
     const big = propagateAttitude(.{ .quaternion = .{ 1, 0, 0, 0 }, .angularVelocity = .{ 0.1, 0.05, 0.02 } }, identity, 60.0);
     const q = big.quaternion;
     try std.testing.expectApproxEqAbs(1.0, @sqrt(q[0] * q[0] + q[1] * q[1] + q[2] * q[2] + q[3] * q[3]), 1e-9);
+}
+
+test "meanMotionToSemiMajorAxis" {
+    // ISS at 15.5 rev/day sits near 6795 km; GEO at 1.0027 rev/day at 42164 km
+    try std.testing.expectApproxEqAbs(6795.0, meanMotionToSemiMajorAxis(meanMotionToRadiansPerMinute(15.5)), 5.0);
+    try std.testing.expectApproxEqAbs(42164.0, meanMotionToSemiMajorAxis(meanMotionToRadiansPerMinute(1.0027)), 5.0);
+
+    const geo = "1 28626U 05004A   24186.00000000 -.00000098  00000+0  00000+0 0  9998\n2 28626   0.0163 279.8379 0003069  20.3251 343.1766  1.00270142 70992";
+    var tle = try Tle.parse(geo, std.testing.allocator);
+    defer tle.deinit();
+    try std.testing.expectApproxEqAbs(42164.0, tleToOrbitalElements(tle).a, 5.0);
 }

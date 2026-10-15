@@ -25,6 +25,12 @@ WGS72OLD = WGS72
 accelerated = True
 
 
+def _time_arrays(jd, fr):
+    """jd and fr as equal-length, contiguous float64 arrays (either may be a scalar)."""
+    jd, fr = np.broadcast_arrays(np.asarray(jd, dtype=np.float64), np.asarray(fr, dtype=np.float64))
+    return np.ascontiguousarray(np.atleast_1d(jd)), np.ascontiguousarray(np.atleast_1d(fr))
+
+
 class Satrec:
     """SGP4/SDP4 satellite record, a drop-in for sgp4.api.Satrec.
 
@@ -52,8 +58,7 @@ class Satrec:
 
         Returns ``(e, r, v)`` with shapes ``(n,)``, ``(n, 3)`` and ``(n, 3)``.
         """
-        jd = np.atleast_1d(np.asarray(jd, dtype=np.float64))
-        fr = np.atleast_1d(np.asarray(fr, dtype=np.float64))
+        jd, fr = _time_arrays(jd, fr)
         n = len(jd)
         r = np.empty((n, 3), dtype=np.float64)
         v = np.empty((n, 3), dtype=np.float64)
@@ -112,8 +117,7 @@ class SatrecArray:
         ``(n_sats, n_times, 3)``. With ``velocities=False`` the velocity
         computation is skipped and ``v`` is all zeros.
         """
-        jd = np.atleast_1d(np.asarray(jd, dtype=np.float64))
-        fr = np.atleast_1d(np.asarray(fr, dtype=np.float64))
+        jd, fr = _time_arrays(jd, fr)
         n_times = len(jd)
         shape = (self._num_sats, n_times, 3)
 

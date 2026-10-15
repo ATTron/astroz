@@ -15,7 +15,7 @@
 //! inside R is then tested on both adjacent intervals: a sign change of f, and a
 //! lower bound on the interval minimum (linear motion from each endpoint minus
 //! A dt^2 / 2). Only intervals that provably cannot reach D are dropped; the
-//! survivors are candidates for an exact TCA search.
+//! survivors go to `refine`, which finds the exact TCA in each.
 //!
 //! Assumption: at most one range minimum per interval. Two need f' < 0 inside,
 //! i.e. |rho_dot|^2 < rho . rho_ddot; with real relative dynamics (tidal
@@ -29,6 +29,9 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 const constants = @import("constants.zig");
 const Constellation = @import("Constellation.zig");
+const Sgp4 = @import("Sgp4.zig");
+const Sdp4 = @import("Sdp4.zig");
+const Satellite = @import("Satellite.zig");
 
 /// WGS72, the gravity model SGP4 element sets are fitted with.
 pub const mu = 398600.8;
@@ -39,7 +42,7 @@ pub const accelMax = 1.05 * 2.0 * mu / (rEarth * rEarth);
 
 /// A pair whose range has a local minimum that may be within the threshold,
 /// somewhere in [step*dt, (step+1)*dt]. Always i < j.
-pub const Candidate = struct {
+pub const Candidate = extern struct {
     i: u32,
     j: u32,
     step: u32,
@@ -85,13 +88,7 @@ pub fn candidates(gpa: Allocator, pos: []const [3]f64, vel: []const [3]f64, nSat
     for (workers, 0..) |*w, t| w.* = .{ .grid = &grid, .gpa = gpa, .start = @min(t * per, nTimes), .end = @min((t + 1) * per, nTimes) };
     defer for (workers) |*w| w.found.deinit(gpa);
 
-    var threads: [Constellation.MaxThreads]?std.Thread = @splat(null);
-    for (workers[1..], 1..) |*w, t| threads[t] = std.Thread.spawn(.{}, Worker.run, .{w}) catch blk: {
-        w.run();
-        break :blk null;
-    };
-    workers[0].run();
-    for (threads[1..nt]) |th| if (th) |t| t.join();
+    runParallel(Worker.run, workers);
 
     var total: usize = 0;
     for (workers) |w| {
@@ -112,6 +109,18 @@ pub fn candidates(gpa: Allocator, pos: []const [3]f64, vel: []const [3]f64, nSat
         unique += 1;
     }
     return gpa.realloc(out, unique);
+}
+
+/// Calls `run(&jobs[k])` for every job, each on its own thread except the first,
+/// which runs here. A job whose thread can't be spawned runs here too.
+fn runParallel(comptime run: anytype, jobs: anytype) void {
+    var threads: [Constellation.MaxThreads]?std.Thread = @splat(null);
+    for (jobs[1..], 1..) |*job, t| threads[t] = std.Thread.spawn(.{}, run, .{job}) catch blk: {
+        run(job);
+        break :blk null;
+    };
+    run(&jobs[0]);
+    for (threads[1..jobs.len]) |th| if (th) |t| t.join();
 }
 
 /// Usable state: finite, above the surface, and bound (v^2 < 2 mu / r). SGP4
@@ -286,6 +295,126 @@ const Worker = struct {
     }
 };
 
+/// One satellite's scalar propagator and epoch.
+pub const Propagator = struct {
+    model: union(enum) { sgp4: *const Sgp4, sdp4: *const Sdp4 },
+    epochJd: f64,
+
+    /// The propagator `sat` already holds. `sat` must outlive the result.
+    pub fn fromSatellite(sat: *const Satellite) Propagator {
+        return .{
+            .model = switch (sat.impl) {
+                .sgp4 => |*m| .{ .sgp4 = m },
+                .sdp4 => |*m| .{ .sdp4 = m },
+            },
+            .epochJd = sat.epochJd(),
+        };
+    }
+
+    /// TEME state at `jd0` plus `tSec` seconds; NaN if propagation fails.
+    fn state(p: Propagator, jd0: f64, tSec: f64) [2][3]f64 {
+        const tsince = (jd0 - p.epochJd) * constants.minutesPerDay + tSec / 60.0;
+        const pv = switch (p.model) {
+            .sgp4 => |m| m.propagate(tsince),
+            .sdp4 => |m| m.propagate(tsince),
+        };
+        const nan: [3]f64 = @splat(std.math.nan(f64));
+        return pv catch .{ nan, nan };
+    }
+};
+
+/// A refined closest approach. `tSec` is seconds after the `jd0` passed to
+/// `refine`, `distance` is km and `speed` km/s.
+pub const Event = struct {
+    i: u32,
+    j: u32,
+    tSec: f64,
+    distance: f64,
+    speed: f64,
+    converged: bool,
+};
+
+/// Seconds.
+pub const tcaTolerance = 1e-4;
+const tcaMaxIter = 60;
+
+/// Finds the time of closest approach in each candidate interval, on a grid
+/// that started at `jd0` with steps `dt` seconds apart. `propagators[s]`
+/// propagates satellite `s`. The caller owns the result, which is in the same
+/// order as `cands`.
+pub fn refine(gpa: Allocator, propagators: []const Propagator, cands: []const Candidate, jd0: f64, dt: f64) ![]Event {
+    const events = try gpa.alloc(Event, cands.len);
+    if (cands.len == 0) return events;
+
+    var jobs: [Constellation.MaxThreads]RefineJob = undefined;
+    const nt = @max(@min(Constellation.getMaxThreads(), cands.len), 1);
+    const per = @divCeil(cands.len, nt);
+    for (jobs[0..nt], 0..) |*job, t| job.* = .{
+        .propagators = propagators,
+        .cands = cands[@min(t * per, cands.len)..@min((t + 1) * per, cands.len)],
+        .events = events[@min(t * per, cands.len)..@min((t + 1) * per, cands.len)],
+        .jd0 = jd0,
+        .dt = dt,
+    };
+    runParallel(RefineJob.run, jobs[0..nt]);
+    return events;
+}
+
+const RefineJob = struct {
+    propagators: []const Propagator,
+    cands: []const Candidate,
+    events: []Event,
+    jd0: f64,
+    dt: f64,
+
+    fn run(job: *RefineJob) void {
+        for (job.cands, job.events) |c, *ev| {
+            ev.* = refineOne(job.propagators[c.i], job.propagators[c.j], c, job.jd0, job.dt);
+        }
+    }
+};
+
+/// Root of f = rho . rho_dot in the candidate's interval, where f(a) < 0 <= f(b).
+/// Safeguarded Newton with f' = |rho_dot|^2 + rho . rho_ddot (two-body
+/// rho_ddot), bisecting whenever a step leaves the bracket or the bracket fails
+/// to halve (flat f on slow pairs), so it converges within `tcaMaxIter`.
+fn refineOne(pi: Propagator, pj: Propagator, c: Candidate, jd0: f64, dt: f64) Event {
+    var a = @as(f64, @floatFromInt(c.step)) * dt;
+    var b = a + dt;
+    var t = a + 0.5 * dt;
+    var width = b - a;
+    var converged = false;
+    for (0..tcaMaxIter) |_| {
+        const si = pi.state(jd0, t);
+        const sj = pj.state(jd0, t);
+        const rho = sub(si[0], sj[0]);
+        const rhoDot = sub(si[1], sj[1]);
+        const ri3 = std.math.pow(f64, dot(si[0], si[0]), 1.5);
+        const rj3 = std.math.pow(f64, dot(sj[0], sj[0]), 1.5);
+        var acc: [3]f64 = undefined;
+        for (&acc, si[0], sj[0]) |*x, ri, rj| x.* = -mu * (ri / ri3 - rj / rj3);
+        const f = dot(rho, rhoDot);
+        const fp = dot(rhoDot, rhoDot) + dot(rho, acc);
+
+        if (f < 0) a = t else b = t;
+        var tNew = t - f / fp;
+        const stalled = (b - a) > 0.5 * width;
+        width = b - a;
+        if (!std.math.isFinite(tNew) or tNew <= a or tNew >= b or stalled) tNew = 0.5 * (a + b);
+        const moved = @abs(tNew - t);
+        t = tNew;
+        if (!(moved > tcaTolerance and b - a > tcaTolerance)) {
+            converged = true;
+            break;
+        }
+    }
+    const si = pi.state(jd0, t);
+    const sj = pj.state(jd0, t);
+    const dr = sub(si[0], sj[0]);
+    const dv = sub(si[1], sj[1]);
+    return .{ .i = c.i, .j = c.j, .tSec = t, .distance = @sqrt(dot(dr, dr)), .speed = @sqrt(dot(dv, dv)), .converged = converged };
+}
+
 fn lowerBound(keys: []const i64, target: i64) usize {
     var lo: usize = 0;
     var hi: usize = keys.len;
@@ -385,4 +514,66 @@ test "invalid states are skipped" {
     const found = try candidates(gpa, &pos, &vel, 2, .{ .dt = 1.0, .threshold = 5.0 });
     defer gpa.free(found);
     try std.testing.expectEqual(0, found.len);
+}
+
+test "refine matches a dense scan of each candidate interval" {
+    const gpa = std.testing.allocator;
+    const Tle = @import("Tle.zig");
+    // Same altitude, planes 10 degrees apart, phases offset so they cross near the node.
+    const omm = [_][]const u8{
+        \\{"EPOCH":"2026-07-14T21:45:20","MEAN_MOTION":15.05,"ECCENTRICITY":0.0001,"INCLINATION":50,"RA_OF_ASC_NODE":0,"ARG_OF_PERICENTER":0,"MEAN_ANOMALY":0,"NORAD_CAT_ID":1,"BSTAR":0}
+        ,
+        \\{"EPOCH":"2026-07-14T21:45:20","MEAN_MOTION":15.05,"ECCENTRICITY":0.0001,"INCLINATION":60,"RA_OF_ASC_NODE":0,"ARG_OF_PERICENTER":0,"MEAN_ANOMALY":0.1,"NORAD_CAT_ID":2,"BSTAR":0}
+        ,
+        \\{"EPOCH":"2026-07-14T21:45:20","MEAN_MOTION":14.2,"ECCENTRICITY":0.001,"INCLINATION":98,"RA_OF_ASC_NODE":120,"ARG_OF_PERICENTER":0,"MEAN_ANOMALY":200,"NORAD_CAT_ID":3,"BSTAR":0}
+        ,
+    };
+    var sgp4s: [omm.len]Sgp4 = undefined;
+    var props: [omm.len]Propagator = undefined;
+    for (omm, &sgp4s, &props) |json, *s, *p| {
+        var tle = try Tle.parseOmm(json, gpa);
+        defer tle.deinit();
+        s.* = try Sgp4.init(tle, constants.wgs72);
+        p.* = .{ .model = .{ .sgp4 = s }, .epochJd = tle.epochJd };
+    }
+
+    const jd0 = props[0].epochJd - 10.0 / constants.minutesPerDay; // grid starts 10 min before epoch
+    const dt = 60.0;
+    const nTimes = 200;
+    var pos: [nTimes * omm.len][3]f64 = undefined;
+    var vel: [nTimes * omm.len][3]f64 = undefined;
+    for (0..nTimes) |k| for (props, 0..) |p, s| {
+        const st = p.state(jd0, @as(f64, @floatFromInt(k)) * dt);
+        pos[k * omm.len + s] = st[0];
+        vel[k * omm.len + s] = st[1];
+    };
+
+    const found = try candidates(gpa, &pos, &vel, omm.len, .{ .dt = dt, .threshold = 50.0 });
+    defer gpa.free(found);
+    try std.testing.expect(found.len > 0);
+    const events = try refine(gpa, &props, found, jd0, dt);
+    defer gpa.free(events);
+
+    for (found, events) |c, ev| {
+        try std.testing.expect(ev.converged);
+        try std.testing.expectEqual(c.i, ev.i);
+        // Dense scan of the interval at 1 ms
+        var best: f64 = std.math.inf(f64);
+        var bestT: f64 = 0;
+        const a = @as(f64, @floatFromInt(c.step)) * dt;
+        var t = a;
+        while (t <= a + dt) : (t += 1e-3) {
+            const si = props[c.i].state(jd0, t);
+            const sj = props[c.j].state(jd0, t);
+            const dr = sub(si[0], sj[0]);
+            const d = @sqrt(dot(dr, dr));
+            if (d < best) {
+                best = d;
+                bestT = t;
+            }
+        }
+        try std.testing.expectApproxEqAbs(bestT, ev.tSec, 2e-3);
+        try std.testing.expect(ev.distance <= best + 1e-9);
+        try std.testing.expectApproxEqAbs(best, ev.distance, 1e-6);
+    }
 }

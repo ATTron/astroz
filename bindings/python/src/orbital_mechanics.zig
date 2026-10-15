@@ -46,7 +46,7 @@ pub fn pyLambert(_: [*c]c.PyObject, args: [*c]c.PyObject) callconv(.c) [*c]c.PyO
 
     const Vector3D = astroz.calculations.Vector3D;
     var om = OrbitalMechanics.init(mu);
-    const lr = om.lambertSolverSimple(
+    const lr = om.lambert(
         Vector3D.new(r1[0], r1[1], r1[2]),
         Vector3D.new(r2[0], r2[1], r2[2]),
         tof,

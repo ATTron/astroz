@@ -1,6 +1,7 @@
 """Builds the astroz extension with `zig build python-bindings`."""
 
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -11,9 +12,18 @@ from setuptools import Extension, setup
 from setuptools.command.build_ext import build_ext
 
 
+PROJECT_ROOT = Path(__file__).parent.parent.parent
+
+
+def zon_version():
+    """The version from build.zig.zon, the one place it is written."""
+    text = (PROJECT_ROOT / "build.zig.zon").read_text()
+    return re.search(r'^\s*\.version\s*=\s*"([^"]+)"', text, re.M).group(1)
+
+
 class ZigBuildExt(build_ext):
     def build_extension(self, ext):
-        project_root = Path(__file__).parent.parent.parent
+        project_root = PROJECT_ROOT
         cmd = [
             "zig",
             "build",
@@ -42,6 +52,7 @@ class ZigBuildExt(build_ext):
 
 
 setup(
+    version=zon_version(),
     # No sources: ZigBuildExt does the actual build
     ext_modules=[Extension("astroz._astroz", sources=[])],
     cmdclass={"build_ext": ZigBuildExt},
