@@ -156,6 +156,12 @@ pub fn propagate(self: *const Sdp4, tsince: f64) Error![2][3]f64 {
     return propagateElements(&self.elements, tsince);
 }
 
+/// Like propagate, but a decayed satellite keeps its state; see Sgp4.Detailed.
+pub fn propagateDetailed(self: *const Sdp4, tsince: f64) Error!Sgp4.Detailed {
+    var carry = startCarry(&self.elements);
+    return propagateElementsCarryDetailed(&self.elements, tsince, &carry);
+}
+
 /// Resonance integration state that can be carried between sorted propagations.
 /// For non-resonant orbits (irez=0) this is unused but harmless
 pub const ResonanceCarry = struct {
@@ -175,8 +181,6 @@ pub fn initElements(tle: Tle, grav: constants.Sgp4GravityModel) Error!Elements {
     if (meanEl.ecco < 0.0 or meanEl.ecco >= 1.0) return Error.InvalidEccentricity;
 
     const rec = Sgp4.recoverMeanMotion(meanEl, grav);
-    const rp = rec.a * (1.0 - meanEl.ecco);
-    if (rp < 1.0) return Error.SatelliteDecayed;
 
     const trig = Sgp4.computeTrigTerms(meanEl.inclo);
     const poly = Sgp4.computePolyTerms(trig);
@@ -783,12 +787,13 @@ fn computeResonanceAccel(el: *const Elements, xli: f64, xni: f64, atime: f64) Re
 }
 
 fn propagateElements(el: *const Elements, tsince: f64) Error![2][3]f64 {
-    var carry = ResonanceCarry{
-        .atime = 0.0,
-        .xli = el.xlamo,
-        .xni = el.sgp4.noUnkozai,
-    };
+    var carry = startCarry(el);
     return propagateElementsCarry(el, tsince, &carry);
+}
+
+/// Resonance state at epoch, for a propagation that doesn't follow an earlier one.
+fn startCarry(el: *const Elements) ResonanceCarry {
+    return .{ .atime = 0.0, .xli = el.xlamo, .xni = el.sgp4.noUnkozai };
 }
 
 /// Like propagateElements but carries resonance integration state between calls.
@@ -796,6 +801,12 @@ fn propagateElements(el: *const Elements, tsince: f64) Error![2][3]f64 {
 /// carry state to be valid. On the first call, carry should be initialized with
 /// atime=0, xli=el.xlamo, xni=el.sgp4.noUnkozai.
 fn propagateElementsCarry(el: *const Elements, tsince: f64, carry: *ResonanceCarry) Error![2][3]f64 {
+    const d = try propagateElementsCarryDetailed(el, tsince, carry);
+    if (d.decayed) return Error.SatelliteDecayed;
+    return d.pv;
+}
+
+fn propagateElementsCarryDetailed(el: *const Elements, tsince: f64, carry: *ResonanceCarry) Error!Sgp4.Detailed {
     const sgp4El = &el.sgp4;
     const t2 = tsince * tsince;
 
@@ -827,14 +838,14 @@ fn propagateElementsCarry(el: *const Elements, tsince: f64, carry: *ResonanceCar
     carry.xni = ds.xni;
 
     var nm = ds.nm;
-    if (nm <= 0.0) return Error.SatelliteDecayed;
+    // Vallado error 2
+    if (nm <= 0.0) return Error.NegativeMeanMotion;
     const am = std.math.pow(f64, sgp4El.grav.xke / nm, 2.0 / 3.0) * tempa * tempa;
     nm = sgp4El.grav.xke / std.math.pow(f64, am, 1.5);
     var em = ds.em - tempe;
 
     if (em >= 1.0 or em < -0.001) return Error.InvalidEccentricity;
     if (em < Sgp4.eccentricityFloor) em = Sgp4.eccentricityFloor;
-    if (am < 0.95) return Error.SatelliteDecayed;
 
     var mm = ds.mm + sgp4El.noUnkozai * templ;
     const xlm = mm + ds.argpm + ds.nodem;
@@ -853,7 +864,7 @@ fn propagateElementsCarry(el: *const Elements, tsince: f64, carry: *ResonanceCar
         argpm -= std.math.pi;
     }
     // Vallado error 3: perturbed eccentricity out of [0, 1] (check before flooring)
-    if (em < 0.0 or em > 1.0) return Error.InvalidEccentricity;
+    if (em < 0.0 or em > 1.0) return Error.PerturbedEccentricity;
     if (em < Sgp4.eccentricityFloor) em = Sgp4.eccentricityFloor;
 
     const sinip = @sin(inclm);
@@ -880,11 +891,9 @@ fn propagateElementsCarry(el: *const Elements, tsince: f64, carry: *ResonanceCar
     };
 
     const kepler = Sgp4.solveKepler(&elCopy, secular);
+    if (kepler.pl < 0.0) return Error.NegativeSemilatusRectum;
     const corrected = Sgp4.applyShortPeriodCorrections(&elCopy, kepler, nm);
-
-    if (corrected.r < 1.0) return Error.SatelliteDecayed;
-
-    return Sgp4.computePositionVelocity(&elCopy, corrected);
+    return .{ .pv = Sgp4.computePositionVelocity(&elCopy, corrected), .decayed = corrected.r < 1.0 };
 }
 
 fn ResonanceAccelVec(comptime N: usize) type {
@@ -1252,7 +1261,7 @@ pub fn propagateN(self: *const Sdp4, comptime N: usize, times: [N]f64) Error!Sgp
 
     var nm = ds.nm;
     const nmBad = nm <= zero;
-    if (@reduce(.Or, nmBad)) return Error.SatelliteDecayed;
+    if (@reduce(.Or, nmBad)) return Error.NegativeMeanMotion;
 
     const xkeV: Vec = @splat(sgp4El.grav.xke);
     const am = simdMath.pow23N(N, xkeV / nm) * tempa * tempa;
@@ -1263,8 +1272,6 @@ pub fn propagateN(self: *const Sdp4, comptime N: usize, times: [N]f64) Error!Sgp
     const emBad = (em >= one) | (em < @as(Vec, @splat(-0.001)));
     if (@reduce(.Or, emBad)) return Error.InvalidEccentricity;
     em = @max(em, eccFloor);
-    const amBad = am < @as(Vec, @splat(0.95));
-    if (@reduce(.Or, amBad)) return Error.SatelliteDecayed;
 
     var mm = ds.mm + noUnkozaiV * templ;
     const xlm = mm + ds.argpm + ds.nodem;

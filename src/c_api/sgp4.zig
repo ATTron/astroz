@@ -18,7 +18,15 @@ pub const Handle = *anyopaque;
 const gpa = std.heap.page_allocator;
 
 fn propagateErr(e: Sgp4.Error) err.Code {
-    return if (e == error.SatelliteDecayed) .satelliteDecayed else err.fromError(e);
+    return switch (e) {
+        error.DeepSpaceNotSupported => .deepSpaceNotSupported,
+        error.InvalidEccentricity => .invalidEccentricity,
+        error.NegativeMeanMotion => .negativeMeanMotion,
+        error.PerturbedEccentricity => .perturbedEccentricity,
+        error.NegativeSemilatusRectum => .negativeSemilatusRectum,
+        error.SatelliteDecayed => .satelliteDecayed,
+        error.OutOfMemory => .allocFailed,
+    };
 }
 
 /// gravity model: 0 = WGS84 (default), 1 = WGS72
@@ -26,14 +34,7 @@ pub fn init(tleHandle: tleApi.Handle, gravModel: i32, out: *Handle) err.Code {
     const tlePtr: *Tle = @ptrCast(@alignCast(tleHandle));
     const grav = if (gravModel == 1) constants.wgs72 else constants.wgs84;
 
-    const sgp4 = Sgp4.init(tlePtr.*, grav) catch |e| {
-        return switch (e) {
-            Sgp4.Error.DeepSpaceNotSupported => .deepSpaceNotSupported,
-            Sgp4.Error.InvalidEccentricity => .invalidEccentricity,
-            Sgp4.Error.SatelliteDecayed => .satelliteDecayed,
-            Sgp4.Error.OutOfMemory => .allocFailed,
-        };
-    };
+    const sgp4 = Sgp4.init(tlePtr.*, grav) catch |e| return propagateErr(e);
 
     const ptr = gpa.create(Sgp4) catch return .allocFailed;
     ptr.* = sgp4;

@@ -34,5 +34,8 @@ fn encode(e: Sgp4.Error) c_int {
         error.InvalidEccentricity => 2,
         error.DeepSpaceNotSupported => 3,
         error.OutOfMemory => 4,
+        error.NegativeMeanMotion => 5,
+        error.PerturbedEccentricity => 6,
+        error.NegativeSemilatusRectum => 7,
     };
 }

@@ -30,7 +30,7 @@ fn initConstellationType() void {
 fn constellation_init(self_obj: [*c]c.PyObject, args: [*c]c.PyObject, kwds: [*c]c.PyObject) callconv(.c) c_int {
     const self: *Sgp4ConstellationObject = @ptrCast(@alignCast(self_obj));
     var tles_obj: [*c]c.PyObject = null;
-    var grav_model: c_int = 0;
+    var grav_model: c_int = shared.WGS84;
 
     const kwlist = [_:null]?[*:0]const u8{ "tles", "gravity_model", null };
     if (c.PyArg_ParseTupleAndKeywords(args, kwds, "O|i", @ptrCast(@constCast(&kwlist)), &tles_obj, &grav_model) == 0)
@@ -76,7 +76,8 @@ fn constellation_init(self_obj: [*c]c.PyObject, args: [*c]c.PyObject, kwds: [*c]
         }).*;
     }
 
-    const result = shared.buildBatches(tles, shared.getGravity(grav_model)) orelse return -1;
+    const grav = shared.getGravity(grav_model) orelse return -1;
+    const result = shared.buildBatches(tles, grav) orelse return -1;
     shared.storeBatchResult(self, result, num_tles);
     return 0;
 }
@@ -149,7 +150,7 @@ fn constellation_from_tle_text(cls: [*c]c.PyObject, args: [*c]c.PyObject, kwds: 
     _ = cls;
     var text_ptr: [*c]const u8 = null;
     var text_len: c.Py_ssize_t = 0;
-    var grav_model: c_int = 0;
+    var grav_model: c_int = shared.WGS84;
 
     const kwlist = [_:null]?[*:0]const u8{ "text", "gravity_model", null };
     if (c.PyArg_ParseTupleAndKeywords(args, kwds, "s#|i", @ptrCast(@constCast(&kwlist)), &text_ptr, &text_len, &grav_model) == 0)
@@ -199,7 +200,8 @@ fn constellationFromTles(tles: *std.ArrayList(astroz.Tle), grav_model: c_int) [*
         return null;
     }
 
-    const result = shared.buildBatches(near.items, shared.getGravity(grav_model)) orelse return null;
+    const grav = shared.getGravity(grav_model) orelse return null;
+    const result = shared.buildBatches(near.items, grav) orelse return null;
 
     const self: *Sgp4ConstellationObject = @ptrCast(@alignCast(
         c.PyType_GenericAlloc(&Sgp4ConstellationType, 0) orelse {

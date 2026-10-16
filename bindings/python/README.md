@@ -116,11 +116,15 @@ Changing the import is enough for existing code to run:
 
 ```python
 # Before
-from sgp4.api import Satrec, SatrecArray, jday
+from sgp4.api import Satrec, SatrecArray, jday, WGS72
+from sgp4 import exporter, omm
 
 # After
-from astroz.api import Satrec, SatrecArray, jday
+from astroz.api import Satrec, SatrecArray, jday, WGS72
+from astroz import exporter, omm
 ```
+
+That covers `Satrec.twoline2rv`, `Satrec()` with `sgp4init(...)`, `sgp4`/`sgp4_array`, `SatrecArray`, the element attributes, `exporter.export_tle`/`export_omm`, and `omm.parse_csv`/`parse_xml`/`initialize`. Gravity constants (`WGS72OLD`, `WGS72`, `WGS84`) and error codes (1, 2, 3, 4, 6) use python-sgp4's values, and a decayed satellite (error 6) still gets its position, as in python-sgp4. The test suite checks all of this against python-sgp4 itself.
 
 Most of the speedup comes from the batch methods, so if your code loops over times or satellites, switch to `sgp4_array` or `SatrecArray`:
 
@@ -148,11 +152,12 @@ Pass `velocities=False` to `SatrecArray.sgp4` if you only need positions.
 
 ### Compatibility notes
 
-These python-sgp4 `Satrec` attributes are not implemented:
-
-- Elements after propagation: `Om`, `am`, `em`, `im`, `mm`, `nm`, `om`
-- Element rates: `argpdot`, `mdot`, `nodedot`
-- Gravity constants on the object: `j2`, `j3`, `j4`, `mu`, etc. Earth constants are available as `astroz.EARTH_MU`, `astroz.EARTH_J2` and `astroz.EARTH_R_EQ`.
+- `sgp4init` implements the improved operation mode, `'i'` (python-sgp4's default); `'a'` raises `ValueError`. It also accepts the catalog number as a TLE field string such as `"A0404"`.
+- `SatrecArray` matches python-sgp4 to millimetres for near-earth orbits and to metres for deep-space ones, where the SIMD batch path's trigonometry adds a few parts per billion. `Satrec.sgp4` matches to the micrometre.
+- These `Satrec` attributes are not implemented:
+  - Elements after propagation: `Om`, `am`, `em`, `im`, `mm`, `nm`, `om`
+  - Element rates: `argpdot`, `mdot`, `nodedot`
+  - Gravity constants on the object: `j2`, `j3`, `j4`, `mu`, etc. Earth constants are available as `astroz.EARTH_MU`, `astroz.EARTH_J2` and `astroz.EARTH_R_EQ`.
 
 ## Performance
 

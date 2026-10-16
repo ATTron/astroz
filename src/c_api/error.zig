@@ -9,6 +9,9 @@ pub const Code = enum(i32) {
     deepSpaceNotSupported = -10,
     invalidEccentricity = -11,
     satelliteDecayed = -12,
+    negativeMeanMotion = -13,
+    perturbedEccentricity = -14,
+    negativeSemilatusRectum = -15,
     // Orbital mechanics errors
     valueError = -20,
     // General errors

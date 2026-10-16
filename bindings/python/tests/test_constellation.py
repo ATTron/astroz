@@ -93,8 +93,8 @@ def test_period_near_deep_space_boundary_loads():
 
 
 def test_rejected_record_is_nan_and_does_not_break_the_rest():
-    decayed = dict(SARAMAGO, NORAD_CAT_ID=100001, MEAN_MOTION=17.5, ECCENTRICITY=0.3)  # perigee inside the Earth
-    c = astroz.Constellation(json.dumps([SARAMAGO, decayed]))
+    rejected = dict(SARAMAGO, NORAD_CAT_ID=100001, ECCENTRICITY=1.2)  # not an ellipse: SGP4 error 1
+    c = astroz.Constellation(json.dumps([SARAMAGO, rejected]))
     assert c.num_satellites == 2
     assert len(c.epochs) == 2
     assert c.satnums == [100000, 100001]  # good one first, rejected one last

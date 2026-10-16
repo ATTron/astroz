@@ -38,6 +38,18 @@ pub const Sgp4GravityModel = struct {
     j3oj2: f64, // derived value
 };
 
+/// WGS72 as Vallado's "wgs72old": the same Earth with xke rounded to ten digits
+pub const wgs72old: Sgp4GravityModel = .{
+    .radiusEarthKm = 6378.135,
+    .mu = 398600.79964,
+    .j2 = 0.001082616,
+    .j3 = -0.00000253881,
+    .j4 = -0.00000165597,
+    .xke = 0.0743669161,
+    .tumin = 1.0 / 0.0743669161,
+    .j3oj2 = -0.00000253881 / 0.001082616,
+};
+
 pub const wgs72: Sgp4GravityModel = .{
     .radiusEarthKm = 6378.135,
     .mu = 398600.8,
@@ -46,7 +58,7 @@ pub const wgs72: Sgp4GravityModel = .{
     .j4 = -0.00000165597,
     .xke = 0.0743669161331734132,
     .tumin = 13.44683969695931,
-    .j3oj2 = -0.00234506972242078,
+    .j3oj2 = -0.00000253881 / 0.001082616,
 };
 
 pub const wgs84Flattening: f64 = 1.0 / 298.257223563;
@@ -60,7 +72,7 @@ pub const wgs84: Sgp4GravityModel = .{
     .j4 = -0.00000161098761,
     .xke = 0.07436685316871385, // 60.0 / sqrt(re^3 / mu)
     .tumin = 13.446851082044981,
-    .j3oj2 = -0.00233899967218727,
+    .j3oj2 = -0.00000253215306 / 0.00108262998905,
 };
 
 /// Orbits with a period over 225 minutes (mean motion < 6.4 rev/day) use SDP4.
