@@ -158,7 +158,7 @@ pub fn propagate(self: *const Sdp4, tsince: f64) Error![2][3]f64 {
 
 /// Like propagate, but a decayed satellite keeps its state; see Sgp4.Detailed.
 pub fn propagateDetailed(self: *const Sdp4, tsince: f64) Error!Sgp4.Detailed {
-    var carry = ResonanceCarry{ .atime = 0.0, .xli = self.elements.xlamo, .xni = self.elements.sgp4.noUnkozai };
+    var carry = startCarry(&self.elements);
     return propagateElementsCarryDetailed(&self.elements, tsince, &carry);
 }
 
@@ -787,12 +787,13 @@ fn computeResonanceAccel(el: *const Elements, xli: f64, xni: f64, atime: f64) Re
 }
 
 fn propagateElements(el: *const Elements, tsince: f64) Error![2][3]f64 {
-    var carry = ResonanceCarry{
-        .atime = 0.0,
-        .xli = el.xlamo,
-        .xni = el.sgp4.noUnkozai,
-    };
+    var carry = startCarry(el);
     return propagateElementsCarry(el, tsince, &carry);
+}
+
+/// Resonance state at epoch, for a propagation that doesn't follow an earlier one.
+fn startCarry(el: *const Elements) ResonanceCarry {
+    return .{ .atime = 0.0, .xli = el.xlamo, .xni = el.sgp4.noUnkozai };
 }
 
 /// Like propagateElements but carries resonance integration state between calls.

@@ -118,9 +118,7 @@ class SatrecArray:
             if sat.is_deep_space:
                 self._sdp4_indices.append(i)
                 self._sdp4_natives.append(sat)
-            elif sat.error != 0:
-                pass  # rejected at init: NaN rows, coded by _fill_errors
-            else:
+            elif sat.error == 0:  # rows of satellites rejected at init stay NaN
                 self._sgp4_indices.append(i)
                 sgp4_natives.append(sat)
 

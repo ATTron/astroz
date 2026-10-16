@@ -78,31 +78,31 @@ fn satrec_twoline2rv(cls: [*c]c.PyObject, args: [*c]c.PyObject, kwds: [*c]c.PyOb
     const kwlist = [_:null]?[*:0]const u8{ "line1", "line2", "whichconst", null };
     if (c.PyArg_ParseTupleAndKeywords(args, kwds, "ss|i", @ptrCast(@constCast(&kwlist)), &line1_ptr, &line2_ptr, &whichconst) == 0)
         return null;
-    _ = shared.getGravity(whichconst) orelse return null;
+    const grav = shared.getGravity(whichconst) orelse return null;
 
     const tle = Tle.parseLines(std.mem.span(line1_ptr), std.mem.span(line2_ptr), allocator) catch |err| {
         py.raiseValue(if (err == error.CatalogNumberMismatch) "TLE lines 1 and 2 have different catalog numbers" else "Failed to parse TLE lines");
         return null;
     };
-    const obj = satrecFromTle(tle, whichconst) orelse return null;
+    const obj = satrecFromTle(tle, whichconst, grav) orelse return null;
     // Rebuild the epoch split from the TLE's year and day, rounding the fraction
     // to the 8 decimals a TLE holds, as python-sgp4 does
     const self: *SatrecObject = @ptrCast(@alignCast(obj));
     const year: u16 = if (tle.epochYear < 57) 2000 + tle.epochYear else 1900 + tle.epochYear;
     const day = @floor(tle.epochDay);
     self.jdsatepoch = Datetime.yearDoyToJulianDate(year, day);
-    self.jdsatepochF = @round((tle.epochDay - day) * 1e8) / 1e8;
+    self.jdsatepochF = roundToTleDigits(tle.epochDay - day);
     return obj;
 }
 
 /// Builds a Satrec that takes ownership of `tle`.
-fn satrecFromTle(tle: Tle, whichconst: c_int) [*c]c.PyObject {
+fn satrecFromTle(tle: Tle, whichconst: c_int, grav: constants.Sgp4GravityModel) [*c]c.PyObject {
     const self: *SatrecObject = @ptrCast(@alignCast(c.PyType_GenericAlloc(&SatrecType, 0) orelse {
         var tle_copy = tle;
         tle_copy.deinit();
         return null;
     }));
-    if (!initModel(self, tle, whichconst)) {
+    if (!initModel(self, tle, whichconst, grav)) {
         py.decref(@as(*c.PyObject, @ptrCast(self)));
         return null;
     }
@@ -112,7 +112,7 @@ fn satrecFromTle(tle: Tle, whichconst: c_int) [*c]c.PyObject {
 /// Takes ownership of `tle` and builds its SGP4 or SDP4 propagator. A failed
 /// init is recorded as a python-sgp4 error code; false (with an exception set)
 /// only on out-of-memory.
-fn initModel(self: *SatrecObject, tle: Tle, whichconst: c_int) bool {
+fn initModel(self: *SatrecObject, tle: Tle, whichconst: c_int, grav: constants.Sgp4GravityModel) bool {
     self.whichconst = whichconst;
     self.errorCode = 0;
     const tle_ptr = allocator.create(Tle) catch {
@@ -128,7 +128,6 @@ fn initModel(self: *SatrecObject, tle: Tle, whichconst: c_int) bool {
     self.jdsatepoch = @floor(tle.epochJd - 0.5) + 0.5;
     self.jdsatepochF = tle.epochJd - self.jdsatepoch;
 
-    const grav = shared.getGravity(whichconst).?; // callers check it first
     const sgp4 = Sgp4.init(tle, grav) catch |e| switch (e) {
         error.DeepSpaceNotSupported => {
             const sdp4 = Sdp4.init(tle, grav) catch |e2| {
@@ -170,7 +169,7 @@ fn satrec_sgp4init(self_obj: [*c]c.PyObject, args: [*c]c.PyObject) callconv(.c) 
     var el: Tle.MeanElements = undefined;
     if (c.PyArg_ParseTuple(args, "isOdddddddddd", &whichconst, &opsmode, &satnum_obj, &epoch, &el.bstar, &el.ndot, &el.nddot, &el.ecco, &el.argpo, &el.inclo, &el.mo, &el.noKozai, &el.nodeo) == 0)
         return null;
-    _ = shared.getGravity(whichconst) orelse return null;
+    const grav = shared.getGravity(whichconst) orelse return null;
     if (!std.mem.eql(u8, std.mem.span(opsmode), "i")) {
         py.raiseValue("astroz implements only the improved operation mode, 'i'");
         return null;
@@ -181,7 +180,7 @@ fn satrec_sgp4init(self_obj: [*c]c.PyObject, args: [*c]c.PyObject) callconv(.c) 
     // TLE's 8 decimals when the epoch has no more digits than that
     const whole = @floor(epoch);
     var fraction = epoch - whole;
-    if (@round(epoch * 1e8) / 1e8 == epoch) fraction = @round(fraction * 1e8) / 1e8;
+    if (roundToTleDigits(epoch) == epoch) fraction = roundToTleDigits(fraction);
     const jdWhole = whole + 2433281.5;
     el.epochJd = jdWhole + fraction;
 
@@ -203,10 +202,15 @@ fn satrec_sgp4init(self_obj: [*c]c.PyObject, args: [*c]c.PyObject) callconv(.c) 
         tle.ephemType = old.ephemType;
     }
     freeModel(self);
-    if (!initModel(self, tle, whichconst)) return null;
+    if (!initModel(self, tle, whichconst, grav)) return null;
     self.jdsatepoch = jdWhole;
     self.jdsatepochF = fraction;
     return py.none();
+}
+
+/// A TLE epoch carries 8 decimals of a day.
+fn roundToTleDigits(x: f64) f64 {
+    return @round(x * 1e8) / 1e8;
 }
 
 /// A catalog number from an int or a TLE field string (Alpha-5 allowed).
@@ -251,7 +255,7 @@ fn satrec_from_omm(cls: [*c]c.PyObject, args: [*c]c.PyObject, kwds: [*c]c.PyObje
     const kwlist = [_:null]?[*:0]const u8{ "json", "whichconst", null };
     if (c.PyArg_ParseTupleAndKeywords(args, kwds, "s#|i", @ptrCast(@constCast(&kwlist)), &text_ptr, &text_len, &whichconst) == 0)
         return null;
-    _ = shared.getGravity(whichconst) orelse return null;
+    const grav = shared.getGravity(whichconst) orelse return null;
 
     const tles = shared.parseOmm(text_ptr[0..@intCast(text_len)]) orelse return null;
     defer allocator.free(tles);
@@ -261,7 +265,7 @@ fn satrec_from_omm(cls: [*c]c.PyObject, args: [*c]c.PyObject, kwds: [*c]c.PyObje
         return null;
     };
     for (tles, 0..) |tle, i| {
-        const sat = satrecFromTle(tle, whichconst) orelse {
+        const sat = satrecFromTle(tle, whichconst, grav) orelse {
             for (tles[i + 1 ..]) |*t| t.deinit();
             py.decref(list);
             return null;
