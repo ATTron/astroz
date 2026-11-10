@@ -9,8 +9,8 @@ pub fn Parser(comptime Frame: type) type {
         ipAddress: []const u8,
         port: u16,
         bufferSize: u64 = 1024,
-        isRunning: bool = false,
-        shouldStop: bool = false,
+        /// Set by `stop`, possibly from another thread
+        shouldStop: std.atomic.Value(bool) = .init(false),
         packets: std.ArrayList(Frame),
         io: std.Io,
         allocator: std.mem.Allocator,
@@ -105,7 +105,7 @@ pub fn Parser(comptime Frame: type) type {
             var incomingBuffer = std.mem.zeroes([1024]u8);
             var readerBuffer = std.mem.zeroes([1024]u8);
             var reader = stream.reader(io, &readerBuffer);
-            while (!self.shouldStop) {
+            while (!self.shouldStop.load(.acquire)) {
                 const bytesRead = try reader.interface.readSliceShort(&incomingBuffer);
                 if (bytesRead == 0) return error.ReadFailed;
 
@@ -116,9 +116,9 @@ pub fn Parser(comptime Frame: type) type {
             }
         }
 
-        /// Makes `start` return after its current read.
+        /// Makes `start` return after its current read. Safe to call from another thread.
         pub fn stop(self: *Self) void {
-            self.shouldStop = true;
+            self.shouldStop.store(true, .release);
         }
     };
 }

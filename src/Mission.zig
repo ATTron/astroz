@@ -35,14 +35,14 @@ pub const MissionParameters = struct {
     arrivalBody: constants.CelestialBody,
     departureTime: f64,
     arrivalTime: ?f64,
-    transferType: []const u8,
+    transferType: TransferKind,
 
     pub fn init(
         departureBody: constants.CelestialBody,
         arrivalBody: constants.CelestialBody,
         departureTime: f64,
         arrivalTime: ?f64,
-        transferType: []const u8,
+        transferType: TransferKind,
     ) !MissionParameters {
         if (departureTime < 0) {
             return ValidationError.ValueError;
@@ -62,6 +62,8 @@ pub const TransferType = union(enum) {
     hohmann: OrbitalMechanics.TransferResult,
     biElliptic: OrbitalMechanics.BiEllipticTransferResult,
 };
+
+pub const TransferKind = std.meta.Tag(TransferType);
 
 pub const MissionPlan = struct {
     transfer: TransferType,
@@ -278,12 +280,13 @@ pub fn planMission(self: *Mission, params: MissionParameters) !MissionPlan {
     const departureRadius = params.departureBody.semiMajorAxis;
     const arrivalRadius = params.arrivalBody.semiMajorAxis;
 
-    const transfer = if (std.mem.eql(u8, params.transferType, "hohmann"))
-        TransferType{ .hohmann = try self.orbitalMechanics.hohmannTransfer(departureRadius, arrivalRadius) }
-    else if (std.mem.eql(u8, params.transferType, "biElliptic")) blk: {
-        const aphelionRadius = 3 * @max(departureRadius, arrivalRadius);
-        break :blk TransferType{ .biElliptic = try self.orbitalMechanics.biEllipicTransfer(departureRadius, arrivalRadius, aphelionRadius) };
-    } else return ValidationError.ValueError;
+    const transfer: TransferType = switch (params.transferType) {
+        .hohmann => .{ .hohmann = try self.orbitalMechanics.hohmannTransfer(departureRadius, arrivalRadius) },
+        .biElliptic => blk: {
+            const aphelionRadius = 3 * @max(departureRadius, arrivalRadius);
+            break :blk .{ .biElliptic = try self.orbitalMechanics.biEllipicTransfer(departureRadius, arrivalRadius, aphelionRadius) };
+        },
+    };
 
     const departurePeriodYears = params.departureBody.period / 365.25;
     const arrivalPeriodYears = params.arrivalBody.period / 365.25;
@@ -317,7 +320,7 @@ test "mission planning Earth-Mars transfer" {
         constants.mars,
         365.0,
         null,
-        "hohmann",
+        .hohmann,
     );
 
     var mission = Mission.init(ta, params, orbitalMechanics);
@@ -348,14 +351,14 @@ test "mission planning Earth-Mars transfer" {
 test "mission planning parameter validation" {
     const testing = std.testing;
 
-    try testing.expectError(ValidationError.ValueError, MissionParameters.init(constants.earth, constants.mars, -1.0, null, "hohmann"));
+    try testing.expectError(ValidationError.ValueError, MissionParameters.init(constants.earth, constants.mars, -1.0, null, .hohmann));
 
     const validParams = try MissionParameters.init(
         constants.earth,
         constants.mars,
         0.0,
         null,
-        "hohmann",
+        .hohmann,
     );
     try testing.expectEqual(@as(f64, 0.0), validParams.departureTime);
 }
@@ -387,7 +390,7 @@ test "propagate transfer generates correct trajectory types" {
     const ta = std.testing.allocator;
 
     const orbitalMechanics = OrbitalMechanics.init(constants.sun.mu);
-    const params = try MissionParameters.init(constants.earth, constants.mars, 0.0, null, "hohmann");
+    const params = try MissionParameters.init(constants.earth, constants.mars, 0.0, null, .hohmann);
     var mission = Mission.init(ta, params, orbitalMechanics);
     defer mission.deinit();
 
@@ -412,7 +415,7 @@ test "propagate transfer generates correct trajectory types" {
 
 test "print limits" {
     const ta = std.testing.allocator;
-    const params = try MissionParameters.init(constants.earth, constants.mars, 0.0, null, "hohmann");
+    const params = try MissionParameters.init(constants.earth, constants.mars, 0.0, null, .hohmann);
     var mission = Mission.init(ta, params, OrbitalMechanics.init(constants.sun.mu));
     defer mission.deinit();
     try mission.propagateTransfer(520.0, 5.0);
@@ -441,7 +444,7 @@ test "propagate transfer trajectory validation" {
         constants.mars,
         0.0,
         null,
-        "hohmann",
+        .hohmann,
     );
     var mission = Mission.init(ta, params, orbitalMechanics);
     defer mission.deinit();
@@ -533,7 +536,7 @@ test "planMission with Hohmann transfer" {
         constants.mars,
         0.0,
         null,
-        "hohmann",
+        .hohmann,
     );
 
     var mission = Mission.init(ta, params, orbitalMechanics);
@@ -565,7 +568,7 @@ test "planMission with bi-elliptic transfer" {
         constants.mars,
         0.0,
         null,
-        "biElliptic",
+        .biElliptic,
     );
 
     var mission = Mission.init(ta, params, orbitalMechanics);
@@ -583,31 +586,12 @@ test "planMission with bi-elliptic transfer" {
     try testing.expect(biEllipticTransfer.totalTimeDays > 259.0);
 }
 
-test "planMission with invalid transfer type" {
-    const testing = std.testing;
-    const ta = std.testing.allocator;
-
-    const orbitalMechanics = OrbitalMechanics.init(constants.sun.mu);
-    const params = try MissionParameters.init(
-        constants.earth,
-        constants.mars,
-        0.0,
-        null,
-        "invalidType",
-    );
-
-    var mission = Mission.init(ta, params, orbitalMechanics);
-    defer mission.deinit();
-
-    try testing.expectError(ValidationError.ValueError, mission.planMission(params));
-}
-
 test "planetaryPositions calculates valid positions" {
     const testing = std.testing;
     const ta = std.testing.allocator;
 
     const orbitalMechanics = OrbitalMechanics.init(constants.sun.mu);
-    const params = try MissionParameters.init(constants.earth, constants.mars, 0.0, null, "hohmann");
+    const params = try MissionParameters.init(constants.earth, constants.mars, 0.0, null, .hohmann);
     var mission = Mission.init(ta, params, orbitalMechanics);
     defer mission.deinit();
 
@@ -630,7 +614,7 @@ test "propagateTransfer edge cases" {
     const ta = std.testing.allocator;
 
     const orbitalMechanics = OrbitalMechanics.init(constants.sun.mu);
-    const params = try MissionParameters.init(constants.earth, constants.mars, 0.0, null, "hohmann");
+    const params = try MissionParameters.init(constants.earth, constants.mars, 0.0, null, .hohmann);
     var mission = Mission.init(ta, params, orbitalMechanics);
     defer mission.deinit();
 

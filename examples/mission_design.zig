@@ -15,7 +15,7 @@ pub fn main(init: std.process.Init) !void {
     const sunGravity = astroz.OrbitalMechanics.init(constants.sun.mu);
 
     std.debug.print("Earth to Mars:\n", .{});
-    for ([_][]const u8{ "hohmann", "biElliptic" }) |kind| {
+    for ([_]Mission.TransferKind{ .hohmann, .biElliptic }) |kind| {
         const params = try Mission.MissionParameters.init(constants.earth, constants.mars, 0.0, null, kind);
         var mission = Mission.init(gpa, params, sunGravity);
         defer mission.deinit();
@@ -24,10 +24,10 @@ pub fn main(init: std.process.Init) !void {
             .hohmann => |h| .{ h.totalDeltaV, h.transferTimeDays },
             .biElliptic => |b| .{ b.totalDeltaV, b.totalTimeDays },
         };
-        std.debug.print("  {s:<11} delta-v {d:.2} km/s, {d:.0} days (synodic period {d:.0} days)\n", .{ kind, dv, days, plan.synodicPeriodDays });
+        std.debug.print("  {s:<11} delta-v {d:.2} km/s, {d:.0} days (synodic period {d:.0} days)\n", .{ @tagName(kind), dv, days, plan.synodicPeriodDays });
     }
 
-    const params = try Mission.MissionParameters.init(constants.earth, constants.mars, 0.0, null, "hohmann");
+    const params = try Mission.MissionParameters.init(constants.earth, constants.mars, 0.0, null, .hohmann);
     var transfer = Mission.init(gpa, params, sunGravity);
     defer transfer.deinit();
     try transfer.propagateTransfer(520.0, 5.0); // 520 days in 5-day steps
