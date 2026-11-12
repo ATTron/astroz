@@ -26,3 +26,7 @@ wheelhouse/
 *.dylib
 *.pyd
 uv.lock
+
+# JavaScript bindings
+bindings/javascript/node_modules/
+bindings/javascript/src/wasm.ts
